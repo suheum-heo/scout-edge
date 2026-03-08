@@ -416,7 +416,7 @@ Name 4 real professional players who:
 
 Use your knowledge of player market values, contract situations, and playing styles. Be realistic — don't suggest €100M players on a €20M budget. Rank by tactical fit.
 
-Respond in this exact JSON format:
+Respond in this exact JSON format (be concise, no extra text):
 [
   {
     "playerName": "Full Name",
@@ -427,21 +427,19 @@ Respond in this exact JSON format:
     "estimatedFee": "€35-45M",
     "contractUntil": "2027",
     "tacticalFitScore": 8,
-    "fitSummary": "One punchy sentence on why this player fits this specific system",
-    "strengths": ["strength relevant to this system", "strength 2", "strength 3"],
-    "concerns": ["concern 1", "concern 2"],
-    "whyThisPlayer": "2-3 sentences of scout-level reasoning explaining why this specific player suits ${resolvedName}'s system and addresses this gap",
+    "fitSummary": "2 sentences max: why this player fits this system and addresses this gap",
+    "strengths": ["strength 1", "strength 2"],
+    "concerns": ["concern 1"],
     "availability": "Likely available"
   }
 ]
 
 Availability options: "Likely available" | "Possible" | "Hard to get"
-Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.
-Be specific and analytical. Reference playing styles, not just reputations.`
+Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.`
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   })
 

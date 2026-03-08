@@ -11,35 +11,38 @@ function budgetRange(budget: string): { min: number; max: number } | null {
   return null // Loan / Free agent — no price filter
 }
 
+const TM_TIMEOUT_MS = 4000
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
+}
+
 // Enrich Claude's transfer targets with live Transfermarkt data
-// Only enrich top 5 to keep latency reasonable
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
-  const enriched = await Promise.all(
-    targets.slice(0, 5).map(async (target) => {
-      try {
-        const searchResult = await searchPlayer(target.playerName)
-        if (!searchResult) return target
-
-        // Fetch profile + stats in parallel
-        const tmData = await getPlayerData(searchResult.id)
-        if (!tmData) return target
-
-        return {
-          ...target,
-          currentClub: tmData.currentClub,
-          age: tmData.age ?? target.age,
-          nationality: tmData.nationality || target.nationality,
-          contractUntil: tmData.contractYear,
-          estimatedFee: tmData.marketValue
-            ? formatMarketValue(tmData.marketValue)
-            : target.estimatedFee,
+  return withTimeout(
+    Promise.all(
+      targets.map(async (target) => {
+        try {
+          const searchResult = await searchPlayer(target.playerName)
+          if (!searchResult) return target
+          const tmData = await getPlayerData(searchResult.id)
+          if (!tmData) return target
+          return {
+            ...target,
+            currentClub: tmData.currentClub,
+            age: tmData.age ?? target.age,
+            nationality: tmData.nationality || target.nationality,
+            contractUntil: tmData.contractYear,
+            estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : target.estimatedFee,
+          }
+        } catch {
+          return target
         }
-      } catch {
-        return target
-      }
-    })
+      })
+    ),
+    TM_TIMEOUT_MS,
+    targets // fallback: return Claude's data as-is if TM is too slow
   )
-  return enriched
 }
 
 export async function POST(request: NextRequest) {
