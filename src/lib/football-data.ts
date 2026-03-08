@@ -40,8 +40,9 @@ const TTL = {
   TEAMS: 24 * 60 * 60 * 1000,   // 24 hours — competition teams rarely change
 }
 
-// Competition codes on football-data.org
-// MLS and BSA confirmed on free tier; others attempted and skipped if unsupported
+// Competition codes on football-data.org free tier
+// Leagues not listed here (MLS, K League, J1, Turkish, Belgian) are handled
+// by the API Football fallback in teams/route.ts
 const FD_COMPETITIONS = [
   'PL',  // Premier League
   'ELC', // Championship
@@ -51,12 +52,7 @@ const FD_COMPETITIONS = [
   'FL1', // Ligue 1
   'PPL', // Primeira Liga
   'DED', // Eredivisie
-  'MLS', // Major League Soccer
   'BSA', // Brasileirao
-  'TU1', // Turkish Süper Lig
-  'KL1', // K League 1
-  'J1',  // J1 League
-  'BEL', // Belgian Pro League
 ]
 
 interface FDTeamSummary {
