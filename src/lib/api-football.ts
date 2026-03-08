@@ -108,9 +108,9 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
   if (cached) return cached
 
   try {
-    // Search by name only — no league/season filter, which causes empty results
+    // Use 'search' param (partial match, min 3 chars) instead of 'name' (exact match)
     const res = await client.get('/teams', {
-      params: { name: query },
+      params: { search: query },
     })
     const results: APITeam[] = res.data?.response || []
     setCache(cacheKey, results, TTL.TEAMS)
