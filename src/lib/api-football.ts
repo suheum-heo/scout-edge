@@ -101,17 +101,77 @@ export const SUPPORTED_LEAGUES = [
 
 export const CURRENT_SEASON = 2025
 
+// Leagues not covered by football-data.org — pre-fetched and cached for local fuzzy search
+const EXTRA_LEAGUES = [
+  { id: 253, season: 2024 }, // MLS
+  { id: 203, season: 2024 }, // Turkish Süper Lig
+  { id: 292, season: 2024 }, // K League 1
+  { id: 98,  season: 2024 }, // J1 League
+  { id: 144, season: 2024 }, // Belgian Pro League
+]
+
+let extraLeagueTeams: APITeam[] | null = null
+let extraLeagueTeamsFetchedAt = 0
+const EXTRA_TTL = 24 * 60 * 60 * 1000
+
+async function getExtraLeagueTeams(): Promise<APITeam[]> {
+  if (extraLeagueTeams && Date.now() - extraLeagueTeamsFetchedAt < EXTRA_TTL) {
+    return extraLeagueTeams
+  }
+  try {
+    const results = await Promise.allSettled(
+      EXTRA_LEAGUES.map(({ id, season }) =>
+        client.get<{ response: APITeam[] }>('/teams', { params: { league: id, season } })
+      )
+    )
+    const teams: APITeam[] = []
+    for (const r of results) {
+      if (r.status === 'fulfilled') teams.push(...(r.value.data?.response || []))
+    }
+    if (teams.length > 0) {
+      extraLeagueTeams = teams
+      extraLeagueTeamsFetchedAt = Date.now()
+    }
+    return teams
+  } catch {
+    return extraLeagueTeams || []
+  }
+}
+
+function normalizeTeamName(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+}
+
 // Search for teams by name
 export async function searchTeams(query: string): Promise<APITeam[]> {
-  const cacheKey = `teams:search:${query.toLowerCase()}`
+  const q = normalizeTeamName(query)
+
+  // First try local fuzzy search against pre-fetched extra league teams (MLS, Turkish, K League, J1, Belgian)
+  const extraTeams = await getExtraLeagueTeams()
+  const localMatches = extraTeams
+    .map((t) => {
+      const name = normalizeTeamName(t.team.name)
+      let score = 0
+      if (name === q)              score = 100
+      else if (name.startsWith(q)) score = 90
+      else if (name.split(' ').some((w) => w.startsWith(q))) score = 80
+      else if (name.includes(q))   score = 70
+      return { t, score }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map((x) => x.t)
+
+  if (localMatches.length > 0) return localMatches
+
+  // Fall back to AF live search for any other team worldwide
+  const cacheKey = `teams:search:${q}`
   const cached = getCached<APITeam[]>(cacheKey)
   if (cached) return cached
 
   try {
-    // Use 'search' param (partial match, min 3 chars) instead of 'name' (exact match)
-    const res = await client.get('/teams', {
-      params: { search: query },
-    })
+    const res = await client.get('/teams', { params: { search: query } })
     const results: APITeam[] = res.data?.response || []
     setCache(cacheKey, results, TTL.TEAMS)
     return results
