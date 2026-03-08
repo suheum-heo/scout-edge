@@ -40,8 +40,24 @@ const TTL = {
   TEAMS: 24 * 60 * 60 * 1000,   // 24 hours — competition teams rarely change
 }
 
-// Competition codes on football-data.org (free tier supports all)
-const FD_COMPETITIONS = ['PL', 'ELC', 'PD', 'SA', 'BL1', 'FL1', 'PPL', 'DED']
+// Competition codes on football-data.org
+// MLS and BSA confirmed on free tier; others attempted and skipped if unsupported
+const FD_COMPETITIONS = [
+  'PL',  // Premier League
+  'ELC', // Championship
+  'PD',  // La Liga
+  'SA',  // Serie A
+  'BL1', // Bundesliga
+  'FL1', // Ligue 1
+  'PPL', // Primeira Liga
+  'DED', // Eredivisie
+  'MLS', // Major League Soccer
+  'BSA', // Brasileirao
+  'TU1', // Turkish Süper Lig
+  'KL1', // K League 1
+  'J1',  // J1 League
+  'BEL', // Belgian Pro League
+]
 
 interface FDTeamSummary {
   id: number
