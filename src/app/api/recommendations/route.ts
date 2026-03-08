@@ -12,24 +12,24 @@ function budgetRange(budget: string): { min: number; max: number } | null {
 }
 
 // Enrich Claude's transfer targets with live Transfermarkt data
+// Only enrich top 5 to keep latency reasonable
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
   const enriched = await Promise.all(
-    targets.map(async (target) => {
+    targets.slice(0, 5).map(async (target) => {
       try {
         const searchResult = await searchPlayer(target.playerName)
         if (!searchResult) return target
 
+        // Fetch profile + stats in parallel
         const tmData = await getPlayerData(searchResult.id)
         if (!tmData) return target
 
-        // Override Claude's data with live TM data
         return {
           ...target,
           currentClub: tmData.currentClub,
           age: tmData.age ?? target.age,
           nationality: tmData.nationality || target.nationality,
           contractUntil: tmData.contractYear,
-          // Use TM market value if available, keep Claude's estimate as fallback
           estimatedFee: tmData.marketValue
             ? formatMarketValue(tmData.marketValue)
             : target.estimatedFee,

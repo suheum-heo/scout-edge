@@ -68,13 +68,19 @@ async function getAllFDTeams(): Promise<FDTeamSummary[]> {
   const allTeams: FDTeamSummary[] = []
   const seen = new Set<number>()
 
-  for (const code of FD_COMPETITIONS) {
-    try {
-      const res = await client.get<{ teams: FDTeamSummary[] }>(`/competitions/${code}/teams`)
-      for (const t of res.data.teams || []) {
+  // Fetch all competitions in parallel instead of sequentially
+  const results = await Promise.allSettled(
+    FD_COMPETITIONS.map((code) =>
+      client.get<{ teams: FDTeamSummary[] }>(`/competitions/${code}/teams`)
+    )
+  )
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      for (const t of result.value.data.teams || []) {
         if (!seen.has(t.id)) { seen.add(t.id); allTeams.push(t) }
       }
-    } catch { /* skip unsupported competition */ }
+    }
   }
 
   if (allTeams.length > 0) setCache(cacheKey, allTeams, TTL.TEAMS)
