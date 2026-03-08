@@ -67,6 +67,11 @@ export default function PlayerCheckPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Pre-warm the team cache on page load
+  useEffect(() => {
+    fetch('/api/teams?q=united').catch(() => {})
+  }, [])
+
   const handleClubInput = (value: string) => {
     setClubQuery(value)
     if (clubDebounceRef.current) clearTimeout(clubDebounceRef.current)

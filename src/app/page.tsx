@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { Search, Zap, AlertCircle, ChevronDown, Settings2 } from 'lucide-react'
 import GapCard from '@/components/GapCard'
 import TransferTargetCard from '@/components/TransferTargetCard'
@@ -66,6 +66,11 @@ export default function HomePage() {
       // silently fail
     }
   }, [managers.length])
+
+  // Pre-warm the team cache on page load so first search is fast
+  useEffect(() => {
+    fetch('/api/teams?q=united').catch(() => {})
+  }, [])
 
   const handleTeamSearch = useCallback((value: string) => {
     setTeamQuery(value)

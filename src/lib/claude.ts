@@ -395,7 +395,7 @@ export async function recommendPlayersForGap(
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-  const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 5 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
+  const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -409,7 +409,7 @@ ${managerSection}
 ## Budget: ${budget}
 
 ## Your Task:
-Name 5 real professional players who:
+Name 4 real professional players who:
 1. Fit the tactical profile for ${resolvedName}'s system
 2. Are realistically gettable within this budget (consider transfer fee, wages, club situation)
 3. Would be a credible signing for ${teamName}
