@@ -212,7 +212,10 @@ function memberToAPIPlayer(
           appearences: appearances,
           lineups: appearances,
           minutes,
-          position: toPositionCode(roleStr),
+          // Use FotMob's specific position string (e.g. "Center-back", "Left back") so
+          // Claude can distinguish between CBs and full-backs rather than seeing "Defender" for all.
+          // toPositionCode() is kept for SquadGap.positionCode (broad UI category).
+          position: roleStr || toPositionCode(roleStr),
           rating: ratingRaw,
         },
         goals: { total: goals, assists },
@@ -284,15 +287,29 @@ export async function getSquad(teamId: number): Promise<APIPlayer[]> {
     const leagueCountry: string = data?.details?.country || ''
     const teamName: string = data?.details?.name || data?.details?.shortName || ''
 
-    // Squad members are nested under squad.members or similar
-    const rawMembers: Array<Record<string, unknown>> =
-      data?.squad?.members ||
-      data?.members ||
-      data?.squad ||
-      []
+    // Squad members may be:
+    //   1. data.squad.members — flat array
+    //   2. data.members — flat array
+    //   3. data.squad — array of position groups [{title, members:[...]}, ...]
+    //   4. data.squad — flat array of players
+    let rawMembers: Array<Record<string, unknown>> = []
+
+    if (Array.isArray(data?.squad?.members)) {
+      rawMembers = data.squad.members
+    } else if (Array.isArray(data?.members)) {
+      rawMembers = data.members
+    } else if (Array.isArray(data?.squad)) {
+      const groups = data.squad as Array<Record<string, unknown>>
+      if (groups.length > 0 && Array.isArray(groups[0]?.members)) {
+        // Position groups — flatten all members
+        rawMembers = groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      } else {
+        rawMembers = groups // already flat
+      }
+    }
 
     if (!rawMembers.length) {
-      console.error('[FotMob] getSquad: no members found. Raw keys:', Object.keys(data || {}))
+      console.error('[FotMob] getSquad: no members found. Raw keys:', Object.keys(data || {}), 'squad type:', typeof data?.squad)
       return []
     }
 
@@ -321,8 +338,19 @@ export async function getCoach(teamId: number): Promise<APICoach | null> {
     const data = res.data
 
     // Coach might be in squad.members with isCoach=true, or in a separate field
-    const rawMembers: Array<Record<string, unknown>> =
-      data?.squad?.members || data?.members || []
+    let rawMembers: Array<Record<string, unknown>> = []
+    if (Array.isArray(data?.squad?.members)) {
+      rawMembers = data.squad.members
+    } else if (Array.isArray(data?.members)) {
+      rawMembers = data.members
+    } else if (Array.isArray(data?.squad)) {
+      const groups = data.squad as Array<Record<string, unknown>>
+      if (groups.length > 0 && Array.isArray(groups[0]?.members)) {
+        rawMembers = groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      } else {
+        rawMembers = groups
+      }
+    }
 
     const coachMember = rawMembers.find((m) => m.isCoach === true)
     const coachFromDetails = data?.details?.coachName || data?.details?.coach?.name
