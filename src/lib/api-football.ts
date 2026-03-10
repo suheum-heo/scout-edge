@@ -102,11 +102,13 @@ export const SUPPORTED_LEAGUES = [
 export const CURRENT_SEASON = 2025
 
 // Leagues not covered by football-data.org — pre-fetched and cached for local fuzzy search
+// Each entry is one API call. MLS includes both 2024+2025 so we always get data.
 const EXTRA_LEAGUES = [
-  { id: 253, season: 2024 }, // MLS
+  { id: 253, season: 2025 }, // MLS 2025
+  { id: 253, season: 2024 }, // MLS 2024 (fallback — 2025 may be incomplete early in season)
   { id: 203, season: 2024 }, // Turkish Süper Lig
-  { id: 292, season: 2024 }, // K League 1
-  { id: 98,  season: 2024 }, // J1 League
+  { id: 292, season: 2025 }, // K League 1
+  { id: 98,  season: 2025 }, // J1 League
   { id: 144, season: 2024 }, // Belgian Pro League
 ]
 
@@ -124,9 +126,14 @@ async function getExtraLeagueTeams(): Promise<APITeam[]> {
         client.get<{ response: APITeam[] }>('/teams', { params: { league: id, season } })
       )
     )
+    const seen = new Set<number>()
     const teams: APITeam[] = []
     for (const r of results) {
-      if (r.status === 'fulfilled') teams.push(...(r.value.data?.response || []))
+      if (r.status === 'fulfilled') {
+        for (const t of r.value.data?.response || []) {
+          if (!seen.has(t.team.id)) { seen.add(t.team.id); teams.push(t) }
+        }
+      }
     }
     if (teams.length > 0) {
       extraLeagueTeams = teams
@@ -142,6 +149,37 @@ function normalizeTeamName(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 }
 
+function normalizeCountry(s: string) {
+  return s.replace(/-/g, ' ')
+}
+
+function scoreTeamMatch(name: string, q: string): number {
+  if (name === q)              return 100
+  if (name.startsWith(q))     return 90
+
+  const nameWords = name.split(' ').filter(Boolean)
+  const qWords = q.split(' ').filter(Boolean)
+
+  // Initials match: "lafc" matches "los angeles fc"
+  // Short tokens like "fc", "ac" kept whole; longer words → first char only
+  const initials = nameWords.map((w) => (w.length <= 2 ? w : w[0])).join('')
+  if (initials === q) return 88
+
+  // Single query word that starts a name word
+  if (qWords.length === 1 && nameWords.some((w) => w.startsWith(q))) return 80
+
+  // All significant query words (≥3 chars) appear in name words
+  const sigQ = qWords.filter((w) => w.length >= 3)
+  if (
+    sigQ.length > 0 &&
+    sigQ.every((qw) => nameWords.some((nw) => nw.startsWith(qw)))
+  ) return 75
+
+  if (name.includes(q)) return 70
+
+  return 0
+}
+
 // Search for teams by name
 export async function searchTeams(query: string): Promise<APITeam[]> {
   const q = normalizeTeamName(query)
@@ -151,17 +189,16 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
   const localMatches = extraTeams
     .map((t) => {
       const name = normalizeTeamName(t.team.name)
-      let score = 0
-      if (name === q)              score = 100
-      else if (name.startsWith(q)) score = 90
-      else if (name.split(' ').some((w) => w.startsWith(q))) score = 80
-      else if (name.includes(q))   score = 70
+      const score = scoreTeamMatch(name, q)
       return { t, score }
     })
     .filter((x) => x.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, 6)
-    .map((x) => x.t)
+    .map((x) => ({
+      ...x.t,
+      team: { ...x.t.team, country: normalizeCountry(x.t.team.country) },
+    }))
 
   if (localMatches.length > 0) return localMatches
 
@@ -172,7 +209,10 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
 
   try {
     const res = await client.get('/teams', { params: { search: query } })
-    const results: APITeam[] = res.data?.response || []
+    const results: APITeam[] = (res.data?.response || []).map((t: APITeam) => ({
+      ...t,
+      team: { ...t.team, country: normalizeCountry(t.team.country) },
+    }))
     setCache(cacheKey, results, TTL.TEAMS)
     return results
   } catch {

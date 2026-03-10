@@ -30,7 +30,7 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
           </div>
           <h3 className="text-white font-semibold text-sm">{gap.position}</h3>
           <p className="text-blue-400 text-xs font-medium mt-0.5">{gap.profileLabel}</p>
-          <p className="text-slate-400 text-xs leading-relaxed mt-2 line-clamp-2">
+          <p className={`text-slate-400 text-xs leading-relaxed mt-2 ${isSelected ? '' : 'line-clamp-2'}`}>
             {gap.reasoning}
           </p>
         </div>

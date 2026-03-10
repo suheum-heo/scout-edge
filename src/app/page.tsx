@@ -9,7 +9,7 @@ import { SquadAnalysisResult, SquadGap, TransferTarget } from '@/lib/claude'
 import { getScoreColor } from '@/lib/utils'
 
 interface Team {
-  team: { id: number; name: string; country: string; logo: string }
+  team: { id: number; name: string; country: string; logo: string; source?: 'af' | 'fotmob'; fotmobId?: number }
   venue: { name: string; city: string }
 }
 
@@ -53,6 +53,7 @@ export default function HomePage() {
   const [recsError, setRecsError] = useState<string | null>(null)
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+  const searchAbort = useRef<AbortController | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const recsRef = useRef<HTMLDivElement>(null)
 
@@ -77,18 +78,22 @@ export default function HomePage() {
     setSelectedTeam(null)
 
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (searchAbort.current) searchAbort.current.abort()
     if (value.length < 2) {
       setTeamResults([])
       return
     }
 
     searchTimeout.current = setTimeout(async () => {
+      const controller = new AbortController()
+      searchAbort.current = controller
       setIsSearching(true)
       try {
-        const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}`)
+        const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}`, { signal: controller.signal })
         const data = await res.json()
         setTeamResults(data.teams || [])
-      } catch {
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return
         setTeamResults([])
       } finally {
         setIsSearching(false)
@@ -122,6 +127,8 @@ export default function HomePage() {
           teamId: selectedTeam.team.id,
           teamName: selectedTeam.team.name,
           managerId: selectedManagerId || undefined,
+          teamSource: selectedTeam.team.source,
+          fotmobId: selectedTeam.team.fotmobId,
         }),
       })
 

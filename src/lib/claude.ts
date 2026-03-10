@@ -117,6 +117,47 @@ export interface PlayerCompatibilityResult {
   position?: string
 }
 
+/** Quick Claude call to identify players whose real tactical role differs from their registered position */
+async function enrichSquadTacticalRoles(
+  players: ReturnType<typeof formatPlayerStats>[],
+  teamName: string
+): Promise<Map<string, string>> {
+  const playerList = players
+    .filter(Boolean)
+    .slice(0, 30)
+    .map((p) => `- ${p!.name} (registered: ${p!.position}, Age ${p!.age}, ${p!.nationality})`)
+    .join('\n')
+
+  const prompt = `You are a football tactical analyst. Some players are registered at one position but regularly play a different role in practice.
+
+Squad at ${teamName}:
+${playerList}
+
+Return a JSON array of ONLY players whose real tactical role meaningfully differs from their registered position — e.g. a CB who regularly starts at left-back, a RB used as an inverted winger, a CM deployed as a #6 or #10. Skip players whose registered position accurately describes their role.
+
+[
+  {
+    "name": "Exact name as listed",
+    "tacticalNote": "Short factual note, e.g. 'Regularly plays left-back despite CB registration — did so at Bayer Leverkusen and for Ecuador'"
+  }
+]
+
+Return [] if no players have a meaningfully different real role. No other text.`
+
+  try {
+    const res = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 800,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const text = res.content[0].type === 'text' ? res.content[0].text : ''
+    const profiles = extractJSON(text, 'array') as { name: string; tacticalNote: string }[]
+    return new Map(profiles.map((p) => [p.name, p.tacticalNote]))
+  } catch {
+    return new Map()
+  }
+}
+
 // Analyze a squad against a manager's tactical profile
 // manager can be null — Claude will infer the profile from managerName using its own knowledge
 export async function analyzeSquadGaps(
@@ -127,16 +168,41 @@ export async function analyzeSquadGaps(
 ): Promise<SquadAnalysisResult> {
   const resolvedName = manager?.name || managerName || 'Unknown Manager'
 
-  const hasStats = squadPlayers.some((p) => p && (p.goals > 0 || p.appearances > 0))
+  // hasStats: true if ANY player has appearances, goals, or a real rating
+  const hasStats = squadPlayers.some(
+    (p) => p && (p.appearances > 0 || p.goals > 0 || parseFloat(p.rating || '0') > 0)
+  )
+  // hasFullStats: true only when we have appearances/minutes (older FotMob API or AF data)
+  const hasFullStats = squadPlayers.some((p) => p && p.appearances > 0)
 
-  const squadSummary = squadPlayers
-    .filter(Boolean)
-    .slice(0, 30) // cap to prevent prompt overflow
+  // Enrich squad with tactical versatility notes (runs in parallel with nothing — fast ~1s call)
+  const tacticalNotes = await enrichSquadTacticalRoles(squadPlayers, teamName)
+
+  // Sort by minutes desc, then by rating desc as secondary (FotMob has rating but no minutes)
+  const sortedPlayers = [...squadPlayers.filter(Boolean)].sort((a, b) => {
+    const minsDiff = (b?.minutes ?? 0) - (a?.minutes ?? 0)
+    if (minsDiff !== 0) return minsDiff
+    return parseFloat(b?.rating ?? '0') - parseFloat(a?.rating ?? '0')
+  })
+  console.log('[claude] Squad order (top 10):', sortedPlayers.slice(0, 10).map((p) => `${p?.name}(${p?.minutes}m,rtg:${p?.rating})`).join(', '))
+
+  const squadSummary = sortedPlayers
+    .slice(0, 35) // raised cap — sort ensures seniors appear first
     .map((p) => {
-      if (hasStats) {
-        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality}) | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Tkl:${p!.tackles} Int:${p!.interceptions}`
+      const note = tacticalNotes.get(p!.name)
+      const noteStr = note ? ` [Note: ${note}]` : ''
+      if (hasFullStats) {
+        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr} | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
       }
-      return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})`
+      if (hasStats) {
+        // FotMob squad data: has rating, goals, assists but no appearances/minutes
+        const rtg = parseFloat(p!.rating || '0')
+        const rtgStr = rtg > 0 ? ` Rtg:${p!.rating}` : ''
+        const goalsStr = p!.goals > 0 ? ` G:${p!.goals}` : ''
+        const assistsStr = p!.assists > 0 ? ` A:${p!.assists}` : ''
+        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr}${rtgStr}${goalsStr}${assistsStr}`
+      }
+      return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr}`
     })
     .join('\n')
 
@@ -156,21 +222,27 @@ ${manager.positionalRequirements
   )
   .join('\n\n')}`
     : `## Manager: ${resolvedName}
-Use your extensive knowledge of ${resolvedName}'s tactical system, preferred formations, pressing intensity, defensive line, build-up style, and positional requirements. Apply that knowledge to analyze the squad below.`
+Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
 
-  const prompt = `You are an elite football scout and tactical analyst. Analyze this squad's fit with the manager's tactical system.
+  const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+
+  const prompt = `You are an elite football scout and tactical analyst. Today's date is ${currentDate}. Analyze this squad's fit with the manager's tactical system.
 
 ${managerSection}
 
-## Current Squad at ${teamName}:
+## Current Squad at ${teamName} (as of ${currentDate}):
 ${squadSummary || 'No squad data available'}
-${!hasStats ? '\n*Note: Per-match stats are not available for this squad. Use your own knowledge of these players to assess their quality, typical output, and tactical profile.*' : ''}
+${!hasStats ? '\n*Note: Per-match stats are not available. Use your knowledge of these players to assess their quality and tactical profile — but treat the squad list above as the authoritative current roster. Do NOT flag a positional gap if a player already listed in the squad can credibly fill that role.*' : !hasFullStats ? '\n*Note: Season appearance/minute data is not available, but FotMob ratings, goals, and assists are shown where non-zero. Use these plus your knowledge of each player to judge quality and recent form. The squad list and position data are authoritative.*' : ''}
 
 ## Your Task:
 Analyze the squad and identify:
 1. Which positions have the RIGHT profile for this system
-2. Which positions are GAPS or MISMATCHES (this is the most important output)
+2. Which positions are GAPS or MISMATCHES — only flag a gap if NO player currently in the squad can reasonably cover that role
 3. Overall tactical fit score (1-10) for this squad with this manager
+
+IMPORTANT: The squad list above is the authoritative source of truth. If your prior knowledge conflicts with the dataset, always trust the dataset — it reflects the most recent transfer activity and may include signings made after your training cutoff. Do not contradict the squad list based on prior knowledge of which club a player belongs to.
+
+For positional coverage, treat registered positions as starting points only. Use your knowledge of modern tactical roles and each player's career-wide versatility. Specific rule: a player registered as "Center-back" who has regularly played left-back (e.g. as a LCB/LB hybrid) counts as left-back cover — do not flag a LB gap if such a player is in the squad. Similarly, a right-back who inverts can cover attacking midfield, a CM deployed as a #6 covers the holding role, etc. Apply your understanding of modern roles (inverted full-backs, hybrid CBs, half-space runners, pressing triggers) when judging fit. Do not claim a team lacks depth at a position if a versatile senior player in the squad can credibly fill that role. Cross-reference every gap against the actual players listed and their [Note:] annotations before flagging it.
 
 Respond in this exact JSON format:
 {

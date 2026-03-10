@@ -159,18 +159,28 @@ function memberToAPIPlayer(
   leagueCountry: string
 ): APIPlayer | null {
   const id = member.id as number
-  if (!id || (member.isCoach as boolean)) return null
+  const roleKey = (member.role as { key?: string } | undefined)?.key || ''
+  if (!id || (member.isCoach as boolean) || roleKey === 'coach') return null
+  // Players with no shirt number are loaned out — exclude them from squad analysis
+  if (member.shirtNumber == null) return null
 
   const stats =
     (member.stats as Array<{ key?: string; title?: string; value?: unknown; stat?: { value?: unknown } }>) ||
     (member.stat as Array<{ key?: string; title?: string; value?: unknown; stat?: { value?: unknown } }>) ||
     []
 
-  const roleObj = member.role as { fallback?: string; id?: number } | undefined
-  const roleStr = roleObj?.fallback || (member.positionId as string) || ''
+  const roleObj = member.role as { fallback?: string; key?: string; id?: number } | undefined
+  // positionIdsDesc gives specific multi-position string e.g. "LB,LM,LWB" — prefer over broad role fallback
+  const positionIdsDesc = member.positionIdsDesc as string | undefined
+  const roleStr = positionIdsDesc || roleObj?.fallback || (member.positionId as string) || ''
 
-  const goals = extractStat(stats, 'goals', 'goal')
-  const assists = extractStat(stats, 'assists', 'assist')
+  // In current FotMob API (2025+) stats are direct fields on the member, not in stats array
+  const goalsRaw = member.goals as number | null | undefined
+  const assistsRaw = member.assists as number | null | undefined
+  const ratingDirect = member.rating as number | null | undefined
+
+  const goals = goalsRaw != null ? goalsRaw : extractStat(stats, 'goals', 'goal')
+  const assists = assistsRaw != null ? assistsRaw : extractStat(stats, 'assists', 'assist')
   const appearances = extractStat(stats, 'matches played', 'appearances', 'games', 'matches')
   const minutes = extractStat(stats, 'minutes played', 'minutes')
   const tackles = extractStat(stats, 'tackles', 'tackle')
@@ -179,8 +189,9 @@ function memberToAPIPlayer(
   const duelTotal = extractStat(stats, 'duels', 'total duels')
   const duelWon = extractStat(stats, 'duels won')
 
-  // FotMob rating might be a float — keep as string
+  // Rating: prefer direct field, fall back to stats array
   const ratingRaw = (() => {
+    if (ratingDirect != null && ratingDirect > 0) return ratingDirect.toFixed(2)
     for (const s of stats) {
       const k = (s.key || s.title || '').toLowerCase()
       if (k.includes('rating') || k === 'fotmob rating') {
@@ -263,7 +274,9 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
     setCache(cacheKey, results, TTL.TEAMS)
     return results
   } catch (err) {
-    console.error('[FotMob] searchTeams error:', err)
+    // /searchpage returns 404 — FotMob removed this endpoint. Log only non-404 errors.
+    const status = (err as { status?: number; response?: { status?: number } })?.response?.status
+    if (status !== 404) console.error('[FotMob] searchTeams error:', err)
     return []
   }
 }
@@ -287,35 +300,85 @@ export async function getSquad(teamId: number): Promise<APIPlayer[]> {
     const leagueCountry: string = data?.details?.country || ''
     const teamName: string = data?.details?.name || data?.details?.shortName || ''
 
-    // Squad members may be:
-    //   1. data.squad.members — flat array
-    //   2. data.members — flat array
-    //   3. data.squad — array of position groups [{title, members:[...]}, ...]
-    //   4. data.squad — flat array of players
+    // Squad members may be in various shapes depending on FotMob API version:
+    //   1. data.squad.squad — array of position groups [{title, members:[...]}, ...]  (current)
+    //   2. data.squad.members — flat array
+    //   3. data.members — flat array
+    //   4. data.squad — array of position groups [{title, members:[...]}, ...]
+    //   5. data.squad — flat array of players
     let rawMembers: Array<Record<string, unknown>> = []
 
-    if (Array.isArray(data?.squad?.members)) {
+    const squadInner = data?.squad?.squad  // current structure: doubly nested
+    if (Array.isArray(squadInner)) {
+      const groups = squadInner as Array<Record<string, unknown>>
+      if (groups.length > 0 && Array.isArray(groups[0]?.members)) {
+        rawMembers = groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      } else {
+        rawMembers = groups
+      }
+    } else if (Array.isArray(data?.squad?.members)) {
       rawMembers = data.squad.members
     } else if (Array.isArray(data?.members)) {
       rawMembers = data.members
     } else if (Array.isArray(data?.squad)) {
       const groups = data.squad as Array<Record<string, unknown>>
       if (groups.length > 0 && Array.isArray(groups[0]?.members)) {
-        // Position groups — flatten all members
         rawMembers = groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
       } else {
-        rawMembers = groups // already flat
+        rawMembers = groups
       }
     }
 
     if (!rawMembers.length) {
-      console.error('[FotMob] getSquad: no members found. Raw keys:', Object.keys(data || {}), 'squad type:', typeof data?.squad)
+      const squadObj = data?.squad
+      console.error(
+        '[FotMob] getSquad: no members found. Raw keys:', Object.keys(data || {}),
+        'squad type:', typeof squadObj,
+        'squad keys:', squadObj && typeof squadObj === 'object' ? Object.keys(squadObj) : 'n/a',
+      )
       return []
     }
 
-    const players = rawMembers
+    let players = rawMembers
       .map((m) => memberToAPIPlayer(m, teamId, teamName, leagueId, leagueName, leagueCountry))
       .filter((p): p is APIPlayer => p !== null)
+
+    // Enrich with minutes/appearances from league stats endpoint
+    // data.stats contains primaryLeagueId and primarySeasonId from the same response
+    const statsBlock = data?.stats as Record<string, unknown> | undefined
+    const primaryLeagueId: number = Number(statsBlock?.primaryLeagueId || 0)
+    const primarySeasonId: string = String(statsBlock?.primarySeasonId || '')
+    if (primaryLeagueId && primarySeasonId) {
+      try {
+        const minsUrl = `https://data.fotmob.com/stats/${primaryLeagueId}/season/${primarySeasonId}/mins_played.json`
+        const minsRes = await client.get(minsUrl, { baseURL: '' })
+        const topLists = minsRes.data?.TopLists as Array<{ StatList?: Array<Record<string, unknown>> }> | undefined
+        const statList = topLists?.[0]?.StatList || []
+        const minsMap = new Map<number, { minutes: number; appearances: number }>()
+        for (const entry of statList) {
+          const pid = Number(entry.ParticiantId || 0)
+          if (pid) {
+            minsMap.set(pid, {
+              minutes: Number(entry.MinutesPlayed || 0),
+              appearances: Number(entry.MatchesPlayed || 0),
+            })
+          }
+        }
+        // Patch each player's statistics with actual minutes/appearances
+        players = players.map((p) => {
+          const m = minsMap.get(p.player.id)
+          if (!m) return p
+          const stat = p.statistics[0]
+          return {
+            ...p,
+            statistics: [{ ...stat, games: { ...stat.games, minutes: m.minutes, appearences: m.appearances, lineups: m.appearances } }],
+          }
+        })
+        console.log(`[FotMob] Enriched ${players.filter(p => (p.statistics[0]?.games.minutes ?? 0) > 0).length}/${players.length} players with minutes from league stats`)
+      } catch (e) {
+        console.warn('[FotMob] minutes enrichment failed (non-critical):', (e as Error).message)
+      }
+    }
 
     setCache(cacheKey, players, TTL.SQUAD)
     return players
@@ -339,7 +402,15 @@ export async function getCoach(teamId: number): Promise<APICoach | null> {
 
     // Coach might be in squad.members with isCoach=true, or in a separate field
     let rawMembers: Array<Record<string, unknown>> = []
-    if (Array.isArray(data?.squad?.members)) {
+    const squadInnerC = data?.squad?.squad
+    if (Array.isArray(squadInnerC)) {
+      const groups = squadInnerC as Array<Record<string, unknown>>
+      if (groups.length > 0 && Array.isArray(groups[0]?.members)) {
+        rawMembers = groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      } else {
+        rawMembers = groups
+      }
+    } else if (Array.isArray(data?.squad?.members)) {
       rawMembers = data.squad.members
     } else if (Array.isArray(data?.members)) {
       rawMembers = data.members
@@ -352,7 +423,9 @@ export async function getCoach(teamId: number): Promise<APICoach | null> {
       }
     }
 
-    const coachMember = rawMembers.find((m) => m.isCoach === true)
+    const coachMember = rawMembers.find(
+      (m) => m.isCoach === true || (m.role as { key?: string } | undefined)?.key === 'coach'
+    )
     const coachFromDetails = data?.details?.coachName || data?.details?.coach?.name
 
     const coachName =

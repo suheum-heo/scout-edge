@@ -14,7 +14,7 @@ import { analyzeSquadGaps } from '@/lib/claude'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { teamId, teamName, managerId, teamSource } = body
+    const { teamId, teamName, managerId, teamSource, fotmobId } = body
 
     if (teamId == null || !teamName) {
       return NextResponse.json({ error: 'teamId and teamName are required' }, { status: 400 })
@@ -73,17 +73,24 @@ export async function POST(request: NextRequest) {
       // FD free tier returns no per-player stats — always try FotMob for the same team
       // so Claude gets real 2025-26 appearances, positions, and ratings instead of
       // relying on its training knowledge (which may be outdated for player roles).
-      console.log(`[analyze] FD team ${teamName}, enriching with FotMob stats`)
+      console.log(`[analyze] FD team ${teamName}, enriching with FotMob stats (fotmobId=${fotmobId ?? 'none'})`)
       try {
-        const fmTeams = await fotmobSearchTeams(teamName)
-        const fmTeam = fmTeams[0]
-        if (fmTeam) {
-          const fmSquad = await fotmobGetSquad(fmTeam.team.id)
+        // Use pre-mapped fotmobId from local DB if available (avoids broken /searchpage endpoint)
+        const fmId: number | null = fotmobId ?? null
+        let resolvedFmId: number | null = fmId
+
+        if (!resolvedFmId) {
+          const fmTeams = await fotmobSearchTeams(teamName)
+          resolvedFmId = fmTeams[0]?.team.id ?? null
+        }
+
+        if (resolvedFmId) {
+          const fmSquad = await fotmobGetSquad(resolvedFmId)
           if (fmSquad.length) {
             fotmobSquad = fmSquad
             usedFotmob = true
             if (!coach) {
-              const fmCoach = await fotmobGetCoach(fmTeam.team.id)
+              const fmCoach = await fotmobGetCoach(resolvedFmId)
               if (fmCoach) coach = fmCoach as unknown as APICoach
             }
           }
@@ -122,10 +129,11 @@ export async function POST(request: NextRequest) {
       ? fotmobSquad.map(fotmobFormatPlayerStats).filter(Boolean)
       : squadRaw.map((p) => formatPlayerStats(p) ?? afFormatPlayerStats(p)).filter(Boolean)
 
-    console.log(`[analyze] source=fotmob:${usedFotmob} squadSize=${squad.length} hasStats=${squad.some((p) => p && (p as { appearances?: number }).appearances! > 0)}`)
+    const hasStats = squad.some((p) => p && ((p as { appearances?: number }).appearances! > 0 || parseFloat((p as { rating?: string }).rating || '0') > 0))
+    console.log(`[analyze] source=fotmob:${usedFotmob} squadSize=${squad.length} hasStats=${hasStats}`)
     if (usedFotmob && squad.length) {
-      const defenders = squad.filter((p) => p && (p as { position?: string }).position === 'Defender')
-      console.log('[analyze] Defenders:', defenders.map((p) => `${(p as { name: string }).name}(apps:${(p as { appearances?: number }).appearances ?? 0})`).join(', '))
+      const defenders = squad.filter((p) => p && (p as { position?: string }).position?.match(/CB|LB|RB|LWB|RWB|Defender/))
+      console.log('[analyze] Defenders:', defenders.map((p) => `${(p as { name: string }).name}(pos:${(p as { position?: string }).position},rtg:${(p as { rating?: string }).rating ?? '0'})`).join(', '))
     }
 
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
