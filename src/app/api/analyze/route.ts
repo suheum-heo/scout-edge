@@ -10,6 +10,7 @@ import {
 } from '@/lib/fotmob'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
+import type { SquadPlayer } from '@/lib/role-profiles'
 
 export async function POST(request: NextRequest) {
   try {
@@ -139,8 +140,21 @@ export async function POST(request: NextRequest) {
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
     const analysis = await analyzeSquadGaps(manager || null, squad, teamName, coachName)
 
+    // Build the minimal squad shape for lazy role-profile inference on gap click
+    const squadPlayers: SquadPlayer[] = squad
+      .filter(Boolean)
+      .map((p) => ({
+        playerId: String((p as { playerId?: number }).playerId ?? ''),
+        name: (p as { name: string }).name,
+        position: (p as { position?: string }).position ?? '',
+        age: (p as { age?: number }).age ?? 0,
+        nationality: (p as { nationality?: string }).nationality ?? '',
+      }))
+      .filter((p) => p.playerId && p.name)
+
     return NextResponse.json({
       analysis,
+      squad: squadPlayers,
       manager: manager
         ? {
             id: manager.id,

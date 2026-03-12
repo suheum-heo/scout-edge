@@ -2,7 +2,7 @@
 
 import { SquadGap } from '@/lib/claude'
 import { getUrgencyColor } from '@/lib/utils'
-import { AlertCircle, TrendingUp, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 
 interface GapCardProps {
   gap: SquadGap
@@ -10,7 +10,23 @@ interface GapCardProps {
   isSelected: boolean
 }
 
+function getNeedScoreColor(score: number): string {
+  if (score >= 75) return 'text-red-400'
+  if (score >= 50) return 'text-orange-400'
+  if (score >= 25) return 'text-yellow-400'
+  return 'text-slate-500'
+}
+
+function getNeedScoreBar(score: number): string {
+  if (score >= 75) return 'bg-red-500'
+  if (score >= 50) return 'bg-orange-500'
+  if (score >= 25) return 'bg-yellow-500'
+  return 'bg-slate-600'
+}
+
 export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
+  const needScore = gap.needScore ?? 0
+
   return (
     <button
       onClick={onClick}
@@ -34,6 +50,21 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
             {gap.reasoning}
           </p>
         </div>
+
+        {/* Need Score */}
+        <div className="flex-shrink-0 flex flex-col items-end gap-1 min-w-[48px]">
+          <span className={`text-lg font-bold leading-none ${getNeedScoreColor(needScore)}`}>
+            {needScore}
+          </span>
+          <span className="text-slate-600 text-[10px] uppercase tracking-wide">need</span>
+          <div className="w-10 h-1 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${getNeedScoreBar(needScore)}`}
+              style={{ width: `${needScore}%` }}
+            />
+          </div>
+        </div>
+
         <ChevronRight
           className={`w-4 h-4 flex-shrink-0 mt-1 transition-colors ${
             isSelected ? 'text-blue-400' : 'text-slate-600'

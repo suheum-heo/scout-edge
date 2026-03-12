@@ -4,8 +4,10 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Search, Zap, AlertCircle, ChevronDown, Settings2 } from 'lucide-react'
 import GapCard from '@/components/GapCard'
 import TransferTargetCard from '@/components/TransferTargetCard'
+import SquadFitMap from '@/components/SquadFitMap'
 import LoadingSpinner from '@/components/LoadingSpinner'
-import { SquadAnalysisResult, SquadGap, TransferTarget } from '@/lib/claude'
+import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit } from '@/lib/claude'
+import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
 interface Team {
@@ -46,11 +48,17 @@ export default function HomePage() {
   const [managerResult, setManagerResult] = useState<ManagerResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const [squad, setSquad] = useState<SquadPlayer[]>([])
   const [selectedGap, setSelectedGap] = useState<SquadGap | null>(null)
   const [selectedBudget, setSelectedBudget] = useState<string>('')
   const [recommendations, setRecommendations] = useState<TransferTarget[]>([])
   const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const [recsError, setRecsError] = useState<string | null>(null)
+
+  const [activeTab, setActiveTab] = useState<'gaps' | 'fit'>('gaps')
+  const [squadFit, setSquadFit] = useState<PlayerSystemFit[]>([])
+  const [isLoadingFit, setIsLoadingFit] = useState(false)
+  const [fitError, setFitError] = useState<string | null>(null)
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const searchAbort = useRef<AbortController | null>(null)
@@ -106,8 +114,11 @@ export default function HomePage() {
     setTeamQuery(team.team.name)
     setTeamResults([])
     setAnalysis(null)
+    setSquad([])
     setSelectedGap(null)
     setRecommendations([])
+    setSquadFit([])
+    setActiveTab('gaps')
     setError(null)
   }
 
@@ -116,8 +127,12 @@ export default function HomePage() {
     setIsAnalyzing(true)
     setError(null)
     setAnalysis(null)
+    setSquad([])
     setSelectedGap(null)
     setRecommendations([])
+    setSquadFit([])
+    setActiveTab('gaps')
+    setFitError(null)
 
     try {
       const res = await fetch('/api/analyze', {
@@ -140,6 +155,7 @@ export default function HomePage() {
       }
 
       setAnalysis(data.analysis)
+      setSquad(data.squad || [])
       setManagerResult(data.manager)
 
       setTimeout(() => {
@@ -155,7 +171,7 @@ export default function HomePage() {
   const handleSelectGap = (gap: SquadGap) => {
     setSelectedGap(gap)
     setSelectedBudget('')
-    setRecommendations([])
+    // Keep previous recommendations visible until user picks a budget for this gap
     setRecsError(null)
     setTimeout(() => {
       recsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -179,6 +195,7 @@ export default function HomePage() {
           managerName: managerResult.name,
           teamName: selectedTeam.team.name,
           budget,
+          squad,
         }),
       })
 
@@ -192,6 +209,36 @@ export default function HomePage() {
       setRecsError('Failed to load recommendations')
     } finally {
       setIsLoadingRecs(false)
+    }
+  }
+
+  const handleSwitchTab = async (tab: 'gaps' | 'fit') => {
+    setActiveTab(tab)
+    if (tab === 'fit' && !squadFit.length && !isLoadingFit && squad.length && managerResult) {
+      setIsLoadingFit(true)
+      setFitError(null)
+      try {
+        const res = await fetch('/api/squad-fit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            squad,
+            managerId: managerResult.id || undefined,
+            managerName: managerResult.name,
+            teamName: selectedTeam?.team.name,
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setFitError(data.error || 'Failed to analyse squad fit')
+        } else {
+          setSquadFit(data.fits || [])
+        }
+      } catch {
+        setFitError('Failed to analyse squad fit')
+      } finally {
+        setIsLoadingFit(false)
+      }
     }
   }
 
@@ -412,98 +459,144 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Gaps + Recommendations */}
+          {/* Tab switcher */}
           <div>
-            <h2 className="text-white font-bold text-lg mb-1">Transfer Window Gaps</h2>
-            <p className="text-slate-500 text-sm mb-4">
-              Click a gap to get real player recommendations
-            </p>
+            <div className="flex items-center gap-1 bg-slate-800/60 border border-slate-700 rounded-xl p-1 w-fit mb-6">
+              <button
+                onClick={() => handleSwitchTab('gaps')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'gaps'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Transfer Gaps
+              </button>
+              <button
+                onClick={() => handleSwitchTab('fit')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'fit'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Squad Fit Map
+              </button>
+            </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Gaps list */}
-              <div className="space-y-3">
-                {analysis.gaps?.map((gap, i) => (
-                  <GapCard
-                    key={i}
-                    gap={gap}
-                    onClick={() => handleSelectGap(gap)}
-                    isSelected={selectedGap?.position === gap.position}
-                  />
-                ))}
-              </div>
+            {/* Transfer Gaps tab */}
+            {activeTab === 'gaps' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Gaps list */}
+                <div className="space-y-3">
+                  {analysis.gaps?.map((gap, i) => (
+                    <GapCard
+                      key={i}
+                      gap={gap}
+                      onClick={() => handleSelectGap(gap)}
+                      isSelected={selectedGap?.position === gap.position}
+                    />
+                  ))}
+                </div>
 
-              {/* Recommendations panel */}
-              <div ref={recsRef}>
-                {!selectedGap && (
-                  <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-8 text-center">
-                    <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <Search className="w-5 h-5 text-slate-600" />
+                {/* Recommendations panel */}
+                <div ref={recsRef}>
+                  {!selectedGap && (
+                    <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-8 text-center">
+                      <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Search className="w-5 h-5 text-slate-600" />
+                      </div>
+                      <p className="text-slate-500 text-sm">Select a gap to find transfer targets</p>
                     </div>
-                    <p className="text-slate-500 text-sm">Select a gap to find transfer targets</p>
-                  </div>
-                )}
+                  )}
 
-                {/* Budget selector — shown once a gap is selected */}
-                {selectedGap && !isLoadingRecs && (
-                  <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-4">
-                    <p className="text-white font-semibold text-sm mb-1">
-                      {selectedGap.position} — choose your budget
-                    </p>
-                    <p className="text-slate-500 text-xs mb-3">
-                      Claude will find real players that fit within this range
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {['Loan', 'Free agent', '< €20M', '€20–50M', '€50–100M', '€100M+'].map((b) => (
-                        <button
-                          key={b}
-                          onClick={() => handleSelectBudget(b)}
-                          className={`text-xs px-3 py-1.5 rounded-full border transition-colors font-medium ${
-                            selectedBudget === b
-                              ? 'bg-blue-600 border-blue-500 text-white'
-                              : 'bg-slate-900 border-slate-600 text-slate-300 hover:border-blue-500/50 hover:text-white'
-                          }`}
-                        >
-                          {b}
-                        </button>
+                  {/* Budget selector */}
+                  {selectedGap && !isLoadingRecs && (
+                    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-4">
+                      <p className="text-white font-semibold text-sm mb-1">
+                        {selectedGap.position} — choose your budget
+                      </p>
+                      <p className="text-slate-500 text-xs mb-3">
+                        Claude will find real players that fit within this range
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {['Loan', 'Free agent', '< €20M', '€20–50M', '€50–100M', '€100M+'].map((b) => (
+                          <button
+                            key={b}
+                            onClick={() => handleSelectBudget(b)}
+                            className={`text-xs px-3 py-1.5 rounded-full border transition-colors font-medium ${
+                              selectedBudget === b
+                                ? 'bg-blue-600 border-blue-500 text-white'
+                                : 'bg-slate-900 border-slate-600 text-slate-300 hover:border-blue-500/50 hover:text-white'
+                            }`}
+                          >
+                            {b}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedGap && isLoadingRecs && (
+                    <LoadingSpinner
+                      message={`Finding ${selectedGap.position} targets...`}
+                      submessage="Claude is scanning the transfer market"
+                    />
+                  )}
+
+                  {selectedGap && recsError && (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
+                      <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                      <p className="text-red-400 text-sm">{recsError}</p>
+                    </div>
+                  )}
+
+                  {!isLoadingRecs && recommendations.length > 0 && (
+                    <div className={`space-y-3 transition-opacity ${!selectedBudget ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-white font-semibold">
+                          {selectedGap?.position} Targets
+                        </h3>
+                        <span className="text-slate-500 text-xs">
+                          {selectedBudget ? `${selectedBudget} · ${recommendations.length} players` : 'Select a budget above'}
+                        </span>
+                      </div>
+                      {recommendations.map((rec, i) => (
+                        <TransferTargetCard key={rec.playerName} target={rec} rank={i + 1} />
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {selectedGap && isLoadingRecs && (
+                  {selectedGap && !isLoadingRecs && selectedBudget && recommendations.length === 0 && !recsError && (
+                    <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-6 text-center">
+                      <p className="text-slate-400 text-sm font-medium mb-1">No players found in this range</p>
+                      <p className="text-slate-600 text-xs">Try a different budget — verified market values may not match the selected tier</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Squad Fit Map tab */}
+            {activeTab === 'fit' && (
+              <div>
+                {isLoadingFit && (
                   <LoadingSpinner
-                    message={`Finding ${selectedGap.position} targets...`}
-                    submessage="Claude is scanning the transfer market"
+                    message="Analysing squad fit..."
+                    submessage="Claude is rating each player against the tactical system"
                   />
                 )}
-
-                {selectedGap && recsError && (
+                {fitError && (
                   <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 flex items-start gap-3">
                     <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                    <p className="text-red-400 text-sm">{recsError}</p>
+                    <p className="text-red-400 text-sm">{fitError}</p>
                   </div>
                 )}
-
-                {selectedGap && !isLoadingRecs && recommendations.length > 0 && (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-white font-semibold">{selectedGap.position} Targets</h3>
-                      <span className="text-slate-500 text-xs">{selectedBudget} · {recommendations.length} players</span>
-                    </div>
-                    {recommendations.map((rec, i) => (
-                      <TransferTargetCard key={rec.playerName} target={rec} rank={i + 1} />
-                    ))}
-                  </div>
-                )}
-
-                {selectedGap && !isLoadingRecs && selectedBudget && recommendations.length === 0 && !recsError && (
-                  <div className="bg-slate-800/30 border border-slate-800 rounded-xl p-6 text-center">
-                    <p className="text-slate-400 text-sm font-medium mb-1">No players found in this range</p>
-                    <p className="text-slate-600 text-xs">Try a different budget — verified market values may not match the selected tier</p>
-                  </div>
+                {!isLoadingFit && squadFit.length > 0 && (
+                  <SquadFitMap fits={squadFit} managerName={managerResult.name} />
                 )}
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}

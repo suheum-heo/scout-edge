@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { ManagerProfile } from './managers'
 import { formatPlayerStats } from './api-football'
 import type { TMPlayerData } from './transfermarkt'
+import type { SquadPlayer } from './role-profiles'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -52,6 +53,7 @@ export interface SquadGap {
   position: string
   positionCode: string
   urgency: 'critical' | 'high' | 'medium' | 'low'
+  needScore: number       // 0-100: composite transfer priority score
   profileLabel: string
   reasoning: string
   keyStatsPriority: string[]
@@ -97,6 +99,17 @@ export interface SquadAnalysisResult {
   gaps: SquadGap[]
   squadStrengths: string[]
   squadWeaknesses: string[]
+}
+
+export type FitLabel = 'Key Man' | 'Good Fit' | 'Rotation' | 'Poor Fit' | 'Sell Candidate'
+
+export interface PlayerSystemFit {
+  playerName: string
+  position: string
+  age: number
+  fitScore: number   // 1-10
+  fitLabel: FitLabel
+  reason: string     // one scout sentence
 }
 
 export interface PlayerCompatibilityResult {
@@ -255,12 +268,21 @@ Respond in this exact JSON format:
       "position": "Center Back",
       "positionCode": "Defender",
       "urgency": "critical",
+      "needScore": 82,
       "profileLabel": "Pace-First Ball-Playing CB",
       "reasoning": "Why this is a gap — reference specific players and their stats",
       "keyStatsPriority": ["pace", "pass_accuracy", "interceptions"]
     }
   ]
 }
+
+needScore (0-100) is a composite transfer priority score. Compute it as:
+  starter_weakness (0-30): how absent/weak the ideal starting profile is for this position
+  + depth_weakness (0-20): lack of quality backup options
+  + age_risk (0-20): primary holder is 30+ with no successor, or only unproven youth covers
+  + tactical_mismatch (0-20): players present but wrong profile for this system
+  - hybrid_coverage (0-30): deduct if a versatile player in the squad genuinely covers this role
+Higher needScore = more urgent transfer priority. Sort gaps in your response by needScore descending.
 
 Be specific and reference actual players from the squad. Urgency levels: critical (major weakness that will hurt results), high (clear need), medium (would help but manageable), low (minor upgrade). Return a maximum of 5 gaps.`
 
@@ -449,6 +471,78 @@ Be honest, specific, and analytical.`
   }
 }
 
+// Rate every squad player's fit with the manager's system
+export async function analyzeSquadSystemFit(
+  squad: SquadPlayer[],
+  manager: ManagerProfile | null,
+  teamName: string,
+  managerName?: string
+): Promise<PlayerSystemFit[]> {
+  if (!squad.length) return []
+
+  const resolvedName = manager?.name || managerName || 'the manager'
+
+  const playerList = squad
+    .slice(0, 30)
+    .map((p) => `- ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
+    .join('\n')
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Summary**: ${manager.tacticalSummary}
+**Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}
+**Positional Requirements**:
+${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')}`).join('\n')}`
+    : `Use your knowledge of ${resolvedName}'s tactical system — formations, pressing intensity, build-up style, and what he demands from players in each role.`
+
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const prompt = `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
+
+## Manager: ${resolvedName}
+${managerSection}
+
+## Squad at ${teamName}:
+${playerList}
+
+For EVERY player listed, assess:
+- fitScore (1-10): how well they suit this specific system and playing style
+- fitLabel: exactly one of the five labels below
+- reason: ONE sentence — cite a specific tactical reason (not just "good player")
+
+fitLabel rules:
+- "Key Man" (9-10): indispensable to this system, would be a major loss
+- "Good Fit" (7-8): suits the system well, regular starter profile
+- "Rotation" (5-6): fits adequately but not the ideal profile, squad depth role
+- "Poor Fit" (3-4): doesn't suit the system's demands, limited usefulness
+- "Sell Candidate" (1-2): actively misaligned — wrong profile, wasted wages, or blocking development
+
+Be honest — not every team has 11 Key Men. A team with a new manager will have several Poor Fit / Sell Candidate players. Reference the tactical system specifically (e.g. "can't play as a pressing winger", "lacks the ball-playing ability this system requires").
+
+Return JSON array, one object per player, in the same order as the input:
+[
+  {
+    "playerName": "Exact name from input",
+    "position": "Their position",
+    "age": 24,
+    "fitScore": 8,
+    "fitLabel": "Good Fit",
+    "reason": "One sentence citing a specific tactical reason"
+  }
+]
+
+No other text. Cover every player.`
+
+  const res = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 3000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = res.content[0].type === 'text' ? res.content[0].text : ''
+  return extractJSON(text, 'array') as PlayerSystemFit[]
+}
+
 // Recommend specific real transfer targets for a tactical gap within a budget
 // Entirely Claude-knowledge-driven — no API needed, knows market values + contract situations
 export async function recommendPlayersForGap(
@@ -456,7 +550,8 @@ export async function recommendPlayersForGap(
   manager: ManagerProfile | null,
   teamName: string,
   budget: string,
-  managerName?: string
+  managerName?: string,
+  roleCoverageContext?: string
 ): Promise<TransferTarget[]> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -475,8 +570,9 @@ ${managerSection}
 ## Tactical Gap:
 **Position**: ${gap.position}
 **Profile needed**: ${gap.profileLabel}
-**Urgency**: ${gap.urgency}
+**Urgency**: ${gap.urgency} | **Need Score**: ${gap.needScore}/100
 **Why it's a gap**: ${gap.reasoning}
+${roleCoverageContext ? `**Current squad coverage**: ${roleCoverageContext}` : ''}
 
 ## Budget: ${budget}
 
