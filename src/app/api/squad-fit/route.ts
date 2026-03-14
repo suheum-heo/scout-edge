@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 60
+
 import { getManagerById } from '@/lib/managers'
 import { analyzeSquadSystemFit } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'

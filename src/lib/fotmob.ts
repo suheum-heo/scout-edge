@@ -21,7 +21,7 @@ const client = axios.create({
     Referer: 'https://www.fotmob.com/',
     Origin: 'https://www.fotmob.com',
   },
-  timeout: 15000,
+  timeout: 5000,
 })
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -385,6 +385,103 @@ export async function getSquad(teamId: number): Promise<APIPlayer[]> {
   } catch (err) {
     console.error('[FotMob] getSquad error:', err)
     return []
+  }
+}
+
+/** Extract flat raw members array from any FotMob squad response shape */
+function extractRawMembers(data: Record<string, unknown>): Array<Record<string, unknown>> {
+  const squadOuter = data?.squad as Record<string, unknown> | undefined
+  const squadInner = squadOuter?.squad as unknown
+  if (Array.isArray(squadInner)) {
+    const groups = squadInner as Array<Record<string, unknown>>
+    return groups.length > 0 && Array.isArray(groups[0]?.members)
+      ? groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      : groups
+  }
+  if (Array.isArray(squadOuter?.members)) return squadOuter.members as Array<Record<string, unknown>>
+  if (Array.isArray(data?.members)) return data.members as Array<Record<string, unknown>>
+  if (Array.isArray(squadOuter) || Array.isArray(data?.squad)) {
+    const groups = (squadOuter as unknown as Array<Record<string, unknown>>) || (data.squad as Array<Record<string, unknown>>)
+    return groups.length > 0 && Array.isArray(groups[0]?.members)
+      ? groups.flatMap((g) => (g.members as Array<Record<string, unknown>>) || [])
+      : groups
+  }
+  return []
+}
+
+/** Fetch squad + coach in a single API call — avoids the redundant double request */
+export async function getSquadAndCoach(teamId: number): Promise<{ squad: APIPlayer[]; coach: APICoach | null }> {
+  const squadCacheKey = `fm:squad:${teamId}`
+  const coachCacheKey = `fm:coach:${teamId}`
+  const cachedSquad = getCached<APIPlayer[]>(squadCacheKey)
+  const cachedCoach = getCached<APICoach>(coachCacheKey)
+  if (cachedSquad?.length && cachedCoach !== undefined) {
+    return { squad: cachedSquad, coach: cachedCoach }
+  }
+
+  try {
+    const res = await client.get('/teams', {
+      params: { id: teamId, tab: 'squad', type: 'players', timeZone: 'UTC' },
+    })
+    const data = res.data as Record<string, unknown>
+
+    const leagueData = (data?.details as Record<string, unknown>)?.selectedSeason || (data?.overview as Record<string, unknown>)?.leagueData
+    const leagueId: number = (leagueData as Record<string, unknown>)?.id as number || 0
+    const leagueName: string = (leagueData as Record<string, unknown>)?.name as string || (leagueData as Record<string, unknown>)?.ccode as string || ''
+    const leagueCountry: string = (data?.details as Record<string, unknown>)?.country as string || ''
+    const teamName: string = (data?.details as Record<string, unknown>)?.name as string || (data?.details as Record<string, unknown>)?.shortName as string || ''
+
+    const rawMembers = extractRawMembers(data)
+
+    // Extract players
+    let players = rawMembers
+      .map((m) => memberToAPIPlayer(m, teamId, teamName, leagueId, leagueName, leagueCountry))
+      .filter((p): p is APIPlayer => p !== null)
+
+    // Minutes enrichment (non-critical, short timeout)
+    const statsBlock = data?.stats as Record<string, unknown> | undefined
+    const primaryLeagueId: number = Number(statsBlock?.primaryLeagueId || 0)
+    const primarySeasonId: string = String(statsBlock?.primarySeasonId || '')
+    if (primaryLeagueId && primarySeasonId) {
+      try {
+        const minsUrl = `https://data.fotmob.com/stats/${primaryLeagueId}/season/${primarySeasonId}/mins_played.json`
+        const minsRes = await client.get(minsUrl, { baseURL: '', timeout: 3000 })
+        const topLists = minsRes.data?.TopLists as Array<{ StatList?: Array<Record<string, unknown>> }> | undefined
+        const statList = topLists?.[0]?.StatList || []
+        const minsMap = new Map<number, { minutes: number; appearances: number }>()
+        for (const entry of statList) {
+          const pid = Number(entry.ParticiantId || 0)
+          if (pid) minsMap.set(pid, { minutes: Number(entry.MinutesPlayed || 0), appearances: Number(entry.MatchesPlayed || 0) })
+        }
+        players = players.map((p) => {
+          const m = minsMap.get(p.player.id)
+          if (!m) return p
+          const stat = p.statistics[0]
+          return { ...p, statistics: [{ ...stat, games: { ...stat.games, minutes: m.minutes, appearences: m.appearances, lineups: m.appearances } }] }
+        })
+      } catch { /* non-critical */ }
+    }
+
+    // Extract coach
+    const coachMember = rawMembers.find(
+      (m) => m.isCoach === true || (m.role as { key?: string } | undefined)?.key === 'coach'
+    )
+    const coachFromDetails = (data?.details as Record<string, unknown>)?.coachName || (data?.details as Record<string, unknown> & { coach?: { name?: string } })?.coach?.name
+    const coachName = (coachMember?.name as string) || (coachFromDetails as string) || null
+    const coachId = coachMember?.id as number || 0
+    const coach: APICoach | null = coachName ? {
+      id: coachId, name: coachName, firstname: '', lastname: coachName.split(' ').pop() || '',
+      nationality: (coachMember?.cname as string) || '',
+      photo: coachId ? playerPhoto(coachId) : '',
+      team: { id: teamId, name: teamName, logo: teamLogo(teamId) },
+    } : null
+
+    setCache(squadCacheKey, players, TTL.SQUAD)
+    if (coach) setCache(coachCacheKey, coach, TTL.COACHES)
+    return { squad: players, coach }
+  } catch (err) {
+    console.error('[FotMob] getSquadAndCoach error:', err)
+    return { squad: [], coach: null }
   }
 }
 

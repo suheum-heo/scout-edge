@@ -1,4 +1,8 @@
+
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 60
+
 import { getManagerById } from '@/lib/managers'
 import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { searchPlayer, getPlayerData, formatMarketValue } from '@/lib/transfermarkt'
@@ -12,38 +16,45 @@ function budgetRange(budget: string): { min: number; max: number } | null {
   return null // Loan / Free agent — no price filter
 }
 
-const TM_TIMEOUT_MS = 4000
+const TM_TIMEOUT_PER_PLAYER_MS = 6000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
-// Enrich Claude's transfer targets with live Transfermarkt data
-async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
+// Enrich a single target — has its own timeout so one slow lookup never blocks others
+async function enrichOne(target: TransferTarget): Promise<TransferTarget> {
   return withTimeout(
-    Promise.all(
-      targets.map(async (target) => {
-        try {
-          const searchResult = await searchPlayer(target.playerName)
-          if (!searchResult) return target
-          const tmData = await getPlayerData(searchResult.id)
-          if (!tmData) return target
-          return {
-            ...target,
-            currentClub: tmData.currentClub,
-            age: tmData.age ?? target.age,
-            nationality: tmData.nationality || target.nationality,
-            contractUntil: tmData.contractYear,
-            estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : target.estimatedFee,
-          }
-        } catch {
-          return target
-        }
+    (async () => {
+      const searchResult = await searchPlayer(target.playerName, {
+        age: target.age,
+        club: target.currentClub,
       })
-    ),
-    TM_TIMEOUT_MS,
-    targets // fallback: return Claude's data as-is if TM is too slow
+      if (!searchResult) return target
+      const tmData = await getPlayerData(searchResult.id)
+      if (!tmData) return target
+      // Don't overwrite with a club that indicates retirement or no-club status
+      const clubLow = tmData.currentClub?.toLowerCase() ?? ''
+      const isRetiredOrUnknown = !tmData.currentClub ||
+        clubLow.includes('retired') || clubLow.includes('without club') || clubLow === '-'
+      return {
+        ...target,
+        currentClub: isRetiredOrUnknown ? target.currentClub : tmData.currentClub,
+        age: tmData.age ?? target.age,
+        nationality: tmData.nationality || target.nationality,
+        contractUntil: tmData.contractYear,
+        estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : target.estimatedFee,
+        tmVerified: !isRetiredOrUnknown,
+      }
+    })(),
+    TM_TIMEOUT_PER_PLAYER_MS,
+    target // fallback: keep Claude's data only for this specific player
   )
+}
+
+// Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
+async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
+  return Promise.all(targets.map(enrichOne))
 }
 
 export async function POST(request: NextRequest) {

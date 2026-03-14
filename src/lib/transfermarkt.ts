@@ -110,17 +110,63 @@ function aggregateStats(stats: Array<{
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
+// Strip diacritics: "Rajković" → "Rajkovic", "Müller" → "Muller"
+function stripDiacritics(str: string): string {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+}
+
 /**
- * Search players by name, return top result (highest market value among exact-ish name matches).
+ * Search players by name, return top result.
+ * Fallback chain: original name → diacritic-stripped → last name only (≥5 chars).
+ * Optional hints (age, club) are used to disambiguate when multiple players share a name.
  */
-export async function searchPlayer(name: string): Promise<TMPlayerSearchResult | null> {
-  const results = await searchPlayers(name)
+export async function searchPlayer(
+  name: string,
+  hints?: { age?: number; club?: string }
+): Promise<TMPlayerSearchResult | null> {
+  const stripped = stripDiacritics(name)
+  const lastName = stripped.split(' ').at(-1) ?? ''
+
+  // Try progressively simpler queries until we get results
+  let results = await searchPlayers(name)
+  if (!results.length && stripped !== name) results = await searchPlayers(stripped)
+  if (!results.length && lastName.length >= 5) results = await searchPlayers(lastName)
   if (!results.length) return null
+
   const q = name.toLowerCase()
-  const exactMatch = results.find(
-    (p) => p.name.toLowerCase() === q || (p.name.toLowerCase().includes(q) && q.length >= 4)
-  )
-  return exactMatch || results[0]
+  const qStripped = stripDiacritics(q)
+
+  // Score each result: name match + age proximity + club match
+  const scored = results.map((p) => {
+    const pLow = p.name.toLowerCase()
+    const pStripped = stripDiacritics(pLow)
+
+    let score = 0
+    // Name similarity
+    if (pLow === q || pStripped === qStripped) score += 10
+    else if (pStripped.includes(qStripped) && qStripped.length >= 5) score += 5
+    else if (pLow.includes(q) && q.length >= 5) score += 5
+
+    // Age proximity (within 2 years = strong signal, within 5 = weak)
+    if (hints?.age && p.age !== null) {
+      const diff = Math.abs(p.age - hints.age)
+      if (diff <= 2) score += 8
+      else if (diff <= 5) score += 3
+      else score -= 5  // penalise clearly wrong age (avoids picking retired namesakes)
+    }
+
+    // Club name match
+    if (hints?.club && p.club?.name) {
+      const clubQ = hints.club.toLowerCase()
+      const clubP = p.club.name.toLowerCase()
+      if (clubP.includes(clubQ.split(' ')[0]) || clubQ.includes(clubP.split(' ')[0])) score += 6
+    }
+
+    return { p, score }
+  })
+
+  scored.sort((a, b) => b.score - a.score)
+  return scored[0].p
 }
 
 /**

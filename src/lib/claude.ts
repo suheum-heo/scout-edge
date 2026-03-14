@@ -8,6 +8,18 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
+// Replace Cyrillic Unicode lookalikes with their Latin equivalents.
+// Claude occasionally outputs homoglyphs (е, о, а, etc.) that look identical but break names.
+const CYRILLIC_MAP: Record<string, string> = {
+  '\u0430': 'a', '\u0435': 'e', '\u043E': 'o', '\u0440': 'p', '\u0441': 'c',
+  '\u0443': 'y', '\u0445': 'x', '\u0410': 'A', '\u0412': 'B', '\u0415': 'E',
+  '\u041A': 'K', '\u041C': 'M', '\u041D': 'H', '\u041E': 'O', '\u0420': 'P',
+  '\u0421': 'C', '\u0422': 'T', '\u0425': 'X',
+}
+function sanitizeHomoglyphs(text: string): string {
+  return text.replace(/[\u0400-\u04FF]/g, (ch) => CYRILLIC_MAP[ch] ?? ch)
+}
+
 // Robustly extract and parse JSON from Claude's response
 function extractJSON(text: string, type: 'object' | 'array'): unknown {
   const open = type === 'object' ? '{' : '['
@@ -89,6 +101,7 @@ export interface TransferTarget {
   concerns: string[]
   whyThisPlayer: string       // 2-3 sentences of scout reasoning
   availability: 'Likely available' | 'Possible' | 'Hard to get'
+  tmVerified?: boolean        // true if Transfermarkt confirmed current club & contract
 }
 
 export interface SquadAnalysisResult {
@@ -584,6 +597,14 @@ Name 4 real professional players who:
 
 Use your knowledge of player market values, contract situations, and playing styles. Be realistic — don't suggest €100M players on a €20M budget. Rank by tactical fit.
 
+IMPORTANT — accuracy rules:
+- Only recommend currently ACTIVE professional players. Never recommend retired players.
+- Only name players whose current club you are highly confident about. If a player recently moved to a new league (MLS, Saudi Pro League, Chinese Super League, etc.) or you're uncertain about their club as of ${currentDate}, skip them and choose someone else.
+- For players currently on loan: use their CURRENT LOAN DESTINATION as the club (e.g. "Union Saint-Gilloise" not "Brighton" for a player on loan there). Never list a parent club if the player is actually playing elsewhere on loan.
+- Pay close attention to loan-to-permanent transfers: if a player was on loan at one club during 2024/25 but completed a permanent transfer to a different club for the 2025/26 season, list their CURRENT permanent club (e.g. a goalkeeper who was on loan at Valencia but permanently joined Liverpool for 2025/26 should be listed as Liverpool, not Valencia).
+- Do NOT confuse players with similar names. If recommending a goalkeeper or defender, double-check their career history — do not list a club they never played for.
+- Use only standard Latin characters in names. No special Unicode or lookalike characters.
+
 Respond in this exact JSON format (be concise, no extra text):
 [
   {
@@ -611,6 +632,6 @@ Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "�
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  return extractJSON(text, 'array') as TransferTarget[]
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'array') as TransferTarget[]
 }

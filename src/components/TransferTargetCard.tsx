@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { TransferTarget } from '@/lib/claude'
 import { getScoreColor } from '@/lib/utils'
-import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star, TriangleAlert } from 'lucide-react'
 
 interface TransferTargetCardProps {
   target: TransferTarget
@@ -52,17 +52,14 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
       expanded ? 'bg-slate-800/60 border-slate-600' : 'bg-slate-800/30 border-slate-700 hover:border-slate-600'
     }`}>
       {/* Always-visible header row */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full text-left p-4"
-      >
+      <div className="p-4">
         <div className="flex items-center gap-3">
           {/* Rank badge */}
           <div className={`w-9 h-9 rounded-full border flex items-center justify-center flex-shrink-0 ${rs.ring}`}>
             <span className={`text-xs font-bold ${rs.text}`}>{rs.label}</span>
           </div>
 
-          {/* Name + club */}
+          {/* Name + club (selectable) */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-white font-semibold text-sm">{target.playerName}</span>
@@ -73,7 +70,13 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               )}
             </div>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <span className="text-slate-500 text-xs">{target.currentClub}</span>
+              {target.tmVerified
+                ? <span className="text-slate-500 text-xs">{target.currentClub}</span>
+                : <span className="flex items-center gap-1 text-amber-500/70 text-xs italic">
+                    <TriangleAlert className="w-3 h-3 flex-shrink-0" />
+                    Club unverified — check Transfermarkt
+                  </span>
+              }
               <span className="text-slate-700 text-xs">·</span>
               <span className="text-slate-500 text-xs">Age {target.age}</span>
               <span className="text-slate-700 text-xs">·</span>
@@ -84,8 +87,11 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
             </div>
           </div>
 
-          {/* Fit score + chevron */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Fit score + chevron — only this area is the click target */}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="flex items-center gap-3 flex-shrink-0 hover:opacity-75 transition-opacity"
+          >
             <div className="text-right">
               <div className={`text-lg font-bold leading-none ${getScoreColor(score)}`}>
                 {score}<span className="text-xs text-slate-500">/10</span>
@@ -93,14 +99,14 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               <div className="text-slate-600 text-[10px]">fit</div>
             </div>
             <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-          </div>
+          </button>
         </div>
 
-        {/* Collapsed summary — one-liner fit summary */}
+        {/* Collapsed summary */}
         {!expanded && (
           <p className="text-slate-500 text-xs mt-2 ml-12 line-clamp-1 italic">{target.fitSummary}</p>
         )}
-      </button>
+      </div>
 
       {/* Expanded scout analysis */}
       {expanded && (

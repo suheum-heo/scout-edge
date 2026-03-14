@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 60
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
-import { searchTeams, getSquad, getCoach, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
+import { getSquad, getCoach, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
   searchTeams as fotmobSearchTeams,
-  getSquad as fotmobGetSquad,
-  getCoach as fotmobGetCoach,
+  getSquadAndCoach as fotmobGetSquadAndCoach,
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
@@ -30,11 +31,11 @@ export async function POST(request: NextRequest) {
       // FotMob ID — direct squad fetch, no re-search needed
       console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
       try {
-        fotmobSquad = await fotmobGetSquad(teamId)
-        if (fotmobSquad.length) {
+        const result = await fotmobGetSquadAndCoach(teamId)
+        if (result.squad.length) {
+          fotmobSquad = result.squad
           usedFotmob = true
-          const fmCoach = await fotmobGetCoach(teamId)
-          if (fmCoach) coach = fmCoach as unknown as APICoach
+          if (result.coach) coach = result.coach as unknown as APICoach
         }
       } catch (e) {
         console.error('[analyze] FotMob direct fetch failed:', e)
@@ -46,11 +47,11 @@ export async function POST(request: NextRequest) {
         const fmTeams = await fotmobSearchTeams(teamName)
         const fmTeam = fmTeams[0]
         if (fmTeam) {
-          fotmobSquad = await fotmobGetSquad(fmTeam.team.id)
-          if (fotmobSquad.length) {
+          const result = await fotmobGetSquadAndCoach(fmTeam.team.id)
+          if (result.squad.length) {
+            fotmobSquad = result.squad
             usedFotmob = true
-            const fmCoach = await fotmobGetCoach(fmTeam.team.id)
-            if (fmCoach) coach = fmCoach as unknown as APICoach
+            if (result.coach) coach = result.coach as unknown as APICoach
           }
         }
       } catch (e) {
@@ -67,43 +68,46 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      // Get current squad + coach from football-data.org (live, no daily limit)
-      const fdData = await getTeamData(teamId)
+      // Get FD data + FotMob stats in parallel when fotmobId is already known
+      const fmId: number | null = fotmobId ?? null
+      console.log(`[analyze] FD team ${teamName}, fetching FD+FotMob in parallel (fotmobId=${fmId ?? 'none'})`)
+
+      const [fdData, fotmobResult] = await Promise.all([
+        getTeamData(teamId),
+        fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
+      ])
+
       coach = fdData.coach
 
-      // FD free tier returns no per-player stats — always try FotMob for the same team
-      // so Claude gets real 2025-26 appearances, positions, and ratings instead of
-      // relying on its training knowledge (which may be outdated for player roles).
-      console.log(`[analyze] FD team ${teamName}, enriching with FotMob stats (fotmobId=${fotmobId ?? 'none'})`)
-      try {
-        // Use pre-mapped fotmobId from local DB if available (avoids broken /searchpage endpoint)
-        const fmId: number | null = fotmobId ?? null
-        let resolvedFmId: number | null = fmId
-
-        if (!resolvedFmId) {
-          const fmTeams = await fotmobSearchTeams(teamName)
-          resolvedFmId = fmTeams[0]?.team.id ?? null
+      if (fotmobResult?.squad.length) {
+        fotmobSquad = fotmobResult.squad
+        usedFotmob = true
+        if (!coach && fotmobResult.coach) {
+          coach = fotmobResult.coach as unknown as APICoach
         }
+      }
 
-        if (resolvedFmId) {
-          const fmSquad = await fotmobGetSquad(resolvedFmId)
-          if (fmSquad.length) {
-            fotmobSquad = fmSquad
-            usedFotmob = true
-            if (!coach) {
-              const fmCoach = await fotmobGetCoach(resolvedFmId)
-              if (fmCoach) coach = fmCoach as unknown as APICoach
+      // fotmobId wasn't in local DB — try FotMob search by name
+      if (!usedFotmob) {
+        try {
+          const fmTeams = await fotmobSearchTeams(teamName)
+          const resolvedFmId = fmTeams[0]?.team.id ?? null
+          if (resolvedFmId) {
+            const result = await fotmobGetSquadAndCoach(resolvedFmId)
+            if (result.squad.length) {
+              fotmobSquad = result.squad
+              usedFotmob = true
+              if (!coach && result.coach) coach = result.coach as unknown as APICoach
             }
           }
+        } catch (e) {
+          console.error('[analyze] FotMob search enrichment failed:', e)
         }
-      } catch (e) {
-        console.error('[analyze] FotMob stats enrichment failed:', e)
       }
 
       // Fall back to FD squad (no stats) if FotMob enrichment failed
       if (!usedFotmob) {
         squadRaw = fdData.players
-        // If FD also has no squad (newly promoted etc.), give up gracefully
         if (!squadRaw.length) {
           console.log(`[analyze] FD squad empty for ${teamName}, no fallback available`)
         }
