@@ -157,16 +157,22 @@ export default function HomePage() {
         }),
       })
 
-      const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || 'Analysis failed')
+      let data: Record<string, unknown>
+      try {
+        data = await res.json()
+      } catch {
+        setError('Server timed out — the first request after inactivity can take 10–15s. Please try again.')
         return
       }
 
-      setAnalysis(data.analysis)
-      setSquad(data.squad || [])
-      setManagerResult(data.manager)
+      if (!res.ok) {
+        setError((data.error as string) || 'Analysis failed')
+        return
+      }
+
+      setAnalysis(data.analysis as SquadAnalysisResult)
+      setSquad((data.squad as SquadPlayer[]) || [])
+      setManagerResult(data.manager as ManagerResult)
 
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })

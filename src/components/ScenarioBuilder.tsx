@@ -1,9 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { ScenarioOutPlayer, ScenarioInPlayer, TransferTarget } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
-import { Plus, X, Play } from 'lucide-react'
+import { Plus, X, Play, Search } from 'lucide-react'
+
+interface PlayerSuggestion {
+  id: string
+  name: string
+  position: string
+  club: string
+  nationality: string
+}
+
+function toTitleCase(s: string): string {
+  return s.replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 interface Props {
   squad: SquadPlayer[]
@@ -35,6 +47,53 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const [inAge, setInAge] = useState('')
   const [showRecPicker, setShowRecPicker] = useState(false)
 
+  // Player search state
+  const [suggestions, setSuggestions] = useState<PlayerSuggestion[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showDropdown, setShowDropdown] = useState(false)
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleNameChange = useCallback((value: string) => {
+    const titled = toTitleCase(value)
+    setInName(titled)
+    setShowDropdown(true)
+
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (titled.length < 2) { setSuggestions([]); return }
+
+    searchTimeout.current = setTimeout(async () => {
+      setIsSearching(true)
+      try {
+        const res = await fetch(`/api/players/search?q=${encodeURIComponent(titled)}`)
+        const data = await res.json()
+        setSuggestions(data.players || [])
+      } catch {
+        setSuggestions([])
+      } finally {
+        setIsSearching(false)
+      }
+    }, 300)
+  }, [])
+
+  const pickSuggestion = (p: PlayerSuggestion) => {
+    setInName(p.name)
+    setInPosition(p.position || inPosition)
+    setSuggestions([])
+    setShowDropdown(false)
+  }
+
   const toggleOut = (p: SquadPlayer) => {
     setOutIds((prev) => {
       const next = new Set(prev)
@@ -46,13 +105,14 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const addInPlayer = () => {
     if (!inName.trim()) return
     setInList((prev) => [...prev, {
-      name: inName.trim(),
+      name: toTitleCase(inName.trim()),
       position: inPosition,
       age: parseInt(inAge) || 25,
       fromRecommendations: false,
     }])
     setInName('')
     setInAge('')
+    setSuggestions([])
   }
 
   const addFromRec = (rec: TransferTarget) => {
@@ -153,14 +213,42 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
 
           {/* Add form */}
           <div className="space-y-2 border border-slate-700 rounded-lg p-3">
-            <input
-              type="text"
-              value={inName}
-              onChange={(e) => setInName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addInPlayer()}
-              placeholder="Player name"
-              className="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-xs placeholder-slate-500 outline-none focus:border-slate-400"
-            />
+            <div className="relative" ref={dropdownRef}>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <input
+                  type="text"
+                  value={inName}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addInPlayer()}
+                  onFocus={() => inName.length >= 2 && setShowDropdown(true)}
+                  placeholder="Player name"
+                  className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-3 py-2 text-white text-xs placeholder-slate-500 outline-none focus:border-slate-400"
+                />
+                {isSearching && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border border-slate-400/40 border-t-slate-300 rounded-full animate-spin" />
+                )}
+              </div>
+
+              {/* Suggestions dropdown */}
+              {showDropdown && suggestions.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl overflow-hidden">
+                  {suggestions.map((p) => (
+                    <button
+                      key={p.id}
+                      onMouseDown={(e) => { e.preventDefault(); pickSuggestion(p) }}
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-700 transition-colors text-left border-b border-slate-700/50 last:border-0"
+                    >
+                      <div>
+                        <span className="text-white text-xs font-medium">{p.name}</span>
+                        <span className="text-slate-500 text-[10px] ml-2">{p.club}</span>
+                      </div>
+                      <span className="text-slate-500 text-[10px] flex-shrink-0">{p.position}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <select
                 value={inPosition}
