@@ -635,3 +635,161 @@ Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "�
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
   return extractJSON(sanitizeHomoglyphs(raw), 'array') as TransferTarget[]
 }
+
+// ── V3: Transfer Scenario Simulator ──────────────────────────────────────────
+
+export interface ScenarioInPlayer {
+  name: string
+  position: string
+  age: number
+  fromRecommendations?: boolean
+}
+
+export interface ScenarioOutPlayer {
+  playerId: string
+  name: string
+  position: string
+  age: number
+}
+
+export type ScenarioDimensionKey =
+  | 'roleCoverage'
+  | 'systemFit'
+  | 'attackingThreat'
+  | 'defensiveStability'
+  | 'squadDepth'
+  | 'ageProfile'
+
+export interface ScenarioDimension {
+  key: ScenarioDimensionKey
+  label: string
+  baselineScore: number   // 1-10
+  scenarioScore: number   // 1-10
+  delta: number           // scenarioScore - baselineScore
+  insight: string         // one sentence explaining the change
+}
+
+export type ScenarioVerdict = 'Do it' | 'Consider it' | 'Risky' | 'Avoid'
+
+export interface ScenarioResult {
+  id: string
+  label: string                   // "Scenario A", "Scenario B", etc.
+  createdAt: number
+  playersOut: ScenarioOutPlayer[]
+  playersIn: ScenarioInPlayer[]
+  dimensions: ScenarioDimension[]
+  overallBaselineScore: number
+  overallScenarioScore: number
+  overallDelta: number
+  verdict: string
+  risks: string[]
+  recommendation: ScenarioVerdict
+}
+
+// Evaluate the impact of an IN/OUT scenario on a squad
+export async function analyzeScenario(
+  originalSquad: SquadPlayer[],
+  playersOut: ScenarioOutPlayer[],
+  playersIn: ScenarioInPlayer[],
+  manager: ManagerProfile | null,
+  teamName: string,
+  managerName?: string
+): Promise<Omit<ScenarioResult, 'id' | 'label' | 'createdAt' | 'playersOut' | 'playersIn'>> {
+  const resolvedName = manager?.name || managerName || 'the manager'
+
+  const formatSquad = (players: SquadPlayer[]) =>
+    players.map((p) => `- ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`).join('\n')
+
+  // Compute modified squad in TypeScript — give Claude the exact result, no reasoning needed
+  const outIds = new Set(playersOut.map((o) => o.playerId))
+  const modifiedSquad: SquadPlayer[] = [
+    ...originalSquad.filter((p) => !outIds.has(p.playerId)),
+    ...playersIn.map((p) => ({
+      playerId: 'incoming',
+      name: p.name,
+      position: p.position,
+      age: p.age,
+      nationality: '',
+    })),
+  ]
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Summary**: ${manager.tacticalSummary}
+**Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}`
+    : `Use your knowledge of ${resolvedName}'s tactical system — formations, pressing intensity, build-up style, and what he demands from players in each role.`
+
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Evaluate the impact of this transfer scenario on ${teamName}'s squad.
+
+## Manager: ${resolvedName}
+${managerSection}
+
+## CURRENT SQUAD (Baseline):
+${formatSquad(originalSquad)}
+
+## PROPOSED SCENARIO:
+OUT: ${playersOut.map((p) => `${p.name} (${p.position}, Age ${p.age})`).join(', ') || 'None'}
+IN: ${playersIn.map((p) => `${p.name} (${p.position}, Age ${p.age})`).join(', ') || 'None'}
+
+## MODIFIED SQUAD (after scenario):
+${formatSquad(modifiedSquad)}
+
+## Your Task:
+Score BOTH the current squad AND the modified squad across these 6 dimensions (each 1-10):
+1. roleCoverage — Does the squad cover all positions the system requires?
+2. systemFit — How well do players match the manager's tactical demands?
+3. attackingThreat — Goals, creativity, and pressing threat up front
+4. defensiveStability — Defensive line cohesion, pressing from deep
+5. squadDepth — Quality of backup options across all lines
+6. ageProfile — Sustainability: balance of peak-age players vs youth vs over-30s
+
+For each dimension, provide:
+- baselineScore: score for CURRENT squad (1-10)
+- scenarioScore: score for MODIFIED squad (1-10)
+- delta: scenarioScore minus baselineScore (can be negative)
+- insight: one sentence explaining why the score changed (or didn't)
+
+For the IN players: if you know these as real players, use your knowledge of their quality and profile. If they are unfamiliar, assess them based on the position and age provided.
+
+Return ONLY this JSON:
+{
+  "dimensions": [
+    {
+      "key": "roleCoverage",
+      "label": "Role Coverage",
+      "baselineScore": 7,
+      "scenarioScore": 8,
+      "delta": 1,
+      "insight": "One sentence explaining the change"
+    },
+    { "key": "systemFit", "label": "System Fit", "baselineScore": 7, "scenarioScore": 8, "delta": 1, "insight": "..." },
+    { "key": "attackingThreat", "label": "Attacking Threat", "baselineScore": 7, "scenarioScore": 8, "delta": 1, "insight": "..." },
+    { "key": "defensiveStability", "label": "Defensive Stability", "baselineScore": 7, "scenarioScore": 7, "delta": 0, "insight": "..." },
+    { "key": "squadDepth", "label": "Squad Depth", "baselineScore": 6, "scenarioScore": 7, "delta": 1, "insight": "..." },
+    { "key": "ageProfile", "label": "Age Profile", "baselineScore": 6, "scenarioScore": 8, "delta": 2, "insight": "..." }
+  ],
+  "overallBaselineScore": 6.8,
+  "overallScenarioScore": 7.7,
+  "overallDelta": 0.9,
+  "verdict": "1-2 sentences: scout verdict on whether this deal makes sense for this team and system",
+  "risks": ["Risk 1", "Risk 2"],
+  "recommendation": "Consider it"
+}
+
+Recommendation must be exactly one of: "Do it" | "Consider it" | "Risky" | "Avoid"
+No other text.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'object') as Omit<
+    ScenarioResult,
+    'id' | 'label' | 'createdAt' | 'playersOut' | 'playersIn'
+  >
+}

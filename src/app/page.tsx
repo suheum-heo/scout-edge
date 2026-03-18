@@ -5,8 +5,11 @@ import { Search, Zap, AlertCircle, ChevronDown, Settings2 } from 'lucide-react'
 import GapCard from '@/components/GapCard'
 import TransferTargetCard from '@/components/TransferTargetCard'
 import SquadFitMap from '@/components/SquadFitMap'
+import ScenarioBuilder from '@/components/ScenarioBuilder'
+import ScenarioResultCard from '@/components/ScenarioResultCard'
+import ScenarioCompare from '@/components/ScenarioCompare'
 import LoadingSpinner from '@/components/LoadingSpinner'
-import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit } from '@/lib/claude'
+import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
@@ -55,10 +58,15 @@ export default function HomePage() {
   const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const [recsError, setRecsError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'gaps' | 'fit'>('gaps')
+  const [activeTab, setActiveTab] = useState<'gaps' | 'fit' | 'scenario'>('gaps')
   const [squadFit, setSquadFit] = useState<PlayerSystemFit[]>([])
   const [isLoadingFit, setIsLoadingFit] = useState(false)
   const [fitError, setFitError] = useState<string | null>(null)
+
+  const [scenarios, setScenarios] = useState<ScenarioResult[]>([])
+  const [isRunningScenario, setIsRunningScenario] = useState(false)
+  const [scenarioError, setScenarioError] = useState<string | null>(null)
+  const [compareIds, setCompareIds] = useState<[string, string] | null>(null)
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const searchAbort = useRef<AbortController | null>(null)
@@ -118,6 +126,8 @@ export default function HomePage() {
     setSelectedGap(null)
     setRecommendations([])
     setSquadFit([])
+    setScenarios([])
+    setCompareIds(null)
     setActiveTab('gaps')
     setError(null)
   }
@@ -212,8 +222,54 @@ export default function HomePage() {
     }
   }
 
-  const handleSwitchTab = async (tab: 'gaps' | 'fit') => {
+  const handleRunScenario = async (out: ScenarioOutPlayer[], inn: ScenarioInPlayer[]) => {
+    if (!squad.length || !managerResult || !selectedTeam) return
+    setIsRunningScenario(true)
+    setScenarioError(null)
+    try {
+      const res = await fetch('/api/scenario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          squad,
+          playersOut: out,
+          playersIn: inn,
+          managerId: managerResult.id || undefined,
+          managerName: managerResult.name,
+          teamName: selectedTeam.team.name,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setScenarioError(data.error || 'Scenario analysis failed')
+        return
+      }
+      const letter = String.fromCharCode(65 + scenarios.length) // A, B, C...
+      const labeled: ScenarioResult = { ...data.result, label: `Scenario ${letter}` }
+      setScenarios((prev) => [labeled, ...prev])
+    } catch {
+      setScenarioError('Something went wrong. Please try again.')
+    } finally {
+      setIsRunningScenario(false)
+    }
+  }
+
+  const handleToggleCompare = (id: string) => {
+    setCompareIds((prev) => {
+      if (prev && prev.includes(id)) {
+        return null
+      }
+      if (!prev) return [id, id] // will be overwritten on second click
+      return [prev[0], id]
+    })
+  }
+
+  const handleSwitchTab = async (tab: 'gaps' | 'fit' | 'scenario') => {
     setActiveTab(tab)
+    if (tab === 'scenario') {
+      setScenarioError(null)
+      return
+    }
     if (tab === 'fit' && !squadFit.length && !isLoadingFit && squad.length && managerResult) {
       setIsLoadingFit(true)
       setFitError(null)
@@ -482,6 +538,21 @@ export default function HomePage() {
               >
                 Squad Fit Map
               </button>
+              <button
+                onClick={() => handleSwitchTab('scenario')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'scenario'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Scenarios
+                {scenarios.length > 0 && (
+                  <span className="bg-slate-700 text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    {scenarios.length}
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Transfer Gaps tab */}
@@ -594,6 +665,73 @@ export default function HomePage() {
                 )}
                 {!isLoadingFit && squadFit.length > 0 && (
                   <SquadFitMap fits={squadFit} managerName={managerResult.name} />
+                )}
+              </div>
+            )}
+
+            {/* Scenarios tab */}
+            {activeTab === 'scenario' && (
+              <div className="space-y-6">
+                {/* Builder */}
+                <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-5">
+                  <div className="mb-4">
+                    <h3 className="text-white font-semibold text-sm">Build a Transfer Scenario</h3>
+                    <p className="text-slate-500 text-xs mt-0.5">
+                      Select players leaving and add incoming signings — Claude will recalculate how the squad changes.
+                    </p>
+                  </div>
+                  <ScenarioBuilder
+                    squad={squad}
+                    recommendations={recommendations}
+                    onRun={handleRunScenario}
+                    isLoading={isRunningScenario}
+                  />
+                  {scenarioError && (
+                    <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-red-400 text-xs">{scenarioError}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Compare view */}
+                {compareIds && compareIds[0] !== compareIds[1] && (() => {
+                  const a = scenarios.find((s) => s.id === compareIds[0])
+                  const b = scenarios.find((s) => s.id === compareIds[1])
+                  return a && b ? <ScenarioCompare a={a} b={b} /> : null
+                })()}
+
+                {/* Results list */}
+                {scenarios.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-white font-semibold text-sm">
+                        {scenarios.length} {scenarios.length === 1 ? 'Scenario' : 'Scenarios'}
+                      </h3>
+                      {scenarios.length >= 2 && !compareIds && (
+                        <p className="text-slate-500 text-xs">Click Compare on two scenarios to compare them</p>
+                      )}
+                    </div>
+                    {scenarios.map((s) => {
+                      const isSelected = !!compareIds && compareIds.includes(s.id)
+                      const twoSelected = !!compareIds && compareIds[0] !== compareIds[1]
+                      return (
+                        <ScenarioResultCard
+                          key={s.id}
+                          result={s}
+                          compareSelected={isSelected}
+                          onToggleCompare={handleToggleCompare}
+                          compareDisabled={twoSelected && !isSelected}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+
+                {scenarios.length === 0 && !isRunningScenario && (
+                  <div className="text-center py-8">
+                    <p className="text-slate-500 text-sm">Run your first scenario above to see results</p>
+                  </div>
                 )}
               </div>
             )}
