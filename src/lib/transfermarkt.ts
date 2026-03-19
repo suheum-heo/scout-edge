@@ -284,7 +284,6 @@ export interface TMClubSearchResult {
   id: string
   name: string
   country: string
-  image?: string
 }
 
 /**

@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
         id: c.id as unknown as number, // TM ID is a string — cast for type compat
         name: c.name,
         country: c.country,
-        logo: c.image ?? '',
+        logo: `https://tmssl.akamaized.net/images/wappen/head/${c.id}.png`,
         source: 'tm' as const,
       },
       venue: { name: '', city: '' },
