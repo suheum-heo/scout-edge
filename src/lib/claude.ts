@@ -295,6 +295,7 @@ Be specific and reference actual players from the squad. Urgency levels: critica
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -542,6 +543,7 @@ No other text. Cover every player.`
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 3000,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 
