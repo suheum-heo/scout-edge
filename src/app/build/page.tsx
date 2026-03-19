@@ -275,7 +275,7 @@ export default function BuildPage() {
               { manager: 'Pep Guardiola',   profileId: 'pep-guardiola',   club: 'Manchester City' },
               { manager: 'Diego Simeone',   profileId: 'diego-simeone',   club: 'Atlético Madrid' },
               { manager: 'Arne Slot',        profileId: 'arne-slot',        club: 'Liverpool' },
-              { manager: 'Ruben Amorim',    profileId: 'ruben-amorim',    club: 'Manchester United' },
+              { manager: 'Mikel Arteta',    profileId: 'mikel-arteta',    club: 'Arsenal' },
             ].map(({ manager, profileId, club }) => (
               <button key={manager}
                 onClick={() => {
