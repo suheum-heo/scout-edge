@@ -288,12 +288,20 @@ export interface TMClubSearchResult {
 
 /**
  * Search clubs by name and return full results array (global coverage).
+ * TM's search API works better with hyphens than spaces, so we try both.
  */
 export async function searchClubs(query: string): Promise<TMClubSearchResult[]> {
   try {
     const encoded = encodeURIComponent(query)
     const data = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded}`)
-    return data.results || []
+    if (data.results?.length) return data.results
+
+    // TM search doesn't handle spaces in names well — try hyphenated form
+    const hyphenated = query.trim().replace(/\s+/g, '-')
+    if (hyphenated === query) return []
+    const encoded2 = encodeURIComponent(hyphenated)
+    const data2 = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded2}`)
+    return data2.results || []
   } catch {
     return []
   }
