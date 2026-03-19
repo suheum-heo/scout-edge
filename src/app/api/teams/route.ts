@@ -65,41 +65,44 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Local DB first — instant, handles partial names and aliases
+    // Local DB first — instant, handles partial names and aliases.
+    // Run TM in parallel so national teams can be prepended even when local DB hits.
     const localResults = searchLocalTeams(query)
     if (localResults.length > 0) {
-      // Enrich 'af' teams with live FotMob data so names/logos are always current.
-      // Sponsor names change (e.g. "Daejeon Hana Citizen", "Ulsan HD FC") —
-      // FotMob returns the official current name and logo without hardcoding.
-      const enriched = await Promise.all(
-        localResults.map(async (result) => {
-          if (result.team.source !== 'af') return result
-          try {
-            // Use fotmobSearch if set (shorter query = better FotMob hit rate)
-            const searchQuery = result.team.fotmobSearch ?? result.team.name
-            const fmTeams = await fotmobSearchTeams(searchQuery)
-            const fmTeam = fmTeams[0]
-            if (fmTeam) {
-              return {
-                team: {
-                  id: fmTeam.team.id,
-                  // Use our DB name — it's the full official name with sponsors
-                  // (FotMob search often returns short names like "Ulsan" not "Ulsan HD FC")
-                  name: result.team.name,
-                  country: result.team.country,
-                  logo: fmTeam.team.logo, // FotMob logo is always current
-                  source: 'fotmob' as const,
-                },
-                venue: result.venue,
+      const [enriched, tmResults] = await Promise.all([
+        // Enrich 'af' teams with live FotMob data so names/logos are always current.
+        Promise.all(
+          localResults.map(async (result) => {
+            if (result.team.source !== 'af') return result
+            try {
+              const searchQuery = result.team.fotmobSearch ?? result.team.name
+              const fmTeams = await fotmobSearchTeams(searchQuery)
+              const fmTeam = fmTeams[0]
+              if (fmTeam) {
+                return {
+                  team: { id: fmTeam.team.id, name: result.team.name, country: result.team.country, logo: fmTeam.team.logo, source: 'fotmob' as const },
+                  venue: result.venue,
+                }
               }
+            } catch (e) {
+              console.error('[teams] FotMob enrich failed for', result.team.name, e)
             }
-          } catch (e) {
-            console.error('[teams] FotMob enrich failed for', result.team.name, e)
-          }
-          return result // keep local data with 'af' source as fallback
-        })
-      )
-      return NextResponse.json({ teams: enriched })
+            return result
+          })
+        ),
+        tmSearchClubs(query),
+      ])
+
+      // Prepend any national team from TM that isn't already in the local results
+      const localNames = new Set(enriched.map((r) => normalizeName(r.team.name)))
+      const nationalTeams = tmResults
+        .filter((c) => nationalTeamFlag(c.name) && !localNames.has(normalizeName(c.name)))
+        .map((c) => ({
+          team: { id: c.id as unknown as number, name: c.name, country: c.country, logo: nationalTeamFlag(c.name)!, source: 'tm' as const },
+          venue: { name: '', city: '' },
+        }))
+
+      return NextResponse.json({ teams: [...nationalTeams, ...enriched].slice(0, 8) })
     }
 
     // Run FD, FotMob, and TM in parallel.
