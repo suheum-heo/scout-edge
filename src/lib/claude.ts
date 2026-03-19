@@ -899,3 +899,99 @@ No other text.`
     'id' | 'label' | 'createdAt' | 'playersOut' | 'playersIn'
   >
 }
+
+// ── ScoutEdge Verdict ─────────────────────────────────────────────────────────
+
+export type VerdictLabel = 'Do it' | 'Consider it' | 'Risky' | 'Avoid'
+
+export interface TransferVerdictResult {
+  playerName: string
+  targetClub: string
+  managerName: string
+  verdictLabel: VerdictLabel
+  fitScore: number          // 1-10 tactical fit
+  headline: string          // one punchy sentence e.g. "Osimhen is the wrong profile for Arteta's system"
+  whyItWorks: string[]      // up to 3 bullet reasons in favour
+  whyItDoesnt: string[]     // up to 3 bullet reasons against
+  roleInSystem: string      // e.g. "False 9 in a 4-3-3, pressing trigger and link-up focus"
+  needAssessment: string    // e.g. "Arsenal have a genuine striker vacancy after Nketiah's decline"
+  valueAssessment: string   // e.g. "At €70M he represents fair value given his output"
+  timing: string            // e.g. "26 years old, peak years, contract expires 2026"
+  scoutVerdict: string      // 2-3 sentence full scout reasoning on the transfer picture
+}
+
+export async function analyzeTransferVerdict(
+  playerName: string,
+  targetClub: string,
+  tmPlayer: TMPlayerData | null,
+  manager: ManagerProfile | null,
+  managerName?: string
+): Promise<TransferVerdictResult> {
+  const resolvedManagerName = manager?.name || managerName || 'the manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')}
+**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Summary**: ${manager.tacticalSummary}
+**Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}
+**Positional Requirements**: ${manager.positionalRequirements.map((r) => `${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')}`).join(' | ')}`
+    : `Use your knowledge of ${resolvedManagerName}'s tactical system — formations, pressing style, build-up, and what he demands from each position.`
+
+  const playerSection = tmPlayer
+    ? `**Player**: ${tmPlayer.name}
+**Position**: ${tmPlayer.position} | **Age**: ${tmPlayer.age} | **Nationality**: ${tmPlayer.nationality}
+**Current Club**: ${tmPlayer.currentClub} | **Contract until**: ${tmPlayer.contractYear}
+**Market Value**: ${tmPlayer.marketValueFormatted}
+**This season**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}`
+    : `**Player**: ${playerName}
+Use your knowledge of this player's current club, position, age, playing style, and market situation as of ${currentDate}.`
+
+  const prompt = `You are an elite football scout giving a verdict on a transfer rumour. Today is ${currentDate}.
+
+## Rumour: ${targetClub} want to sign ${playerName}
+
+## Target Club Manager: ${resolvedManagerName}
+${managerSection}
+
+## Player Profile:
+${playerSection}
+
+## Your Task:
+Give an honest, decisive scout verdict on whether ${targetClub} should sign ${playerName}.
+
+Be opinionated — this is a verdict, not a balance sheet. If it's a good move, say so clearly. If it's wrong, explain why. Reference the manager's specific system demands and whether this player can meet them.
+
+Return ONLY this JSON:
+{
+  "verdictLabel": "Consider it",
+  "fitScore": 7,
+  "headline": "One punchy sentence — lead with the most important thing about this transfer",
+  "whyItWorks": ["Reason 1", "Reason 2", "Reason 3"],
+  "whyItDoesnt": ["Concern 1", "Concern 2"],
+  "roleInSystem": "Exact role this player would play in this manager's system",
+  "needAssessment": "Does this club genuinely need this type of player right now?",
+  "valueAssessment": "Is the likely transfer fee/wages justified given the player's output?",
+  "timing": "Age, contract situation, peak years assessment",
+  "scoutVerdict": "2-3 sentences of full scout reasoning on the complete transfer picture — system fit, value, timing, risk"
+}
+
+verdictLabel must be exactly one of: "Do it" | "Consider it" | "Risky" | "Avoid"
+No other text.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1500,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  const result = extractJSON(sanitizeHomoglyphs(raw), 'object') as Omit<TransferVerdictResult, 'playerName' | 'targetClub' | 'managerName'>
+
+  return {
+    playerName,
+    targetClub,
+    managerName: resolvedManagerName,
+    ...result,
+  }
+}
