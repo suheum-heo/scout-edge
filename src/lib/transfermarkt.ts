@@ -279,3 +279,23 @@ export async function searchClub(name: string): Promise<string | null> {
     return null
   }
 }
+
+export interface TMClubSearchResult {
+  id: string
+  name: string
+  country: string
+  image?: string
+}
+
+/**
+ * Search clubs by name and return full results array (global coverage).
+ */
+export async function searchClubs(query: string): Promise<TMClubSearchResult[]> {
+  try {
+    const encoded = encodeURIComponent(query)
+    const data = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded}`)
+    return data.results || []
+  } catch {
+    return []
+  }
+}

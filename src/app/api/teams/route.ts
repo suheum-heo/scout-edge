@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { searchFDTeams } from '@/lib/football-data'
 import { searchLocalTeams } from '@/lib/teams-db'
 import { searchTeams as fotmobSearchTeams } from '@/lib/fotmob'
+import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
 
 function normalizeName(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
@@ -68,7 +69,23 @@ export async function GET(request: NextRequest) {
       .map((t) => ({ ...t, team: { ...t.team, source: 'fotmob' as const } }))
 
     const merged = [...fdResults, ...fmOnly].slice(0, 8)
-    return NextResponse.json({ teams: merged })
+    if (merged.length > 0) {
+      return NextResponse.json({ teams: merged })
+    }
+
+    // Nothing from FD or FotMob — use Transfermarkt for global coverage
+    const tmResults = await tmSearchClubs(query)
+    const tmTeams = tmResults.slice(0, 8).map((c) => ({
+      team: {
+        id: c.id as unknown as number, // TM ID is a string — cast for type compat
+        name: c.name,
+        country: c.country,
+        logo: c.image ?? '',
+        source: 'tm' as const,
+      },
+      venue: { name: '', city: '' },
+    }))
+    return NextResponse.json({ teams: tmTeams })
   } catch (error) {
     console.error('Team search error:', error)
     return NextResponse.json({ error: 'Failed to search teams' }, { status: 500 })

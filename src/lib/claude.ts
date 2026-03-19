@@ -188,9 +188,15 @@ Return [] if no players have a meaningfully different real role. No other text.`
 
 // Analyze a squad against a manager's tactical profile
 // manager can be null — Claude will infer the profile from managerName using its own knowledge
+interface MinimalSquadPlayer {
+  name: string; position: string; age: number; nationality: string;
+  appearances: number; goals: number; assists: number; minutes: number;
+  rating: string; tackles?: number; interceptions?: number;
+}
+
 export async function analyzeSquadGaps(
   manager: ManagerProfile | null,
-  squadPlayers: ReturnType<typeof formatPlayerStats>[],
+  squadPlayers: (MinimalSquadPlayer | null)[],
   teamName: string,
   managerName?: string,
   unavailablePlayers?: { name: string; position: string }[]

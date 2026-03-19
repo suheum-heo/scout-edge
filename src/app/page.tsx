@@ -16,7 +16,7 @@ import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
 interface Team {
-  team: { id: number; name: string; country: string; logo: string; source?: 'af' | 'fotmob'; fotmobId?: number }
+  team: { id: number | string; name: string; country: string; logo: string; source?: 'af' | 'fotmob' | 'tm'; fotmobId?: number }
   venue: { name: string; city: string }
 }
 

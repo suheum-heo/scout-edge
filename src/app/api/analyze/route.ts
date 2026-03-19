@@ -9,6 +9,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
+import { getClubSquad } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -25,10 +26,37 @@ export async function POST(request: NextRequest) {
 
     let squadRaw: APIPlayer[] = []
     let fotmobSquad: FotmobAPIPlayer[] = []
+    let tmFormattedSquad: Array<{
+      playerId: string; name: string; position: string; age: number; nationality: string;
+      appearances: number; minutes: number; rating: string; goals: number; assists: number; currentTeam: string;
+    }> | null = null
     let coach: APICoach | null = null
     let usedFotmob = false
 
-    if (teamSource === 'fotmob') {
+    if (teamSource === 'tm') {
+      // Transfermarkt club — global coverage, no FotMob ID needed
+      console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad from Transfermarkt`)
+      try {
+        const tmPlayers = await getClubSquad(String(teamId))
+        if (tmPlayers.length) {
+          tmFormattedSquad = tmPlayers.map((p) => ({
+            playerId: p.id,
+            name: p.name,
+            position: p.position,
+            age: p.age ?? 0,
+            nationality: p.nationality,
+            appearances: 0,
+            minutes: 0,
+            rating: '0',
+            goals: 0,
+            assists: 0,
+            currentTeam: teamName,
+          }))
+        }
+      } catch (e) {
+        console.error('[analyze] TM squad fetch failed:', e)
+      }
+    } else if (teamSource === 'fotmob') {
       // FotMob ID — direct squad fetch, no re-search needed
       console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
       try {
@@ -115,7 +143,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!fotmobSquad.length && !squadRaw.length) {
+    if (!tmFormattedSquad && !fotmobSquad.length && !squadRaw.length) {
       return NextResponse.json(
         { error: `Could not fetch squad data for ${teamName}. The club may not be covered by our data providers yet.` },
         { status: 404 }
@@ -131,7 +159,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Format player stats — use the formatter matching the data source
-    const squad = usedFotmob
+    const squad = tmFormattedSquad
+      ? tmFormattedSquad
+      : usedFotmob
       ? fotmobSquad.map(fotmobFormatPlayerStats).filter(Boolean)
       : squadRaw.map((p) => formatPlayerStats(p) ?? afFormatPlayerStats(p)).filter(Boolean)
 
