@@ -16,7 +16,7 @@ function budgetRange(budget: string): { min: number; max: number } | null {
   return null // Loan / Free agent — no price filter
 }
 
-const TM_TIMEOUT_PER_PLAYER_MS = 6000
+const TM_TIMEOUT_PER_PLAYER_MS = 15000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])

@@ -13,11 +13,17 @@ async function tmFetch<T>(path: string): Promise<T> {
   const cached = cache.get(path)
   if (cached && cached.expires > Date.now()) return cached.data as T
 
-  const res = await fetch(`${TM_BASE}${path}`)
-  if (!res.ok) throw new Error(`TM API ${res.status}: ${path}`)
-  const data = await res.json() as T
-  cache.set(path, { data, expires: Date.now() + TTL })
-  return data
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(`${TM_BASE}${path}`, { signal: controller.signal })
+    if (!res.ok) throw new Error(`TM API ${res.status}: ${path}`)
+    const data = await res.json() as T
+    cache.set(path, { data, expires: Date.now() + TTL })
+    return data
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
