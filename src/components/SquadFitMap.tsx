@@ -43,6 +43,13 @@ function Legend() {
 
 // ── Player row ─────────────────────────────────────────────────────────────────
 
+function seScoreColor(score: number) {
+  if (score >= 80) return 'text-emerald-400'
+  if (score >= 65) return 'text-blue-400'
+  if (score >= 50) return 'text-slate-300'
+  return 'text-slate-500'
+}
+
 function PlayerRow({ player }: { player: PlayerSystemFit }) {
   const cfg = FIT_CONFIG[player.fitLabel] ?? FIT_CONFIG['Rotation']
   const barWidth = `${Math.round((player.fitScore / 10) * 100)}%`
@@ -51,7 +58,7 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
     <div className={`flex items-start gap-3 py-2.5 px-3 rounded-lg ${
       player.fitLabel === 'Sell Candidate' ? 'bg-red-500/5 border border-red-500/10' : ''
     }`}>
-      {/* Score bar */}
+      {/* Fit score bar */}
       <div className="flex-shrink-0 w-8 text-right">
         <span className="text-white text-sm font-bold leading-none">{player.fitScore}</span>
         <div className="w-8 h-1 bg-slate-700 rounded-full mt-1.5 overflow-hidden">
@@ -66,9 +73,6 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${cfg.badge}`}>
             {player.fitLabel}
           </span>
-          {player.scoutScore != null && (
-            <span className="text-slate-400 text-[10px]">SE {player.scoutScore}</span>
-          )}
           {player.valueLabel === 'Undervalued' && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-emerald-500/15 border-emerald-500/30 text-emerald-400 uppercase tracking-wide">
               Undervalued
@@ -83,6 +87,16 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
         </div>
         <p className="text-slate-500 text-xs mt-0.5 leading-relaxed">{player.reason}</p>
       </div>
+
+      {/* ScoutEdge Score */}
+      {player.scoutScore != null && (
+        <div className="flex-shrink-0 text-right">
+          <span className={`text-base font-bold leading-none ${seScoreColor(player.scoutScore)}`}>
+            {player.scoutScore}
+          </span>
+          <div className="text-slate-600 text-[9px] uppercase tracking-wider mt-0.5">SE</div>
+        </div>
+      )}
     </div>
   )
 }
