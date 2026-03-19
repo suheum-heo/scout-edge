@@ -45,14 +45,10 @@ const COUNTRY_ISO: Record<string, string> = {
   'democratic republic of congo': 'cd',
 }
 
-/** Returns a flag CDN URL if the club name matches its country (= national team), else null. */
-function nationalTeamFlag(name: string, country: string): string | null {
-  const n = normalizeName(name)
-  const c = normalizeName(country)
-  if (n !== c) return null
-  const iso = COUNTRY_ISO[n] ?? COUNTRY_ISO[c]
-  if (!iso) return null
-  return `https://flagcdn.com/w80/${iso}.png`
+/** Returns a flag CDN URL if the club name is a known country (= national team), else null. */
+function nationalTeamFlag(name: string): string | null {
+  const iso = COUNTRY_ISO[normalizeName(name)]
+  return iso ? `https://flagcdn.com/w80/${iso}.png` : null
 }
 
 export async function GET(request: NextRequest) {
@@ -100,39 +96,45 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ teams: enriched })
     }
 
-    // Run FD and FotMob in parallel.
-    // FD: European leagues (has correct squad IDs for analysis).
-    // FotMob: everything else — always returns official current names and logos.
-    const [fdResults, fmResults] = await Promise.all([
+    // Run FD, FotMob, and TM in parallel.
+    // FD: European leagues (correct squad IDs). FotMob: global clubs + logos.
+    // TM: global fallback including national teams — always run so they appear alongside clubs.
+    const [fdResults, fmResults, tmResults] = await Promise.all([
       searchFDTeams(query),
       fotmobSearchTeams(query),
+      tmSearchClubs(query),
     ])
 
-    // Merge: FD results first (preferred — correct squad IDs for European teams),
-    // then FotMob results not already covered by FD (deduplicated by normalized name).
-    const fdNames = new Set(fdResults.map((t) => normalizeName(t.team.name)))
-    const fmOnly = fmResults
-      .filter((t) => !fdNames.has(normalizeName(t.team.name)))
-      .map((t) => ({ ...t, team: { ...t.team, source: 'fotmob' as const } }))
+    // Merge: FD first, then FotMob-only, then TM-only — deduplicated by normalized name.
+    const seenNames = new Set<string>()
+    const merged: Array<{ team: { id: number | string; name: string; country: string; logo: string; source?: string }; venue: { name: string; city: string } }> = []
 
-    const merged = [...fdResults, ...fmOnly].slice(0, 8)
-    if (merged.length > 0) {
-      return NextResponse.json({ teams: merged })
+    for (const t of fdResults) {
+      const key = normalizeName(t.team.name)
+      if (!seenNames.has(key)) { seenNames.add(key); merged.push(t) }
+    }
+    for (const t of fmResults) {
+      const key = normalizeName(t.team.name)
+      if (!seenNames.has(key)) { seenNames.add(key); merged.push({ ...t, team: { ...t.team, source: 'fotmob' as const } }) }
+    }
+    for (const c of tmResults) {
+      const key = normalizeName(c.name)
+      if (!seenNames.has(key)) {
+        seenNames.add(key)
+        merged.push({
+          team: {
+            id: c.id as unknown as number,
+            name: c.name,
+            country: c.country,
+            logo: nationalTeamFlag(c.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${c.id}.png`,
+            source: 'tm' as const,
+          },
+          venue: { name: '', city: '' },
+        })
+      }
     }
 
-    // Nothing from FD or FotMob — use Transfermarkt for global coverage
-    const tmResults = await tmSearchClubs(query)
-    const tmTeams = tmResults.slice(0, 8).map((c) => ({
-      team: {
-        id: c.id as unknown as number, // TM ID is a string — cast for type compat
-        name: c.name,
-        country: c.country,
-        logo: nationalTeamFlag(c.name, c.country) ?? `https://tmssl.akamaized.net/images/wappen/head/${c.id}.png`,
-        source: 'tm' as const,
-      },
-      venue: { name: '', city: '' },
-    }))
-    return NextResponse.json({ teams: tmTeams })
+    return NextResponse.json({ teams: merged.slice(0, 8) })
   } catch (error) {
     console.error('Team search error:', error)
     return NextResponse.json({ error: 'Failed to search teams' }, { status: 500 })
