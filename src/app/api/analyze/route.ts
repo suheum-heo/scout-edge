@@ -26,7 +26,7 @@ function isNationalTeam(name: string): boolean {
   return FIFA_NATIONS.has(name.toLowerCase().trim())
 }
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
-import { getSquad, getCoach, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
+import { getSquad, getCoach, searchTeams as afSearchTeams, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
   searchTeams as fotmobSearchTeams,
   getSquadAndCoach as fotmobGetSquadAndCoach,
@@ -58,27 +58,23 @@ export async function POST(request: NextRequest) {
     let usedFotmob = false
 
     if (teamSource === 'tm') {
-      // Transfermarkt club — global coverage, no FotMob ID needed
-      console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad from Transfermarkt`)
-      try {
-        const tmPlayers = await getClubSquad(String(teamId))
-        if (tmPlayers.length) {
-          tmFormattedSquad = tmPlayers.map((p) => ({
-            playerId: p.id,
-            name: p.name,
-            position: p.position,
-            age: p.age ?? 0,
-            nationality: p.nationality,
-            appearances: 0,
-            minutes: 0,
-            rating: '0',
-            goals: 0,
-            assists: 0,
-            currentTeam: teamName,
-          }))
-        }
-      } catch (e) {
-        console.error('[analyze] TM squad fetch failed:', e)
+      // Transfermarkt club — squad from TM, coach from API Football (search by name)
+      console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
+      const [tmPlayers, afTeams] = await Promise.all([
+        getClubSquad(String(teamId)).catch(() => []),
+        isNationalTeam(teamName) ? Promise.resolve([]) : afSearchTeams(teamName).catch(() => []),
+      ])
+      if (tmPlayers.length) {
+        tmFormattedSquad = tmPlayers.map((p) => ({
+          playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
+          nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
+          goals: 0, assists: 0, currentTeam: teamName,
+        }))
+      }
+      if (afTeams.length && !coach) {
+        try {
+          coach = await getCoach(afTeams[0].team.id)
+        } catch { /* coach stays null */ }
       }
     } else if (teamSource === 'fotmob') {
       // FotMob ID — direct squad fetch, no re-search needed
@@ -94,52 +90,30 @@ export async function POST(request: NextRequest) {
         console.error('[analyze] FotMob direct fetch failed:', e)
       }
     } else if (teamSource === 'af') {
-      // 'af' fallback: FotMob search by name (team enrichment failed earlier), then AF
-      console.log(`[analyze] AF team ${teamName}, trying FotMob by name`)
+      // Always get coach from AF first — we have the AF team ID, it covers all leagues
+      try { coach = await getCoach(teamId) } catch { /* coach stays null */ }
+
+      // FotMob search is broken; try TM for accurate current squad
+      console.log(`[analyze] AF team ${teamName}, fetching squad via TM then AF`)
       try {
-        const fmTeams = await fotmobSearchTeams(teamName)
-        const fmTeam = fmTeams[0]
-        if (fmTeam) {
-          const result = await fotmobGetSquadAndCoach(fmTeam.team.id)
-          if (result.squad.length) {
-            fotmobSquad = result.squad
-            usedFotmob = true
-            if (result.coach) coach = result.coach as unknown as APICoach
+        const tmId = await searchClub(teamName)
+        if (tmId) {
+          const tmPlayers = await getClubSquad(tmId)
+          if (tmPlayers.length) {
+            tmFormattedSquad = tmPlayers.map((p) => ({
+              playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
+              nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
+              goals: 0, assists: 0, currentTeam: teamName,
+            }))
           }
         }
       } catch (e) {
-        console.error('[analyze] FotMob fetch failed:', e)
+        console.error('[analyze] TM squad failed:', e)
       }
 
-      if (!usedFotmob) {
-        // Try TM before AF — more accurate for non-European leagues (K-League, Saudi, MLS, etc.)
-        console.log(`[analyze] FotMob empty for ${teamName}, trying Transfermarkt`)
-        try {
-          const tmId = await searchClub(teamName)
-          if (tmId) {
-            const tmPlayers = await getClubSquad(tmId)
-            if (tmPlayers.length) {
-              tmFormattedSquad = tmPlayers.map((p) => ({
-                playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
-                nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
-                goals: 0, assists: 0, currentTeam: teamName,
-              }))
-            }
-          }
-        } catch (e) {
-          console.error('[analyze] TM fallback failed:', e)
-        }
-      }
-
-      // Last resort: API Football (limited accuracy, 100 calls/day)
-      if (!usedFotmob && !tmFormattedSquad) {
-        console.log(`[analyze] TM empty for ${teamName}, falling back to API Football`)
-        try {
-          squadRaw = await getSquad(teamId)
-          coach = await getCoach(teamId)
-        } catch (e) {
-          console.error('[analyze] API Football fetch failed:', e)
-        }
+      // Last resort: API Football squad (stale but better than nothing)
+      if (!tmFormattedSquad) {
+        try { squadRaw = await getSquad(teamId) } catch { /* stay empty */ }
       }
     } else {
       // Get FD data + FotMob stats in parallel when fotmobId is already known
