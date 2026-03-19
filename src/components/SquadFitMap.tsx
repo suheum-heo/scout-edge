@@ -66,6 +66,19 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${cfg.badge}`}>
             {player.fitLabel}
           </span>
+          {player.scoutScore != null && (
+            <span className="text-slate-400 text-[10px]">SE {player.scoutScore}</span>
+          )}
+          {player.valueLabel === 'Undervalued' && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-emerald-500/15 border-emerald-500/30 text-emerald-400 uppercase tracking-wide">
+              Undervalued
+            </span>
+          )}
+          {player.valueLabel === 'Overpriced' && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded border bg-red-500/15 border-red-500/30 text-red-400 uppercase tracking-wide">
+              Overpriced
+            </span>
+          )}
           <span className="text-slate-600 text-xs">{player.position} · {player.age}</span>
         </div>
         <p className="text-slate-500 text-xs mt-0.5 leading-relaxed">{player.reason}</p>

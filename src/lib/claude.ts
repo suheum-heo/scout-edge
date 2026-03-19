@@ -123,6 +123,8 @@ export interface PlayerSystemFit {
   fitScore: number   // 1-10
   fitLabel: FitLabel
   reason: string     // one scout sentence
+  scoutScore: number      // 0-100 composite score
+  valueLabel: 'Undervalued' | 'Fair Value' | 'Overpriced'
 }
 
 export interface PlayerCompatibilityResult {
@@ -528,6 +530,17 @@ fitLabel rules:
 
 Be honest — not every team has 11 Key Men. A team with a new manager will have several Poor Fit / Sell Candidate players. Reference the tactical system specifically (e.g. "can't play as a pressing winger", "lacks the ball-playing ability this system requires").
 
+scoutScore (0-100) is a composite score computed as:
+  - System fit (40 pts max): fitScore × 4
+  - Value efficiency (40 pts max): how much quality this player provides relative to their likely market value. A €5M player performing like a €20M player = 38-40pts. A €80M player underperforming = 10-15pts.
+  - Versatility (20 pts max): how many roles can this player credibly fill in this system?
+Higher scoutScore = more valuable to acquire/retain at their price point.
+
+valueLabel rules:
+- "Undervalued": market value is clearly below their output and tactical importance (scoutScore contribution from value efficiency ≥ 32)
+- "Overpriced": market value is clearly above their contribution (value efficiency ≤ 15)
+- "Fair Value": everything else
+
 Return JSON array, one object per player, in the same order as the input:
 [
   {
@@ -536,7 +549,9 @@ Return JSON array, one object per player, in the same order as the input:
     "age": 24,
     "fitScore": 8,
     "fitLabel": "Good Fit",
-    "reason": "One sentence citing a specific tactical reason"
+    "reason": "One sentence citing a specific tactical reason",
+    "scoutScore": 74,
+    "valueLabel": "Fair Value"
   }
 ]
 
@@ -631,6 +646,100 @@ Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "�
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
   return extractJSON(sanitizeHomoglyphs(raw), 'array') as TransferTarget[]
+}
+
+// ── Undervalued XI ────────────────────────────────────────────────────────────
+
+export interface UndervaluedPlayer {
+  playerName: string
+  position: string           // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
+  archetypeLabel: string     // e.g. "Ball-Playing GK", "Inverted Winger", "Press-Resistant #6"
+  age: number
+  nationality: string
+  currentClub: string
+  estimatedValue: string     // "€12M", "€8M", "Free agent"
+  contractUntil: string      // "2025", "2026", "Unknown"
+  whyUndervalued: string     // 2 sentences: why they're a bargain + what they bring tactically
+  scoutScore: number         // 0-100
+  tmVerified?: boolean
+}
+
+export interface UndervaluedXIResult {
+  formation: string          // e.g. "4-3-3"
+  players: UndervaluedPlayer[]  // exactly 11
+  concept: string            // 1-2 sentence overview of this XI's identity
+  totalEstimatedCost: string // e.g. "≈€87M"
+}
+
+export async function generateUndervaluedXI(
+  budget: string,
+  manager: ManagerProfile | null,
+  managerName?: string,
+  teamName?: string
+): Promise<UndervaluedXIResult> {
+  const resolvedName = manager?.name || managerName || 'a modern pressing manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
+    : `Use your knowledge of ${resolvedName}'s preferred tactical system.`
+
+  const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
+
+## Manager: ${resolvedName}
+${managerSection}
+${teamName ? `\n## Buying Club: ${teamName}` : ''}
+
+## Total Budget: ${budget}
+
+## Rules:
+1. Pick exactly 11 players (a complete starting XI) in a formation that suits ${resolvedName}'s system
+2. Every player must be ACTIVELY playing professional football right now
+3. "Undervalued" means: their quality, output, and tactical fit significantly exceed their market value or contract situation. Think: players in smaller leagues punching above their weight, players with expiring contracts whose value has dropped, unfashionable clubs hiding elite talent, or young players who haven't yet attracted big-club attention.
+4. Total estimated transfer cost (fees + free agents) must fit within ${budget}
+5. Spread across leagues — don't pick 11 players from the same league
+6. Use only standard Latin characters in names. Be confident about current clubs.
+
+## ACCURACY RULES (critical):
+- Only recommend currently ACTIVE professional players
+- Only name players whose current club you are highly confident about as of ${currentDate}
+- For players on loan: use their CURRENT loan destination as the club
+- Do NOT confuse players with similar names
+- If unsure about a player's club, skip them and pick someone else
+
+Return ONLY this JSON (no other text):
+{
+  "formation": "4-3-3",
+  "concept": "1-2 sentences describing this XI's identity and why it represents exceptional value",
+  "totalEstimatedCost": "≈€X-YM",
+  "players": [
+    {
+      "playerName": "Full Name",
+      "position": "GK",
+      "archetypeLabel": "Sweeper-Keeper",
+      "age": 26,
+      "nationality": "Country",
+      "currentClub": "Club Name",
+      "estimatedValue": "€8M",
+      "contractUntil": "2026",
+      "whyUndervalued": "2 sentences: why they're a bargain and what they bring to this system",
+      "scoutScore": 78
+    }
+  ]
+}
+
+Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Include exactly 11 players covering every position in your chosen formation.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 3000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'object') as UndervaluedXIResult
 }
 
 // ── V3: Transfer Scenario Simulator ──────────────────────────────────────────

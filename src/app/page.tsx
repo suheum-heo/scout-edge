@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Search, Zap, AlertCircle, ChevronDown, Settings2 } from 'lucide-react'
+import { Search, Zap, AlertCircle, ChevronDown, Settings2, Sparkles } from 'lucide-react'
 import GapCard from '@/components/GapCard'
 import TransferTargetCard from '@/components/TransferTargetCard'
 import SquadFitMap from '@/components/SquadFitMap'
@@ -9,6 +9,7 @@ import AvailabilityEditor from '@/components/AvailabilityEditor'
 import ScenarioBuilder from '@/components/ScenarioBuilder'
 import ScenarioResultCard from '@/components/ScenarioResultCard'
 import ScenarioCompare from '@/components/ScenarioCompare'
+import UndervaluedXI from '@/components/UndervaluedXI'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -59,7 +60,7 @@ export default function HomePage() {
   const [isLoadingRecs, setIsLoadingRecs] = useState(false)
   const [recsError, setRecsError] = useState<string | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'gaps' | 'fit' | 'scenario'>('gaps')
+  const [activeTab, setActiveTab] = useState<'gaps' | 'fit' | 'scenario' | 'xi'>('gaps')
   const [squadFit, setSquadFit] = useState<PlayerSystemFit[]>([])
   const [isLoadingFit, setIsLoadingFit] = useState(false)
   const [fitError, setFitError] = useState<string | null>(null)
@@ -289,7 +290,7 @@ export default function HomePage() {
     })
   }
 
-  const handleSwitchTab = async (tab: 'gaps' | 'fit' | 'scenario') => {
+  const handleSwitchTab = async (tab: 'gaps' | 'fit' | 'scenario' | 'xi') => {
     setActiveTab(tab)
     if (tab === 'scenario') {
       setScenarioError(null)
@@ -598,6 +599,17 @@ export default function HomePage() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => handleSwitchTab('xi')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === 'xi'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Undervalued XI
+              </button>
             </div>
 
             {/* Transfer Gaps tab */}
@@ -779,6 +791,15 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Undervalued XI tab */}
+            {activeTab === 'xi' && (
+              <UndervaluedXI
+                managerId={managerResult?.id}
+                managerName={managerResult?.name}
+                teamName={analysis?.teamName}
+              />
             )}
           </div>
         </div>
