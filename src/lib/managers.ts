@@ -409,7 +409,7 @@ const managers: ManagerProfile[] = [
     id: 'ruben-amorim',
     name: 'Ruben Amorim',
     nationality: 'Portuguese',
-    currentClub: 'Manchester United',
+    currentClub: 'Free Agent',
     formations: ['3-4-2-1', '3-5-2'],
     style: {
       pressing: 'high',
