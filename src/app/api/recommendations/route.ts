@@ -31,8 +31,25 @@ async function enrichOne(target: TransferTarget): Promise<TransferTarget> {
         club: target.currentClub,
       })
       if (!searchResult) return target
+
+      // The search result already has the club — use it as a verified baseline
+      // even if the full profile fetch below times out
+      const searchClub = searchResult.club?.name
+      const searchClubLow = searchClub?.toLowerCase() ?? ''
+      const searchClubValid = !!searchClub &&
+        !searchClubLow.includes('retired') &&
+        !searchClubLow.includes('without club') &&
+        searchClubLow !== '-'
+
       const tmData = await getPlayerData(searchResult.id)
-      if (!tmData) return target
+
+      if (!tmData) {
+        // Profile fetch failed — but we can still verify the club from search
+        return searchClubValid
+          ? { ...target, currentClub: searchClub!, tmVerified: true }
+          : target
+      }
+
       // Don't overwrite with a club that indicates retirement or no-club status
       const clubLow = tmData.currentClub?.toLowerCase() ?? ''
       const isRetiredOrUnknown = !tmData.currentClub ||
