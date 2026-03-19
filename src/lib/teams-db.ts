@@ -7,12 +7,12 @@
  */
 
 export interface LocalTeam {
-  id: number | string  // football-data.org ID (default), AF ID (source:'af'), or TM ID string (source:'tm')
+  id: number | string  // football-data.org ID (default), AF ID (source:'af'), TM ID string (source:'tm'), or FotMob ID (source:'fotmob')
   name: string        // official full display name
   country: string
   aliases: string[]
   logo?: string       // fallback logo URL for non-FD teams (shown if FotMob enrichment fails)
-  source?: 'af' | 'tm'  // 'af' = API Football ID, 'tm' = Transfermarkt ID (string)
+  source?: 'af' | 'tm' | 'fotmob'  // 'af' = API Football ID, 'tm' = Transfermarkt ID (string), 'fotmob' = FotMob ID (squad fetched directly)
   fotmobSearch?: string // override FotMob search query when full name doesn't find the right team
   fotmobId?: number   // FotMob team ID — when set, skips FotMob search entirely
 }
@@ -176,6 +176,14 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 1393, fotmobId: 7978,  name: 'Union Saint-Gilloise',   country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/1393.png', aliases: ['union', 'saint-gilloise', 'usg', 'union st gilloise'] },
   { id: 742,  fotmobId: 9987,  name: 'KRC Genk',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/742.png',  aliases: ['genk', 'racing genk'] },
   { id: 740,  fotmobId: 9988,  name: 'Antwerp',                country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/740.png',  aliases: ['royal antwerp', 'rafc'] },
+
+  // ── Norwegian Eliteserien (FotMob IDs, source: 'fotmob') ─────────────────
+  { id: 8402, source: 'fotmob', name: 'Bodø/Glimt',           country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8402_small.png', aliases: ['bodo', 'bodo/glimt', 'glimt'] },
+  { id: 8422, source: 'fotmob', name: 'Rosenborg BK',         country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8422_small.png', aliases: ['rosenborg', 'rbk', 'trondhjems'] },
+  { id: 8468, source: 'fotmob', name: 'SK Brann',             country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8468_small.png', aliases: ['brann', 'bergen'] },
+  { id: 9917, source: 'fotmob', name: 'Molde FK',             country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/9917_small.png', aliases: ['molde'] },
+  { id: 8007, source: 'fotmob', name: 'Vålerenga',            country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8007_small.png', aliases: ['valerenga', 'vif'] },
+  { id: 8478, source: 'fotmob', name: 'Viking FK',            country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8478_small.png', aliases: ['viking', 'stavanger'] },
 ]
 
 function normalize(s: string): string {
@@ -187,7 +195,7 @@ function normalize(s: string): string {
 }
 
 export function searchLocalTeams(query: string): Array<{
-  team: { id: number | string; name: string; country: string; logo: string; source?: 'af' | 'tm'; fotmobSearch?: string; fotmobId?: number }
+  team: { id: number | string; name: string; country: string; logo: string; source?: 'af' | 'tm' | 'fotmob'; fotmobSearch?: string; fotmobId?: number }
   venue: { name: string; city: string }
 }> {
   const q = normalize(query)

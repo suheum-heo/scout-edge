@@ -5,7 +5,7 @@ export const maxDuration = 60
 // Minimal FIFA nation set for national team detection
 const FIFA_NATIONS = new Set([
   'afghanistan','albania','algeria','andorra','angola','argentina','armenia','australia','austria','azerbaijan',
-  'bahrain','bangladesh','belgium','bolivia','bosnia-herzegovina','botswana','brazil','bulgaria','burkina faso','burundi',
+  'bahrain','bangladesh','belgium','bolivia','bosnia-herzegovina','botswana','brazil','bulgaria','burkina faso','burundi','cambodia',
   'cameroon','canada','cape verde','chile','china','colombia','comoros','congo','costa rica','croatia','cuba',
   'czech republic','czechia','denmark','dr congo','ecuador','egypt','el salvador','england','estonia','ethiopia',
   'finland','france','gabon','gambia','georgia','germany','ghana','greece','guatemala','guinea','guinea-bissau',
