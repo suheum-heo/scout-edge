@@ -5,6 +5,7 @@ import { Search, Zap, AlertCircle, ChevronDown, Settings2 } from 'lucide-react'
 import GapCard from '@/components/GapCard'
 import TransferTargetCard from '@/components/TransferTargetCard'
 import SquadFitMap from '@/components/SquadFitMap'
+import AvailabilityEditor from '@/components/AvailabilityEditor'
 import ScenarioBuilder from '@/components/ScenarioBuilder'
 import ScenarioResultCard from '@/components/ScenarioResultCard'
 import ScenarioCompare from '@/components/ScenarioCompare'
@@ -62,6 +63,8 @@ export default function HomePage() {
   const [squadFit, setSquadFit] = useState<PlayerSystemFit[]>([])
   const [isLoadingFit, setIsLoadingFit] = useState(false)
   const [fitError, setFitError] = useState<string | null>(null)
+
+  const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set())
 
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([])
   const [isRunningScenario, setIsRunningScenario] = useState(false)
@@ -128,21 +131,36 @@ export default function HomePage() {
     setSquadFit([])
     setScenarios([])
     setCompareIds(null)
+    setUnavailableIds(new Set())
     setActiveTab('gaps')
     setError(null)
   }
 
-  const handleAnalyze = async () => {
+  const handleToggleUnavailable = (playerId: string) => {
+    setUnavailableIds(prev => {
+      const next = new Set(prev)
+      next.has(playerId) ? next.delete(playerId) : next.add(playerId)
+      return next
+    })
+  }
+
+  const handleAnalyze = async (excludeIds?: Set<string>) => {
     if (!selectedTeam) return
+    const isReAnalyse = !!excludeIds
     setIsAnalyzing(true)
     setError(null)
     setAnalysis(null)
-    setSquad([])
     setSelectedGap(null)
     setRecommendations([])
     setSquadFit([])
+    setScenarios([])
     setActiveTab('gaps')
     setFitError(null)
+    // On fresh analyse, reset squad + unavailability; on re-analyse keep them
+    if (!isReAnalyse) {
+      setSquad([])
+      setUnavailableIds(new Set())
+    }
 
     try {
       const res = await fetch('/api/analyze', {
@@ -154,6 +172,7 @@ export default function HomePage() {
           managerId: selectedManagerId || undefined,
           teamSource: selectedTeam.team.source,
           fotmobId: selectedTeam.team.fotmobId,
+          excludedPlayerIds: excludeIds ? [...excludeIds] : undefined,
         }),
       })
 
@@ -431,7 +450,7 @@ export default function HomePage() {
 
         {/* Analyze button */}
         <button
-          onClick={handleAnalyze}
+          onClick={() => handleAnalyze()}
           disabled={!selectedTeam || isAnalyzing}
           className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
@@ -520,6 +539,26 @@ export default function HomePage() {
               </div>
             </div>
           </div>
+
+          {/* Availability editor + re-analyse */}
+          {squad.length > 0 && (
+            <div className="mb-2">
+              <AvailabilityEditor
+                squad={squad}
+                unavailableIds={unavailableIds}
+                onToggle={handleToggleUnavailable}
+              />
+              {unavailableIds.size > 0 && (
+                <button
+                  onClick={() => handleAnalyze(unavailableIds)}
+                  disabled={isAnalyzing}
+                  className="w-full mb-5 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-600/80 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors"
+                >
+                  {isAnalyzing ? 'Re-analysing…' : `Re-analyse without ${unavailableIds.size} unavailable player${unavailableIds.size > 1 ? 's' : ''}`}
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Tab switcher */}
           <div>

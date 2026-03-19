@@ -16,7 +16,8 @@ import type { SquadPlayer } from '@/lib/role-profiles'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { teamId, teamName, managerId, teamSource, fotmobId } = body
+    const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds } = body
+    const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
     if (teamId == null || !teamName) {
       return NextResponse.json({ error: 'teamId and teamName are required' }, { status: 400 })
@@ -141,10 +142,7 @@ export async function POST(request: NextRequest) {
       console.log('[analyze] Defenders:', defenders.map((p) => `${(p as { name: string }).name}(pos:${(p as { position?: string }).position},rtg:${(p as { rating?: string }).rating ?? '0'})`).join(', '))
     }
 
-    // Analyze with Claude — null manager triggers Claude's own tactical knowledge
-    const analysis = await analyzeSquadGaps(manager || null, squad, teamName, coachName)
-
-    // Build the minimal squad shape for lazy role-profile inference on gap click
+    // Build the full squad shape first (needed for both analysis and response)
     const squadPlayers: SquadPlayer[] = squad
       .filter(Boolean)
       .map((p) => ({
@@ -155,6 +153,14 @@ export async function POST(request: NextRequest) {
         nationality: (p as { nationality?: string }).nationality ?? '',
       }))
       .filter((p) => p.playerId && p.name)
+
+    // Filter excluded players (injured/suspended) before passing to Claude
+    const availableSquad = excludedSet.size > 0
+      ? squad.filter((p) => p && !excludedSet.has(String((p as { playerId?: number }).playerId ?? '')))
+      : squad
+
+    // Analyze with Claude — null manager triggers Claude's own tactical knowledge
+    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, coachName)
 
     return NextResponse.json({
       analysis,
