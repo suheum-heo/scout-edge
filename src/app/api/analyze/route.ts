@@ -9,7 +9,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
-import { getClubSquad } from '@/lib/transfermarkt'
+import { getClubSquad, searchClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -96,6 +96,26 @@ export async function POST(request: NextRequest) {
           console.error('[analyze] API Football fetch failed:', e)
         }
       }
+
+      // Last resort: TM squad — covers non-European leagues (K-League, Saudi, MLS, etc.)
+      if (!usedFotmob && !squadRaw.length) {
+        console.log(`[analyze] AF+FotMob empty for ${teamName}, trying Transfermarkt`)
+        try {
+          const tmId = await searchClub(teamName)
+          if (tmId) {
+            const tmPlayers = await getClubSquad(tmId)
+            if (tmPlayers.length) {
+              tmFormattedSquad = tmPlayers.map((p) => ({
+                playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
+                nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
+                goals: 0, assists: 0, currentTeam: teamName,
+              }))
+            }
+          }
+        } catch (e) {
+          console.error('[analyze] TM fallback failed:', e)
+        }
+      }
     } else {
       // Get FD data + FotMob stats in parallel when fotmobId is already known
       const fmId: number | null = fotmobId ?? null
@@ -143,7 +163,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (!tmFormattedSquad && !fotmobSquad.length && !squadRaw.length) {
+    const hasSquadData = !!(tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length)
+    // National teams (source=tm) may have empty TM squad data — let Claude use own knowledge.
+    // All other sources 404 when empty since we expect real data from FD/FotMob/AF/TM.
+    if (!hasSquadData && teamSource !== 'tm') {
       return NextResponse.json(
         { error: `Could not fetch squad data for ${teamName}. The club may not be covered by our data providers yet.` },
         { status: 404 }
