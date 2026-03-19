@@ -49,6 +49,9 @@ export default function RootLayout({
               <Link href="/verdict" className="text-slate-400 hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">
                 Verdict
               </Link>
+              <Link href="/build" className="text-slate-400 hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors">
+                Build XI
+              </Link>
             </div>
           </div>
         </nav>

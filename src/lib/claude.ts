@@ -996,3 +996,99 @@ No other text.`
     ...result,
   }
 }
+
+// ── V5: Manager Identity Mode ─────────────────────────────────────────────────
+
+export interface IdealPlayer {
+  playerName: string
+  position: string        // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF", "WB"
+  archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
+  age: number
+  nationality: string
+  currentClub: string
+  estimatedFee: string    // "€80M", "€120M", "Free agent", "Loan"
+  contractUntil: string   // "2025", "2026", "Unknown"
+  whyIdeal: string        // 2 sentences: why THIS player is the textbook profile for this role in this system
+  systemFitScore: number  // 0-100
+  tmVerified?: boolean
+}
+
+export interface ManagerXIResult {
+  formation: string          // e.g. "4-3-3"
+  managerName: string
+  players: IdealPlayer[]     // exactly 11
+  identity: string           // 2-3 sentences: what makes this XI's identity — the tactical DNA
+  totalEstimatedCost: string // e.g. "≈€620M"
+}
+
+export async function buildManagerXI(
+  manager: ManagerProfile | null,
+  budget: string,
+  managerName?: string
+): Promise<ManagerXIResult> {
+  const resolvedName = manager?.name || managerName || 'the manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')}
+**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
+**Summary**: ${manager.tacticalSummary}
+**Key Principles**: ${manager.keyPrinciples.join('; ')}
+**Positional Requirements**:
+${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
+    : `Use your deep knowledge of ${resolvedName}'s tactical system — their preferred formations, pressing intensity, defensive line, build-up style, positional requirements for each role, and what they demand from players at every position. Be specific to their known system.`
+
+  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Build the ideal starting XI for ${resolvedName}'s system within the stated budget — not bargain hunters, but the players who best embody what this manager demands from each position.
+
+## Manager: ${resolvedName}
+${managerSection}
+
+## Budget: ${budget}
+
+## Rules:
+1. Pick exactly 11 players in a formation that fits ${resolvedName}'s system perfectly
+2. Every player must be ACTIVELY playing professional football right now
+3. These are the IDEAL PROFILE players — the ones who most perfectly embody what ${resolvedName} wants at each position. Not necessarily the most famous, but the most tactically aligned.
+4. Budget constrains the realistic pool: if budget is €100M, you can't fill 11 positions with €50M players each — be realistic about fees. If budget is "Unlimited", pick the absolute best profile players money can buy.
+5. Include players from different leagues for variety.
+
+## ACCURACY RULES (critical):
+- Only recommend currently ACTIVE professional players
+- Be highly confident about current club — if unsure, skip and pick someone else
+- For players on loan: use their CURRENT loan destination
+- Use only standard Latin characters in names
+
+Return ONLY this JSON:
+{
+  "formation": "4-3-3",
+  "managerName": "${resolvedName}",
+  "identity": "2-3 sentences: the tactical DNA of this XI — what makes it uniquely suited to this manager's system and philosophy",
+  "totalEstimatedCost": "≈€XM",
+  "players": [
+    {
+      "playerName": "Full Name",
+      "position": "GK",
+      "archetypeLabel": "Sweeper-Keeper",
+      "age": 27,
+      "nationality": "Country",
+      "currentClub": "Club Name",
+      "estimatedFee": "€45M",
+      "contractUntil": "2027",
+      "whyIdeal": "2 sentences: why this specific player is the textbook profile for this role in ${resolvedName}'s system",
+      "systemFitScore": 92
+    }
+  ]
+}
+
+Position values: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Cover every position in your chosen formation — exactly 11 players.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 3000,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIResult
+}
