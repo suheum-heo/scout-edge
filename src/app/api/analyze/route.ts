@@ -159,8 +159,18 @@ export async function POST(request: NextRequest) {
       ? squad.filter((p) => p && !excludedSet.has(String((p as { playerId?: number }).playerId ?? '')))
       : squad
 
+    // Build unavailable player list for explicit prompt context
+    const unavailablePlayers = excludedSet.size > 0
+      ? squad
+          .filter((p) => p && excludedSet.has(String((p as { playerId?: number }).playerId ?? '')))
+          .map((p) => ({
+            name: (p as { name: string }).name,
+            position: (p as { position?: string }).position ?? '',
+          }))
+      : undefined
+
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
-    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, coachName)
+    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, coachName, unavailablePlayers)
 
     return NextResponse.json({
       analysis,

@@ -190,7 +190,8 @@ export async function analyzeSquadGaps(
   manager: ManagerProfile | null,
   squadPlayers: ReturnType<typeof formatPlayerStats>[],
   teamName: string,
-  managerName?: string
+  managerName?: string,
+  unavailablePlayers?: { name: string; position: string }[]
 ): Promise<SquadAnalysisResult> {
   const resolvedName = manager?.name || managerName || 'Unknown Manager'
 
@@ -252,6 +253,7 @@ ${managerSection}
 ## Current Squad at ${teamName} (as of ${currentDate}):
 ${squadSummary || 'No squad data available'}
 ${!hasStats ? '\n*Note: Per-match stats are not available. Use your knowledge of these players to assess their quality and tactical profile — but treat the squad list above as the authoritative current roster. Do NOT flag a positional gap if a player already listed in the squad can credibly fill that role.*' : !hasFullStats ? '\n*Note: Season appearance/minute data is not available, but FotMob ratings, goals, and assists are shown where non-zero. Use these plus your knowledge of each player to judge quality and recent form. The squad list and position data are authoritative.*' : ''}
+${unavailablePlayers?.length ? `\n## UNAVAILABLE PLAYERS (Injured / Suspended):\nThe following players are confirmed UNAVAILABLE and have been intentionally excluded from the squad list above. Treat each of their positions as a genuine gap requiring cover — do NOT assume the team has working depth at these positions:\n${unavailablePlayers.map((p) => `- ${p.name} (${p.position})`).join('\n')}\nThis is not a data error. These are real absences. If all available cover at a position is now gone, flag it as a critical gap.` : ''}
 
 ## Your Task:
 Analyze the squad and identify:

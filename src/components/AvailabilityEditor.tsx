@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronDown, UserX } from 'lucide-react'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
@@ -26,6 +26,11 @@ const GROUP_LABELS: Record<Group, string> = { GK: 'GK', DEF: 'Defenders', MID: '
 export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: Props) {
   const [open, setOpen] = useState(false)
 
+  // Auto-expand when any player is first marked unavailable
+  useEffect(() => {
+    if (unavailableIds.size > 0) setOpen(true)
+  }, [unavailableIds.size])
+
   const grouped = GROUP_ORDER.reduce((acc, g) => {
     acc[g] = squad.filter(p => posGroup(p.position) === g)
     return acc
@@ -39,22 +44,27 @@ export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: 
         onClick={() => setOpen(o => !o)}
         className="w-full flex items-center justify-between px-4 py-3 bg-slate-800/60 hover:bg-slate-800 transition-colors text-left"
       >
-        <div className="flex items-center gap-2">
-          <UserX className="w-4 h-4 text-slate-400" />
-          <span className="text-slate-300 text-sm font-medium">Squad Availability</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <UserX className="w-4 h-4 text-slate-400 flex-shrink-0" />
+          <div className="min-w-0">
+            <span className="text-slate-300 text-sm font-medium">Squad Availability</span>
+            {!open && count === 0 && (
+              <span className="text-slate-500 text-xs ml-2">Mark injured or suspended players before re-analysing</span>
+            )}
+          </div>
           {count > 0 && (
-            <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+            <span className="bg-red-500/20 border border-red-500/30 text-red-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
               {count} unavailable
             </span>
           )}
         </div>
-        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform flex-shrink-0 ml-2 ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (
         <div className="p-4 border-t border-slate-700/50">
           <p className="text-slate-500 text-xs mb-4">
-            Tap players to mark as injured or suspended — they'll be excluded from the next analysis.
+            Tap players to mark as injured or suspended — they&apos;ll be excluded from the next analysis.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {GROUP_ORDER.map(g => grouped[g].length > 0 && (
