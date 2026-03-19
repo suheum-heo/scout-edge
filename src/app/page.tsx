@@ -28,7 +28,7 @@ interface Manager {
 
 interface ManagerResult {
   id: string | null
-  name: string
+  name: string | null
   currentClub: string
   formations: string[]
   style: Record<string, string> | null
@@ -486,10 +486,10 @@ export default function HomePage() {
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                    {managerResult.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                    {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
                   <div>
-                    <h2 className="text-white font-bold">{managerResult.name}</h2>
+                    <h2 className="text-white font-bold">{managerResult.name ?? 'Unknown Manager'}</h2>
                     <p className="text-slate-500 text-xs">{managerResult.currentClub}</p>
                   </div>
                 </div>
@@ -724,7 +724,7 @@ export default function HomePage() {
                   </div>
                 )}
                 {!isLoadingFit && squadFit.length > 0 && (
-                  <SquadFitMap fits={squadFit} managerName={managerResult.name} />
+                  <SquadFitMap fits={squadFit} managerName={managerResult.name ?? undefined} />
                 )}
               </div>
             )}
@@ -800,7 +800,7 @@ export default function HomePage() {
             {activeTab === 'xi' && (
               <UndervaluedXI
                 managerId={managerResult?.id}
-                managerName={managerResult?.name}
+                managerName={managerResult?.name ?? undefined}
                 teamName={analysis?.teamName}
               />
             )}

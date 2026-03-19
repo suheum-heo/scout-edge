@@ -278,6 +278,7 @@ For positional coverage, treat registered positions as starting points only. Use
 
 Respond in this exact JSON format:
 {
+  "managerName": "Full Name of the current manager",
   "overallAssessment": "2-3 sentence overview of how well this squad suits the manager",
   "tacticalFitScore": 7,
   "squadStrengths": ["strength 1", "strength 2", "strength 3"],
@@ -313,12 +314,18 @@ Be specific and reference actual players from the squad. Urgency levels: critica
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const analysis = extractJSON(text, 'object') as Omit<SquadAnalysisResult, 'managerName' | 'teamName'>
+  const analysis = extractJSON(text, 'object') as Omit<SquadAnalysisResult, 'teamName'>
+
+  // When resolvedName is 'Unknown Manager', Claude inferred the actual name — use it
+  const finalManagerName =
+    resolvedName !== 'Unknown Manager'
+      ? resolvedName
+      : (analysis as { managerName?: string }).managerName || 'Unknown Manager'
 
   return {
-    managerName: resolvedName,
-    teamName,
     ...analysis,
+    managerName: finalManagerName,
+    teamName,
   }
 }
 

@@ -7,12 +7,12 @@
  */
 
 export interface LocalTeam {
-  id: number
+  id: number | string  // football-data.org ID (default), AF ID (source:'af'), or TM ID string (source:'tm')
   name: string        // official full display name
   country: string
   aliases: string[]
   logo?: string       // fallback logo URL for non-FD teams (shown if FotMob enrichment fails)
-  source?: 'af'       // ID is an API Football ID (not football-data.org)
+  source?: 'af' | 'tm'  // 'af' = API Football ID, 'tm' = Transfermarkt ID (string)
   fotmobSearch?: string // override FotMob search query when full name doesn't find the right team
   fotmobId?: number   // FotMob team ID — when set, skips FotMob search entirely
 }
@@ -103,79 +103,79 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 726,  fotmobId: 9925,  name: 'Celtic FC',              country: 'Scotland', aliases: ['celtic', 'bhoys', 'celts'] },
   { id: 733,  fotmobId: 8548,  name: 'Rangers FC',             country: 'Scotland', aliases: ['rangers', 'gers', 'bluenoses'] },
   // ── Turkish Süper Lig (API Football IDs, source: 'af') ────────────────────
-  { id: 611,  name: 'Fenerbahçe',             country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/611.png',  aliases: ['fenerbahce', 'fenerbahce sk', 'fener', 'fb', 'sarikanaryalar'] },
-  { id: 645,  name: 'Galatasaray',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/645.png',  aliases: ['galatasaray sk', 'cimbom', 'gs', 'aslanlar'] },
-  { id: 549,  name: 'Beşiktaş',              country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/549.png',  aliases: ['besiktas', 'besiktas jk', 'bjk', 'kartallar'] },
-  { id: 998,  name: 'Trabzonspor',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/998.png',  aliases: ['trabzon', 'ts', 'firtina'] },
-  { id: 564,  name: 'Başakşehir',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/564.png',  aliases: ['basaksehir', 'istanbul basaksehir', 'ibfk'] },
-  { id: 994,  name: 'Göztepe',               country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/994.png',  aliases: ['goztepe'] },
-  { id: 1002, name: 'Sivasspor',              country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/1002.png', aliases: ['sivas'] },
-  { id: 3563, name: 'Adana Demirspor',        country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/3563.png', aliases: ['adana', 'demirspor'] },
+  { id: 611,  fotmobId: 8695,  name: 'Fenerbahçe',             country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/611.png',  aliases: ['fenerbahce', 'fenerbahce sk', 'fener', 'fb', 'sarikanaryalar'] },
+  { id: 645,  fotmobId: 8637,  name: 'Galatasaray',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/645.png',  aliases: ['galatasaray sk', 'cimbom', 'gs', 'aslanlar'] },
+  { id: 549,  fotmobId: 10188, name: 'Beşiktaş',              country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/549.png',  aliases: ['besiktas', 'besiktas jk', 'bjk', 'kartallar'] },
+  { id: 998,  fotmobId: 9752,  name: 'Trabzonspor',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/998.png',  aliases: ['trabzon', 'ts', 'firtina'] },
+  { id: 564,  fotmobId: 1933,  name: 'Başakşehir',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/564.png',  aliases: ['basaksehir', 'istanbul basaksehir', 'ibfk'] },
+  { id: 994,  fotmobId: 1925,  name: 'Göztepe',               country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/994.png',  aliases: ['goztepe'] },
+  { id: 1002, fotmobId: 6265,  name: 'Sivasspor',              country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/1002.png', aliases: ['sivas'] },
+  { id: 3563, fotmobId: 1926,  name: 'Adana Demirspor',        country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/3563.png', aliases: ['adana', 'demirspor'] },
   // ── MLS (API Football IDs, source: 'af') ───────────────────────────────────
-  { id: 1616, name: 'Los Angeles FC',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1616.png', aliases: ['lafc', 'la fc', 'black and gold'] },
-  { id: 1605, name: 'LA Galaxy',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1605.png', aliases: ['galaxy', 'la galaxy', 'los angeles galaxy', 'lag'] },
-  { id: 9568, name: 'Inter Miami CF',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/9568.png', aliases: ['inter miami', 'miami', 'imcf', 'herons'] },
-  { id: 1608, name: 'Atlanta United FC',      country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1608.png', aliases: ['atlanta united', 'atlanta', 'aufc', 'five stripes'] },
-  { id: 1604, name: 'New York City FC',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1604.png', aliases: ['nycfc', 'nyc fc', 'new york city'] },
-  { id: 1602, name: 'New York Red Bulls',     country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1602.png', aliases: ['ny red bulls', 'nyrb', 'red bulls'] },
-  { id: 1595, name: 'Seattle Sounders',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1595.png', aliases: ['seattle sounders fc', 'sounders', 'ssfc'] },
-  { id: 1617, name: 'Portland Timbers',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1617.png', aliases: ['portland', 'timbers', 'ptfc'] },
-  { id: 1607, name: 'Chicago Fire',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1607.png', aliases: ['chicago fire fc', 'chicago', 'fire', 'cffc'] },
-  { id: 1601, name: 'Toronto FC',             country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1601.png', aliases: ['toronto', 'tfc', 'reds'] },
-  { id: 1614, name: 'CF Montréal',            country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1614.png', aliases: ['montreal', 'cf montreal', 'cfm', 'impact'] },
-  { id: 1613, name: 'Columbus Crew',          country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1613.png', aliases: ['columbus', 'crew'] },
-  { id: 1609, name: 'New England Revolution', country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1609.png', aliases: ['new england', 'revs', 'revolution', 'ne revs'] },
-  { id: 1599, name: 'Philadelphia Union',     country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1599.png', aliases: ['philly union', 'philadelphia', 'union', 'phfu'] },
-  { id: 1615, name: 'DC United',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1615.png', aliases: ['dc united', 'dcu', 'dc'] },
-  { id: 2242, name: 'FC Cincinnati',          country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/2242.png', aliases: ['cincinnati', 'fcc', 'fc cincy'] },
-  { id: 1606, name: 'Real Salt Lake',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1606.png', aliases: ['salt lake', 'rsl'] },
-  { id: 1610, name: 'Colorado Rapids',        country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1610.png', aliases: ['colorado', 'rapids'] },
-  { id: 1611, name: 'Sporting Kansas City',   country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1611.png', aliases: ['sporting kc', 'skc', 'kansas city'] },
-  { id: 1612, name: 'Minnesota United FC',    country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1612.png', aliases: ['minnesota united', 'minnesota', 'mnufc', 'loons'] },
-  { id: 1603, name: 'Vancouver Whitecaps',    country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1603.png', aliases: ['vancouver whitecaps fc', 'whitecaps', 'caps', 'vwfc'] },
-  { id: 1598, name: 'Orlando City SC',        country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1598.png', aliases: ['orlando city', 'orlando', 'ocsc', 'lions'] },
-  { id: 9569, name: 'Nashville SC',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/9569.png', aliases: ['nashville', 'nsc', 'boys in gold'] },
-  { id: 1596, name: 'San Jose Earthquakes',   country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1596.png', aliases: ['san jose', 'earthquakes', 'quakes', 'sjeq'] },
-  { id: 16489,name: 'Austin FC',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/16489.png', aliases: ['austin', 'verde'] },
-  { id: 18310,name: 'Charlotte FC',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/18310.png', aliases: ['charlotte', 'clt fc'] },
-  { id: 20787,name: 'St. Louis City SC',      country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/20787.png', aliases: ['st louis city', 'stlcsc', 'st. louis'] },
-  { id: 1600, name: 'Houston Dynamo',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1600.png', aliases: ['houston', 'dynamo'] },
-  { id: 1597, name: 'FC Dallas',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1597.png', aliases: ['dallas', 'fc dallas', 'burn'] },
+  { id: 1616, fotmobId: 867280, name: 'Los Angeles FC',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1616.png', aliases: ['lafc', 'la fc', 'black and gold'] },
+  { id: 1605, fotmobId: 6637,  name: 'LA Galaxy',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1605.png', aliases: ['galaxy', 'la galaxy', 'los angeles galaxy', 'lag'] },
+  { id: 9568, fotmobId: 960720, name: 'Inter Miami CF',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/9568.png', aliases: ['inter miami', 'miami', 'imcf', 'herons'] },
+  { id: 1608, fotmobId: 773958, name: 'Atlanta United FC',      country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1608.png', aliases: ['atlanta united', 'atlanta', 'aufc', 'five stripes'] },
+  { id: 1604, fotmobId: 546238, name: 'New York City FC',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1604.png', aliases: ['nycfc', 'nyc fc', 'new york city'] },
+  { id: 1602, fotmobId: 6514,  name: 'New York Red Bulls',     country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1602.png', aliases: ['ny red bulls', 'nyrb', 'red bulls'] },
+  { id: 1595, fotmobId: 130394, name: 'Seattle Sounders',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1595.png', aliases: ['seattle sounders fc', 'sounders', 'ssfc'] },
+  { id: 1617, fotmobId: 307690, name: 'Portland Timbers',       country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1617.png', aliases: ['portland', 'timbers', 'ptfc'] },
+  { id: 1607, fotmobId: 6397,  name: 'Chicago Fire',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1607.png', aliases: ['chicago fire fc', 'chicago', 'fire', 'cffc'] },
+  { id: 1601, fotmobId: 56453, name: 'Toronto FC',             country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1601.png', aliases: ['toronto', 'tfc', 'reds'] },
+  { id: 1614, fotmobId: 161195, name: 'CF Montréal',            country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1614.png', aliases: ['montreal', 'cf montreal', 'cfm', 'impact'] },
+  { id: 1613, fotmobId: 6001,  name: 'Columbus Crew',          country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1613.png', aliases: ['columbus', 'crew'] },
+  { id: 1609, fotmobId: 6580,  name: 'New England Revolution', country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1609.png', aliases: ['new england', 'revs', 'revolution', 'ne revs'] },
+  { id: 1599, fotmobId: 191716, name: 'Philadelphia Union',     country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1599.png', aliases: ['philly union', 'philadelphia', 'union', 'phfu'] },
+  { id: 1615, fotmobId: 6602,  name: 'DC United',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1615.png', aliases: ['dc united', 'dcu', 'dc'] },
+  { id: 2242, fotmobId: 722265, name: 'FC Cincinnati',          country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/2242.png', aliases: ['cincinnati', 'fcc', 'fc cincy'] },
+  { id: 1606, fotmobId: 6606,  name: 'Real Salt Lake',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1606.png', aliases: ['salt lake', 'rsl'] },
+  { id: 1610, fotmobId: 8314,  name: 'Colorado Rapids',        country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1610.png', aliases: ['colorado', 'rapids'] },
+  { id: 1611, fotmobId: 6604,  name: 'Sporting Kansas City',   country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1611.png', aliases: ['sporting kc', 'skc', 'kansas city'] },
+  { id: 1612, fotmobId: 207242, name: 'Minnesota United FC',    country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1612.png', aliases: ['minnesota united', 'minnesota', 'mnufc', 'loons'] },
+  { id: 1603, fotmobId: 307691, name: 'Vancouver Whitecaps',    country: 'Canada', source: 'af', logo: 'https://media.api-sports.io/football/teams/1603.png', aliases: ['vancouver whitecaps fc', 'whitecaps', 'caps', 'vwfc'] },
+  { id: 1598, fotmobId: 267810, name: 'Orlando City SC',        country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1598.png', aliases: ['orlando city', 'orlando', 'ocsc', 'lions'] },
+  { id: 9569, fotmobId: 915807, name: 'Nashville SC',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/9569.png', aliases: ['nashville', 'nsc', 'boys in gold'] },
+  { id: 1596, fotmobId: 6603,  name: 'San Jose Earthquakes',   country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1596.png', aliases: ['san jose', 'earthquakes', 'quakes', 'sjeq'] },
+  { id: 16489,fotmobId: 1218886, name: 'Austin FC',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/16489.png', aliases: ['austin', 'verde'] },
+  { id: 18310,fotmobId: 1323940, name: 'Charlotte FC',           country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/18310.png', aliases: ['charlotte', 'clt fc'] },
+  { id: 20787,fotmobId: 1427963, name: 'St. Louis City SC',      country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/20787.png', aliases: ['st louis city', 'stlcsc', 'st. louis'] },
+  { id: 1600, fotmobId: 8259,  name: 'Houston Dynamo',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1600.png', aliases: ['houston', 'dynamo'] },
+  { id: 1597, fotmobId: 6399,  name: 'FC Dallas',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1597.png', aliases: ['dallas', 'fc dallas', 'burn'] },
   // ── K League 1 (API Football IDs, source: 'af') ────────────────────────────
   // name = full official display name; fotmobSearch = short query that FotMob can actually find
-  { id: 2762, name: 'Jeonbuk Hyundai Motors FC', country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2762.png', fotmobSearch: 'Jeonbuk', aliases: ['jeonbuk', 'jeonbuk motors', 'jeonbuk fc', 'green warriors'] },
-  { id: 2767, name: 'Ulsan HD FC',           country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133896_small.png', fotmobSearch: 'Ulsan HD', aliases: ['ulsan', 'ulsan hd fc', 'ulsan hyundai', 'tigers'] },
-  { id: 2766, name: 'FC Seoul',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2766.png', aliases: ['seoul', 'super match'] },
-  { id: 2764, name: 'Pohang Steelers',       country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2764.png', aliases: ['pohang', 'steelers'] },
+  { id: 2762, fotmobId: 46038,  name: 'Jeonbuk Hyundai Motors FC', country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2762.png', fotmobSearch: 'Jeonbuk', aliases: ['jeonbuk', 'jeonbuk motors', 'jeonbuk fc', 'green warriors'] },
+  { id: 2767, fotmobId: 133896, name: 'Ulsan HD FC',           country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133896_small.png', fotmobSearch: 'Ulsan HD', aliases: ['ulsan', 'ulsan hd fc', 'ulsan hyundai', 'tigers'] },
+  { id: 2766, fotmobId: 92630,  name: 'FC Seoul',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2766.png', aliases: ['seoul', 'super match'] },
+  { id: 2764, fotmobId: 109373, name: 'Pohang Steelers',       country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2764.png', aliases: ['pohang', 'steelers'] },
   { id: 2747, name: 'Daegu FC',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2747.png', aliases: ['daegu'] },
-  { id: 2746, name: 'Gangwon FC',            country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2746.png', aliases: ['gangwon'] },
-  { id: 2763, name: 'Incheon United FC',     country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2763.png', fotmobSearch: 'Incheon United', aliases: ['incheon', 'incheon united'] },
-  { id: 2750, name: 'Daejeon Hana Citizen',  country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2750.png', fotmobSearch: 'Daejeon', aliases: ['daejeon', 'daejeon citizen', 'hana citizen'] },
-  { id: 2759, name: 'Gwangju FC',            country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2759.png', aliases: ['gwangju'] },
-  { id: 2761, name: 'Jeju SK',               country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133898_small.png', fotmobSearch: 'Jeju SK', aliases: ['jeju', 'jeju united', 'jeju united fc', 'jeju sk'] },
+  { id: 2746, fotmobId: 164734, name: 'Gangwon FC',            country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2746.png', aliases: ['gangwon'] },
+  { id: 2763, fotmobId: 133895, name: 'Incheon United FC',     country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2763.png', fotmobSearch: 'Incheon United', aliases: ['incheon', 'incheon united'] },
+  { id: 2750, fotmobId: 133900, name: 'Daejeon Hana Citizen',  country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2750.png', fotmobSearch: 'Daejeon', aliases: ['daejeon', 'daejeon citizen', 'hana citizen'] },
+  { id: 2759, fotmobId: 245905, name: 'Gwangju FC',            country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2759.png', aliases: ['gwangju'] },
+  { id: 2761, fotmobId: 133898, name: 'Jeju SK',               country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133898_small.png', fotmobSearch: 'Jeju SK', aliases: ['jeju', 'jeju united', 'jeju united fc', 'jeju sk'] },
   { id: 2765, name: 'Suwon Samsung Bluewings', country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2765.png', fotmobSearch: 'Suwon Bluewings', aliases: ['suwon bluewings', 'suwon samsung', 'bluewings'] },
-  { id: 2768, name: 'Gimcheon Sangmu FC',    country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2768.png', fotmobSearch: 'Gimcheon Sangmu', aliases: ['gimcheon', 'sangmu', 'gimcheon sangmu'] },
-  { id: 0,    name: 'Suwon FC',              country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/187951_small.png', fotmobSearch: 'Suwon FC', aliases: ['suwon', 'suwon city', 'suwon city fc'] },
-  { id: 0,    name: 'Bucheon FC 1995',       country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/429441_small.png', fotmobSearch: 'Bucheon FC', aliases: ['bucheon', 'bucheon 1995', 'bucheon fc'] },
-  { id: 0,    name: 'FC Anyang',             country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/429440_small.png', fotmobSearch: 'FC Anyang', aliases: ['anyang'] },
+  { id: 2768, fotmobId: 133901, name: 'Gimcheon Sangmu FC',    country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2768.png', fotmobSearch: 'Gimcheon Sangmu', aliases: ['gimcheon', 'sangmu', 'gimcheon sangmu'] },
+  { id: '31622', name: 'Suwon FC',              country: 'South Korea', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/31622.png', aliases: ['suwon', 'suwon city', 'suwon city fc'] },
+  { id: '35759', fotmobId: 429441, name: 'Bucheon FC 1995',       country: 'South Korea', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/35759.png', aliases: ['bucheon', 'bucheon 1995', 'bucheon fc'] },
+  { id: '38898', fotmobId: 429440, name: 'FC Anyang',             country: 'South Korea', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/38898.png', aliases: ['anyang'] },
   // ── J1 League (API Football IDs, source: 'af') ─────────────────────────────
-  { id: 289,  name: 'Vissel Kobe',            country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/289.png',  aliases: ['kobe', 'vissel'] },
-  { id: 287,  name: 'Urawa Red Diamonds',     country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/287.png',  aliases: ['urawa', 'red diamonds', 'urawa reds'] },
-  { id: 293,  name: 'Gamba Osaka',            country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/293.png',  aliases: ['gamba', 'gamba osaka'] },
-  { id: 290,  name: 'Kashima Antlers',        country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/290.png',  aliases: ['kashima', 'antlers'] },
-  { id: 291,  name: 'Cerezo Osaka',           country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/291.png',  aliases: ['cerezo'] },
-  { id: 294,  name: 'Kawasaki Frontale',      country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/294.png',  aliases: ['kawasaki', 'frontale'] },
-  { id: 296,  name: 'Yokohama F. Marinos',    country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/296.png',  aliases: ['yokohama', 'marinos', 'f marinos'] },
-  { id: 282,  name: 'Sanfrecce Hiroshima',    country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/282.png',  aliases: ['hiroshima', 'sanfrecce'] },
-  { id: 288,  name: 'Nagoya Grampus',         country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/288.png',  aliases: ['nagoya', 'grampus'] },
+  { id: 289,  fotmobId: 4688,  name: 'Vissel Kobe',            country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/289.png',  aliases: ['kobe', 'vissel'] },
+  { id: 287,  fotmobId: 6244,  name: 'Urawa Red Diamonds',     country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/287.png',  aliases: ['urawa', 'red diamonds', 'urawa reds'] },
+  { id: 293,  fotmobId: 6582,  name: 'Gamba Osaka',            country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/293.png',  aliases: ['gamba', 'gamba osaka'] },
+  { id: 290,  fotmobId: 4397,  name: 'Kashima Antlers',        country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/290.png',  aliases: ['kashima', 'antlers'] },
+  { id: 291,  fotmobId: 4692,  name: 'Cerezo Osaka',           country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/291.png',  aliases: ['cerezo'] },
+  { id: 294,  fotmobId: 6304,  name: 'Kawasaki Frontale',      country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/294.png',  aliases: ['kawasaki', 'frontale'] },
+  { id: 296,  fotmobId: 6581,  name: 'Yokohama F. Marinos',    country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/296.png',  aliases: ['yokohama', 'marinos', 'f marinos'] },
+  { id: 282,  fotmobId: 6224,  name: 'Sanfrecce Hiroshima',    country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/282.png',  aliases: ['hiroshima', 'sanfrecce'] },
+  { id: 288,  fotmobId: 8006,  name: 'Nagoya Grampus',         country: 'Japan', source: 'af', logo: 'https://media.api-sports.io/football/teams/288.png',  aliases: ['nagoya', 'grampus'] },
   // ── Belgian Pro League (API Football IDs, source: 'af') ────────────────────
-  { id: 569,  name: 'Club Brugge KV',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/569.png',  aliases: ['club brugge', 'brugge', 'blauw-zwart'] },
-  { id: 554,  name: 'RSC Anderlecht',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/554.png',  aliases: ['anderlecht', 'rsca', 'paars-wit'] },
-  { id: 733,  name: 'Standard Liège',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/733.png',  aliases: ['standard', 'standard liege', 'les rouches'] },
-  { id: 631,  name: 'KAA Gent',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/631.png',  aliases: ['gent', 'aa gent', 'buffalo'] },
-  { id: 1393, name: 'Union Saint-Gilloise',   country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/1393.png', aliases: ['union', 'saint-gilloise', 'usg', 'union st gilloise'] },
-  { id: 742,  name: 'KRC Genk',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/742.png',  aliases: ['genk', 'racing genk'] },
-  { id: 740,  name: 'Antwerp',                country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/740.png',  aliases: ['royal antwerp', 'rafc'] },
+  { id: 569,  fotmobId: 8342,  name: 'Club Brugge KV',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/569.png',  aliases: ['club brugge', 'brugge', 'blauw-zwart'] },
+  { id: 554,  fotmobId: 8635,  name: 'RSC Anderlecht',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/554.png',  aliases: ['anderlecht', 'rsca', 'paars-wit'] },
+  { id: 733,  fotmobId: 9985,  name: 'Standard Liège',         country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/733.png',  aliases: ['standard', 'standard liege', 'les rouches'] },
+  { id: 631,  fotmobId: 9991,  name: 'KAA Gent',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/631.png',  aliases: ['gent', 'aa gent', 'buffalo'] },
+  { id: 1393, fotmobId: 7978,  name: 'Union Saint-Gilloise',   country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/1393.png', aliases: ['union', 'saint-gilloise', 'usg', 'union st gilloise'] },
+  { id: 742,  fotmobId: 9987,  name: 'KRC Genk',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/742.png',  aliases: ['genk', 'racing genk'] },
+  { id: 740,  fotmobId: 9988,  name: 'Antwerp',                country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/740.png',  aliases: ['royal antwerp', 'rafc'] },
 ]
 
 function normalize(s: string): string {
@@ -187,7 +187,7 @@ function normalize(s: string): string {
 }
 
 export function searchLocalTeams(query: string): Array<{
-  team: { id: number; name: string; country: string; logo: string; source?: 'af'; fotmobSearch?: string; fotmobId?: number }
+  team: { id: number | string; name: string; country: string; logo: string; source?: 'af' | 'tm'; fotmobSearch?: string; fotmobId?: number }
   venue: { name: string; city: string }
 }> {
   const q = normalize(query)

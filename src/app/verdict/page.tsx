@@ -14,7 +14,7 @@ const VERDICT_CONFIG: Record<VerdictLabel, { bg: string; border: string; text: s
 }
 
 interface Team {
-  id: number
+  id: number | string
   name: string
   country: string
   logo: string

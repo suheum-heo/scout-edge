@@ -105,7 +105,7 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
 
 interface SquadFitMapProps {
   fits: PlayerSystemFit[]
-  managerName: string
+  managerName?: string
 }
 
 export default function SquadFitMap({ fits, managerName }: SquadFitMapProps) {
@@ -127,7 +127,7 @@ export default function SquadFitMap({ fits, managerName }: SquadFitMapProps) {
       <div className="mb-4">
         <h2 className="text-white font-bold text-lg">Squad Fit Map</h2>
         <p className="text-slate-500 text-sm">
-          How each player fits {managerName}&apos;s system
+          How each player fits {managerName ? `${managerName}'s` : 'the'} system
           {sellCount > 0 && (
             <span className="ml-2 text-red-400">{sellCount} sell candidate{sellCount > 1 ? 's' : ''}</span>
           )}

@@ -320,9 +320,23 @@ export async function getCoach(teamId: number): Promise<APICoach | null> {
 
   try {
     const res = await client.get('/coachs', { params: { team: teamId } })
-    const coach = res.data?.response?.[0] || null
-    if (coach) setCache(cacheKey, coach, TTL.COACHES)
-    return coach
+    const coaches: APICoach[] = res.data?.response || []
+    if (!coaches.length) return null
+
+    // Pick the coach most recently appointed to this team — response order is unreliable
+    let best: APICoach | null = null
+    let bestDate = ''
+    for (const c of coaches) {
+      for (const tenure of (c as unknown as { career?: Array<{ team: { id: number }; start?: string }> }).career || []) {
+        if (tenure.team?.id === teamId && (tenure.start || '') > bestDate) {
+          bestDate = tenure.start || ''
+          best = c
+        }
+      }
+    }
+    const result = best || coaches[0]
+    if (result) setCache(cacheKey, result, TTL.COACHES)
+    return result
   } catch {
     return null
   }

@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       const [enriched, tmResults] = await Promise.all([
         // Enrich 'af' teams with live FotMob data so names/logos are always current.
         Promise.all(
-          localResults.map(async (result) => {
+          localResults.map(async (result): Promise<{ team: { id: number | string; name: string; country: string; logo: string; source?: string; fotmobId?: number }; venue: { name: string; city: string } }> => {
             if (result.team.source !== 'af') return result
             try {
               const searchQuery = result.team.fotmobSearch ?? result.team.name
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
               const fmTeam = fmTeams[0]
               if (fmTeam) {
                 return {
-                  team: { id: fmTeam.team.id, name: result.team.name, country: result.team.country, logo: fmTeam.team.logo, source: 'fotmob' as const },
+                  team: { id: fmTeam.team.id, name: result.team.name, country: result.team.country, logo: fmTeam.team.logo, source: 'fotmob' },
                   venue: result.venue,
                 }
               }
