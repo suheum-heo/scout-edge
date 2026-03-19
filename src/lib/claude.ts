@@ -201,34 +201,27 @@ export async function analyzeSquadGaps(
   // hasFullStats: true only when we have appearances/minutes (older FotMob API or AF data)
   const hasFullStats = squadPlayers.some((p) => p && p.appearances > 0)
 
-  // Enrich squad with tactical versatility notes (runs in parallel with nothing — fast ~1s call)
-  const tacticalNotes = await enrichSquadTacticalRoles(squadPlayers, teamName)
-
   // Sort by minutes desc, then by rating desc as secondary (FotMob has rating but no minutes)
   const sortedPlayers = [...squadPlayers.filter(Boolean)].sort((a, b) => {
     const minsDiff = (b?.minutes ?? 0) - (a?.minutes ?? 0)
     if (minsDiff !== 0) return minsDiff
     return parseFloat(b?.rating ?? '0') - parseFloat(a?.rating ?? '0')
   })
-  console.log('[claude] Squad order (top 10):', sortedPlayers.slice(0, 10).map((p) => `${p?.name}(${p?.minutes}m,rtg:${p?.rating})`).join(', '))
 
   const squadSummary = sortedPlayers
-    .slice(0, 35) // raised cap — sort ensures seniors appear first
+    .slice(0, 35)
     .map((p) => {
-      const note = tacticalNotes.get(p!.name)
-      const noteStr = note ? ` [Note: ${note}]` : ''
       if (hasFullStats) {
-        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr} | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
+        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality}) | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
       }
       if (hasStats) {
-        // FotMob squad data: has rating, goals, assists but no appearances/minutes
         const rtg = parseFloat(p!.rating || '0')
         const rtgStr = rtg > 0 ? ` Rtg:${p!.rating}` : ''
         const goalsStr = p!.goals > 0 ? ` G:${p!.goals}` : ''
         const assistsStr = p!.assists > 0 ? ` A:${p!.assists}` : ''
-        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr}${rtgStr}${goalsStr}${assistsStr}`
+        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${rtgStr}${goalsStr}${assistsStr}`
       }
-      return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${noteStr}`
+      return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})`
     })
     .join('\n')
 

@@ -72,19 +72,16 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               {target.tmVerified
                 ? <span className="text-slate-500 text-xs">{target.currentClub}</span>
-                : <>
-                    <span className="text-slate-500 text-xs">{target.currentClub}</span>
-                    <a
-                      href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(target.playerName)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
-                    >
-                      <TriangleAlert className="w-2.5 h-2.5 flex-shrink-0" />
-                      verify
-                    </a>
-                  </>
+                : <a
+                    href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(target.playerName)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
+                  >
+                    <TriangleAlert className="w-2.5 h-2.5 flex-shrink-0" />
+                    Club unverified — check TM
+                  </a>
               }
               <span className="text-slate-700 text-xs">·</span>
               <span className="text-slate-500 text-xs">Age {target.age}</span>
