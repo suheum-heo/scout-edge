@@ -45,10 +45,16 @@ const COUNTRY_ISO: Record<string, string> = {
   'democratic republic of congo': 'cd',
 }
 
-/** Returns a flag CDN URL if the club name is a known country (= national team), else null. */
+/** Returns a flag CDN URL if the club name is (or starts with) a known country — covers U21/U23/etc. */
 function nationalTeamFlag(name: string): string | null {
-  const iso = COUNTRY_ISO[normalizeName(name)]
-  return iso ? `https://flagcdn.com/w80/${iso}.png` : null
+  const n = normalizeName(name)
+  // Exact match first (e.g. "England")
+  if (COUNTRY_ISO[n]) return `https://flagcdn.com/w80/${COUNTRY_ISO[n]}.png`
+  // Prefix match for age-group teams (e.g. "England U21", "South Korea U23")
+  for (const [country, iso] of Object.entries(COUNTRY_ISO)) {
+    if (n.startsWith(country + ' ')) return `https://flagcdn.com/w80/${iso}.png`
+  }
+  return null
 }
 
 export async function GET(request: NextRequest) {
