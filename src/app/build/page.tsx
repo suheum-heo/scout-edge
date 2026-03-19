@@ -81,6 +81,9 @@ export default function BuildPage() {
   const [result, setResult] = useState<ManagerXIResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [exampleManagers, setExampleManagers] = useState<{ id: string; name: string; currentClub: string }[]>([])
+
+  const EXAMPLE_IDS = ['pep-guardiola', 'diego-simeone', 'arne-slot', 'mikel-arteta']
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -88,6 +91,18 @@ export default function BuildPage() {
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Fetch live manager data for examples on mount
+  useEffect(() => {
+    fetch('/api/managers')
+      .then((r) => r.json())
+      .then((data) => {
+        const live = (data.managers || []).filter((m: { id: string }) => EXAMPLE_IDS.includes(m.id))
+        setExampleManagers(live)
+      })
+      .catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleManagerInput = (value: string) => {
@@ -267,24 +282,19 @@ export default function BuildPage() {
       )}
 
       {/* Examples */}
-      {!result && !loading && (
+      {!result && !loading && exampleManagers.length > 0 && (
         <div className="max-w-xl mx-auto mt-12">
           <p className="text-slate-600 text-sm text-center mb-4">Try these</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { manager: 'Pep Guardiola',   profileId: 'pep-guardiola',   club: 'Manchester City' },
-              { manager: 'Diego Simeone',   profileId: 'diego-simeone',   club: 'Atlético Madrid' },
-              { manager: 'Arne Slot',        profileId: 'arne-slot',        club: 'Liverpool' },
-              { manager: 'Mikel Arteta',    profileId: 'mikel-arteta',    club: 'Arsenal' },
-            ].map(({ manager, profileId, club }) => (
-              <button key={manager}
+            {exampleManagers.map((m) => (
+              <button key={m.id}
                 onClick={() => {
-                  setManagerQuery(manager)
-                  setSelectedManager({ id: profileId, profileId, name: manager, currentClub: club, hasProfile: true })
+                  setManagerQuery(m.name)
+                  setSelectedManager({ id: m.id, profileId: m.id, name: m.name, currentClub: m.currentClub, hasProfile: true })
                 }}
                 className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
-                <p className="text-white text-sm font-medium">{manager}</p>
-                <p className="text-slate-500 text-xs">{club}</p>
+                <p className="text-white text-sm font-medium">{m.name}</p>
+                <p className="text-slate-500 text-xs">{m.currentClub}</p>
               </button>
             ))}
           </div>
