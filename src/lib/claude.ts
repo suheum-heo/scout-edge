@@ -943,7 +943,8 @@ export async function analyzeTransferVerdict(
 **Position**: ${tmPlayer.position} | **Age**: ${tmPlayer.age} | **Nationality**: ${tmPlayer.nationality}
 **Current Club**: ${tmPlayer.currentClub} | **Contract until**: ${tmPlayer.contractYear}
 **Market Value**: ${tmPlayer.marketValueFormatted}
-**This season**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}`
+**2024/25 season stats (across all clubs)**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}
+**Important**: These stats cover the full season across all clubs the player has appeared for — do NOT attribute them to any single club, especially if the player recently transferred.`
     : `**Player**: ${playerName}
 Use your knowledge of this player's current club, position, age, playing style, and market situation as of ${currentDate}.`
 
