@@ -10,8 +10,21 @@ export async function GET(request: NextRequest) {
 
   const lower = q.toLowerCase()
 
-  // 1. Search our local DB by full name (handles first-name queries like "Thomas")
-  //    API Football only searches by last name, so this fills the gap.
+  // 1. Search API Football first so we can use live club data for DB matches too
+  const apiCoaches = await searchCoachesByName(q)
+
+  // Build a name → live club map from API Football results
+  const liveClubByName = new Map<string, string>()
+  for (const c of apiCoaches) {
+    if (c.team?.name) {
+      const fullName = c.firstname && c.lastname && !c.firstname.includes('.')
+        ? `${c.firstname} ${c.lastname}` : c.name
+      liveClubByName.set(fullName.toLowerCase(), c.team.name)
+      liveClubByName.set(c.name.toLowerCase(), c.team.name)
+    }
+  }
+
+  // 2. Search our local DB — use live club from API Football when available
   const dbMatches = getAllManagers()
     .filter((m) => m.name.toLowerCase().includes(lower))
     .slice(0, 5)
@@ -19,13 +32,10 @@ export async function GET(request: NextRequest) {
       id: m.id,
       profileId: m.id,
       name: m.name,
-      currentClub: m.currentClub,
+      currentClub: liveClubByName.get(m.name.toLowerCase()) ?? m.currentClub,
       formations: m.formations,
       hasProfile: true,
     }))
-
-  // 2. Search API Football by last name (covers coaches not in our DB)
-  const apiCoaches = await searchCoachesByName(q)
 
   // Deduplicate API results by coach id, keeping the most recent team entry
   const seen = new Map<number, typeof apiCoaches[0]>()
