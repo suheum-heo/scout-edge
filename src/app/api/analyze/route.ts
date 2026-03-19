@@ -1,6 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 60
+
+// Minimal FIFA nation set for national team detection
+const FIFA_NATIONS = new Set([
+  'afghanistan','albania','algeria','andorra','angola','argentina','armenia','australia','austria','azerbaijan',
+  'bahrain','bangladesh','belgium','bolivia','bosnia-herzegovina','botswana','brazil','bulgaria','burkina faso','burundi',
+  'cameroon','canada','cape verde','chile','china','colombia','comoros','congo','costa rica','croatia','cuba',
+  'czech republic','czechia','denmark','dr congo','ecuador','egypt','el salvador','england','estonia','ethiopia',
+  'finland','france','gabon','gambia','georgia','germany','ghana','greece','guatemala','guinea','guinea-bissau',
+  'haiti','honduras','hungary','iceland','india','indonesia','iran','iraq','ireland','israel','italy','ivory coast',
+  'jamaica','japan','jordan','kazakhstan','kenya','kuwait','latvia','lebanon','liberia','libya','liechtenstein',
+  'lithuania','luxembourg','madagascar','malawi','malaysia','mali','malta','mauritania','mexico','moldova',
+  'mongolia','montenegro','morocco','mozambique','namibia','nepal','netherlands','new zealand','nigeria',
+  'north korea','north macedonia','northern ireland','norway','oman','pakistan','palestine','panama','paraguay',
+  'peru','philippines','poland','portugal','qatar','republic of ireland','romania','russia','rwanda',
+  'saudi arabia','scotland','senegal','serbia','sierra leone','slovakia','slovenia','somalia','south africa',
+  'south korea','spain','sudan','sweden','switzerland','syria','tajikistan','tanzania','thailand','togo',
+  'trinidad and tobago','tunisia','turkey','turkmenistan','uganda','ukraine','united arab emirates','united states',
+  'uruguay','uzbekistan','venezuela','vietnam','wales','yemen','zambia','zimbabwe',
+  'côte d\'ivoire','korea republic','uae','usa','democratic republic of congo',
+])
+
+function isNationalTeam(name: string): boolean {
+  return FIFA_NATIONS.has(name.toLowerCase().trim())
+}
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
 import { getSquad, getCoach, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
@@ -88,18 +112,8 @@ export async function POST(request: NextRequest) {
       }
 
       if (!usedFotmob) {
-        console.log(`[analyze] FotMob empty for ${teamName}, falling back to API Football`)
-        try {
-          squadRaw = await getSquad(teamId)
-          coach = await getCoach(teamId)
-        } catch (e) {
-          console.error('[analyze] API Football fetch failed:', e)
-        }
-      }
-
-      // Last resort: TM squad — covers non-European leagues (K-League, Saudi, MLS, etc.)
-      if (!usedFotmob && !squadRaw.length) {
-        console.log(`[analyze] AF+FotMob empty for ${teamName}, trying Transfermarkt`)
+        // Try TM before AF — more accurate for non-European leagues (K-League, Saudi, MLS, etc.)
+        console.log(`[analyze] FotMob empty for ${teamName}, trying Transfermarkt`)
         try {
           const tmId = await searchClub(teamName)
           if (tmId) {
@@ -114,6 +128,17 @@ export async function POST(request: NextRequest) {
           }
         } catch (e) {
           console.error('[analyze] TM fallback failed:', e)
+        }
+      }
+
+      // Last resort: API Football (limited accuracy, 100 calls/day)
+      if (!usedFotmob && !tmFormattedSquad) {
+        console.log(`[analyze] TM empty for ${teamName}, falling back to API Football`)
+        try {
+          squadRaw = await getSquad(teamId)
+          coach = await getCoach(teamId)
+        } catch (e) {
+          console.error('[analyze] API Football fetch failed:', e)
         }
       }
     } else {
@@ -222,12 +247,16 @@ export async function POST(request: NextRequest) {
           }))
       : undefined
 
+    // Detect national teams so recommendations can filter by nationality
+    const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
+
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
     const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, coachName, unavailablePlayers)
 
     return NextResponse.json({
       analysis,
       squad: squadPlayers,
+      nationalTeamCountry,
       manager: manager
         ? {
             id: manager.id,
@@ -240,7 +269,7 @@ export async function POST(request: NextRequest) {
           }
         : {
             id: null,
-            name: coachName || 'Unknown Manager',
+            name: coachName || teamName,
             currentClub: teamName,
             formations: [],
             style: null,

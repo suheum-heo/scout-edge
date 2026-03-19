@@ -249,8 +249,11 @@ ${manager.positionalRequirements
       `**${req.position} (${req.profileLabel})**: ${req.tacticalDescription}\nMust Have: ${req.mustHave.join(', ')}\nAvoid If: ${req.avoidIf.join(', ')}`
   )
   .join('\n\n')}`
-    : `## Manager: ${resolvedName}
-Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
+    : `## Manager: ${resolvedName === 'Unknown Manager' ? teamName + ' Head Coach' : resolvedName}
+${resolvedName === 'Unknown Manager'
+  ? `Identify who currently manages ${teamName} as of ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} and use your knowledge of their tactical system for this analysis.`
+  : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
+}`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
@@ -582,7 +585,8 @@ export async function recommendPlayersForGap(
   teamName: string,
   budget: string,
   managerName?: string,
-  roleCoverageContext?: string
+  roleCoverageContext?: string,
+  nationalTeamCountry?: string
 ): Promise<TransferTarget[]> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -607,11 +611,12 @@ ${roleCoverageContext ? `**Current squad coverage**: ${roleCoverageContext}` : '
 
 ## Budget: ${budget}
 
-## Your Task:
+${nationalTeamCountry ? `## NATIONAL TEAM ELIGIBILITY — CRITICAL:
+${teamName} is a national team. Every recommended player MUST hold ${nationalTeamCountry} nationality and be eligible to represent ${teamName}. Recommending a player who cannot legally play for this country is a disqualifying error. No exceptions.\n` : ''}## Your Task:
 Name 4 real professional players who:
 1. Fit the tactical profile for ${resolvedName}'s system
 2. Are realistically gettable within this budget (consider transfer fee, wages, club situation)
-3. Would be a credible signing for ${teamName}
+3. Would be a credible signing for ${teamName}${nationalTeamCountry ? `\n4. Hold ${nationalTeamCountry} nationality and are eligible for ${teamName}` : ''}
 
 Use your knowledge of player market values, contract situations, and playing styles. Be realistic — don't suggest €100M players on a €20M budget. Rank by tactical fit.
 

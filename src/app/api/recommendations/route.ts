@@ -77,13 +77,14 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { gap, managerId, managerName, teamName, budget, squad } = body as {
+    const { gap, managerId, managerName, teamName, budget, squad, nationalTeamCountry } = body as {
       gap: SquadGap
       managerId?: string
       managerName?: string
       teamName: string
       budget: string
       squad?: SquadPlayer[]
+      nationalTeamCountry?: string
     }
 
     if (!gap || !teamName || !budget) {
@@ -111,7 +112,8 @@ export async function POST(request: NextRequest) {
       teamName,
       budget,
       managerName,
-      roleCoverageContext
+      roleCoverageContext,
+      nationalTeamCountry
     )
 
     // Enrich with live Transfermarkt data (current club, real market value, contract)

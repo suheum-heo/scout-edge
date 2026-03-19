@@ -54,6 +54,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
 
   const [squad, setSquad] = useState<SquadPlayer[]>([])
+  const [nationalTeamCountry, setNationalTeamCountry] = useState<string | null>(null)
   const [selectedGap, setSelectedGap] = useState<SquadGap | null>(null)
   const [selectedBudget, setSelectedBudget] = useState<string>('')
   const [recommendations, setRecommendations] = useState<TransferTarget[]>([])
@@ -193,6 +194,7 @@ export default function HomePage() {
       setAnalysis(data.analysis as SquadAnalysisResult)
       setSquad((data.squad as SquadPlayer[]) || [])
       setManagerResult(data.manager as ManagerResult)
+      setNationalTeamCountry((data.nationalTeamCountry as string) || null)
 
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -232,6 +234,7 @@ export default function HomePage() {
           teamName: selectedTeam.team.name,
           budget,
           squad,
+          nationalTeamCountry: nationalTeamCountry || undefined,
         }),
       })
 
