@@ -29,6 +29,13 @@ interface PlayerResult {
   club: string
 }
 
+const EXAMPLES: { player: string; team: Team }[] = [
+  { player: 'Victor Osimhen',   team: { id: 61,  fotmobId: 8455, name: 'Chelsea',       country: 'England', logo: 'https://crests.football-data.org/61.png',  source: 'fd' } },
+  { player: 'Alexander Isak',   team: { id: 65,  fotmobId: 8456, name: 'Manchester City',country: 'England', logo: 'https://crests.football-data.org/65.png',  source: 'fd' } },
+  { player: 'Jamal Musiala',    team: { id: 57,  fotmobId: 9825, name: 'Arsenal',        country: 'England', logo: 'https://crests.football-data.org/57.png',  source: 'fd' } },
+  { player: 'Jonathan David',   team: { id: 86,  fotmobId: 8633, name: 'Real Madrid',    country: 'Spain',   logo: 'https://crests.football-data.org/86.png',  source: 'fd' } },
+]
+
 export default function VerdictPage() {
   // Player search
   const [playerQuery, setPlayerQuery] = useState('')
@@ -102,8 +109,10 @@ export default function VerdictPage() {
     }, 300)
   }
 
-  const handleCheck = async () => {
-    if (!playerQuery.trim() || !selectedTeam) return
+  const handleCheck = async (overridePlayer?: string, overrideTeam?: Team) => {
+    const resolvedPlayerName = overridePlayer ?? (selectedPlayer?.name || playerQuery.trim())
+    const resolvedTeam = overrideTeam ?? selectedTeam
+    if (!resolvedPlayerName || !resolvedTeam) return
     setIsChecking(true)
     setError(null)
     setResult(null)
@@ -115,12 +124,12 @@ export default function VerdictPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          playerName: selectedPlayer?.name || playerQuery.trim(),
-          tmPlayerId: selectedPlayer?.id || undefined,
-          teamId: selectedTeam.id,
-          teamName: selectedTeam.name,
-          teamSource: selectedTeam.source,
-          fotmobId: selectedTeam.fotmobId,
+          playerName: resolvedPlayerName,
+          tmPlayerId: overridePlayer ? undefined : selectedPlayer?.id,
+          teamId: resolvedTeam.id,
+          teamName: resolvedTeam.name,
+          teamSource: resolvedTeam.source,
+          fotmobId: resolvedTeam.fotmobId,
         }),
       })
       const data = await res.json()
@@ -149,7 +158,7 @@ export default function VerdictPage() {
           Should they sign him?
         </h1>
         <p className="text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Enter a player and a target club — we&apos;ll detect the manager and give you an instant scout verdict on the rumour.
+          Any player, any club — rumour, hypothetical, or wishlist. We detect the manager and give you an instant scout verdict.
         </p>
       </div>
 
@@ -228,7 +237,7 @@ export default function VerdictPage() {
         </div>
 
         <button
-          onClick={handleCheck}
+          onClick={() => handleCheck()}
           disabled={!playerQuery.trim() || !selectedTeam || isChecking}
           className="w-full bg-amber-600 hover:bg-amber-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
@@ -352,7 +361,7 @@ export default function VerdictPage() {
           <div className="pt-2 text-center">
             <button onClick={() => { setResult(null); setTmPlayer(null); setPlayerQuery(''); setSelectedPlayer(null); setClubQuery(''); setSelectedTeam(null) }}
               className="text-slate-500 hover:text-slate-300 text-sm transition-colors">
-              Check another rumour &#8594;
+              Check another &#8594;
             </button>
           </div>
         </div>
@@ -361,19 +370,20 @@ export default function VerdictPage() {
       {/* Examples */}
       {!result && !isChecking && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-600 text-sm text-center mb-4">Try these rumours</p>
+          <p className="text-slate-600 text-sm text-center mb-4">Try these hypotheticals</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { player: 'Victor Osimhen', club: 'Chelsea' },
-              { player: 'Florian Wirtz', club: 'Liverpool' },
-              { player: 'Leny Yoro', club: 'Real Madrid' },
-              { player: 'Marcus Rashford', club: 'Barcelona' },
-            ].map(({ player, club }) => (
-              <button key={player + club}
-                onClick={() => { setPlayerQuery(player); setSelectedPlayer(null); setClubQuery(club); setSelectedTeam(null) }}
+            {EXAMPLES.map(({ player, team }) => (
+              <button key={player + team.name}
+                onClick={() => {
+                  setPlayerQuery(player)
+                  setSelectedPlayer(null)
+                  setClubQuery(team.name)
+                  setSelectedTeam(team)
+                  handleCheck(player, team)
+                }}
                 className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
                 <p className="text-white text-sm font-medium">{player}</p>
-                <p className="text-slate-500 text-xs">&#8594; {club}</p>
+                <p className="text-slate-500 text-xs">&#8594; {team.name}</p>
               </button>
             ))}
           </div>
