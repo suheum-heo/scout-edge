@@ -47,14 +47,12 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const [inAge, setInAge] = useState('')
   const [showRecPicker, setShowRecPicker] = useState(false)
 
-  // Player search state
   const [suggestions, setSuggestions] = useState<PlayerSuggestion[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -134,7 +132,6 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
     onRun(playersOut, inList)
   }
 
-  // Group squad by position
   const grouped = GROUP_ORDER.reduce((acc, g) => {
     acc[g] = squad.filter((p) => positionGroup(p.position) === g)
     return acc
@@ -149,16 +146,16 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
         {/* OUT — squad selector */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-slate-300 text-sm font-semibold">Players OUT</span>
+            <span className="text-slate-700 dark:text-slate-300 text-sm font-semibold">Players OUT</span>
             {outIds.size > 0 && (
               <span className="text-red-400 text-xs">{outIds.size} selected</span>
             )}
           </div>
-          <div className="border border-slate-700 rounded-lg overflow-hidden">
+          <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
             {GROUP_ORDER.map((g) => grouped[g].length > 0 && (
               <div key={g}>
-                <div className="px-3 py-1 bg-slate-800/80 border-b border-slate-700/50">
-                  <span className="text-slate-500 text-[10px] uppercase tracking-widest">{GROUP_LABELS[g]}</span>
+                <div className="px-3 py-1 bg-[#EEF2F7] dark:bg-slate-800/80 border-b border-slate-200/50 dark:border-slate-700/50">
+                  <span className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-widest">{GROUP_LABELS[g]}</span>
                 </div>
                 {grouped[g].map((p) => {
                   const selected = outIds.has(p.playerId)
@@ -166,15 +163,15 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                     <button
                       key={p.playerId}
                       onClick={() => toggleOut(p)}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-left border-b border-slate-700/30 last:border-0 transition-colors ${
+                      className={`w-full flex items-center justify-between px-3 py-2 text-left border-b border-slate-200/30 dark:border-slate-700/30 last:border-0 transition-colors ${
                         selected
-                          ? 'bg-red-500/10 text-red-300'
-                          : 'hover:bg-slate-700/30 text-slate-300'
+                          ? 'bg-red-500/10 text-red-400'
+                          : 'hover:bg-[#EEF2F7] dark:hover:bg-slate-700/30 text-slate-600 dark:text-slate-300'
                       }`}
                     >
                       <span className="text-xs">{p.name}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-slate-600 text-[10px]">Age {p.age}</span>
+                        <span className="text-slate-400 dark:text-slate-600 text-[10px]">Age {p.age}</span>
                         {selected && <X className="w-3 h-3 text-red-400" />}
                       </div>
                     </button>
@@ -188,7 +185,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
         {/* IN — player form */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-slate-300 text-sm font-semibold">Players IN</span>
+            <span className="text-slate-700 dark:text-slate-300 text-sm font-semibold">Players IN</span>
             {inList.length > 0 && (
               <span className="text-emerald-400 text-xs">{inList.length} added</span>
             )}
@@ -200,10 +197,10 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
               {inList.map((p, i) => (
                 <span
                   key={i}
-                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 dark:text-emerald-300"
                 >
                   {p.name}
-                  <button onClick={() => removeIn(i)} className="hover:text-white transition-colors">
+                  <button onClick={() => removeIn(i)} className="hover:text-white dark:hover:text-white transition-colors">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -212,10 +209,10 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
           )}
 
           {/* Add form */}
-          <div className="space-y-2 border border-slate-700 rounded-lg p-3">
+          <div className="space-y-2 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
             <div className="relative" ref={dropdownRef}>
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500 pointer-events-none" />
                 <input
                   type="text"
                   value={inName}
@@ -223,7 +220,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                   onKeyDown={(e) => e.key === 'Enter' && addInPlayer()}
                   onFocus={() => inName.length >= 2 && setShowDropdown(true)}
                   placeholder="Player name"
-                  className="w-full bg-slate-900 border border-slate-600 rounded-lg pl-8 pr-3 py-2 text-white text-xs placeholder-slate-500 outline-none focus:border-slate-400"
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg pl-8 pr-3 py-2 text-slate-900 dark:text-white text-xs placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-slate-400"
                 />
                 {isSearching && (
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 w-3 h-3 border border-slate-400/40 border-t-slate-300 rounded-full animate-spin" />
@@ -232,18 +229,18 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
 
               {/* Suggestions dropdown */}
               {showDropdown && suggestions.length > 0 && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl overflow-hidden">
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg shadow-xl overflow-hidden">
                   {suggestions.map((p) => (
                     <button
                       key={p.id}
                       onMouseDown={(e) => { e.preventDefault(); pickSuggestion(p) }}
-                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-700 transition-colors text-left border-b border-slate-700/50 last:border-0"
+                      className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#EEF2F7] dark:hover:bg-slate-700 transition-colors text-left border-b border-slate-200/50 dark:border-slate-700/50 last:border-0"
                     >
                       <div>
-                        <span className="text-white text-xs font-medium">{p.name}</span>
-                        <span className="text-slate-500 text-[10px] ml-2">{p.club}</span>
+                        <span className="text-slate-900 dark:text-white text-xs font-medium">{p.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 text-[10px] ml-2">{p.club}</span>
                       </div>
-                      <span className="text-slate-500 text-[10px] flex-shrink-0">{p.position}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-[10px] flex-shrink-0">{p.position}</span>
                     </button>
                   ))}
                 </div>
@@ -253,7 +250,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
               <select
                 value={inPosition}
                 onChange={(e) => setInPosition(e.target.value)}
-                className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-xs outline-none focus:border-slate-400"
+                className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-xs outline-none focus:border-slate-400"
               >
                 {POSITIONS.map((pos) => (
                   <option key={pos} value={pos}>{pos}</option>
@@ -266,13 +263,13 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                 placeholder="Age (25)"
                 min={16}
                 max={45}
-                className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-xs placeholder-slate-500 outline-none focus:border-slate-400"
+                className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-slate-900 dark:text-white text-xs placeholder-slate-400 dark:placeholder-slate-500 outline-none focus:border-slate-400"
               />
             </div>
             <button
               onClick={addInPlayer}
               disabled={!inName.trim()}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-600 text-slate-300 text-xs hover:border-slate-400 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-xs hover:border-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Plus className="w-3.5 h-3.5" />
               Add player
@@ -280,10 +277,10 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
 
             {/* Pick from recommendations shortcut */}
             {recommendations.length > 0 && (
-              <div className="pt-1 border-t border-slate-700/50">
+              <div className="pt-1 border-t border-slate-200/50 dark:border-slate-700/50">
                 <button
                   onClick={() => setShowRecPicker(!showRecPicker)}
-                  className="text-blue-400/80 text-[11px] hover:text-blue-300 transition-colors"
+                  className="text-blue-500/80 dark:text-blue-400/80 text-[11px] hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
                 >
                   Pick from recommendations ({recommendations.length})
                 </button>
@@ -293,10 +290,10 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                       <button
                         key={i}
                         onClick={() => addFromRec(rec)}
-                        className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-700/50 transition-colors text-left"
+                        className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-[#EEF2F7] dark:hover:bg-slate-700/50 transition-colors text-left"
                       >
-                        <span className="text-slate-300 text-xs">{rec.playerName}</span>
-                        <span className="text-slate-500 text-[10px]">{rec.position} · Age {rec.age}</span>
+                        <span className="text-slate-600 dark:text-slate-300 text-xs">{rec.playerName}</span>
+                        <span className="text-slate-400 dark:text-slate-500 text-[10px]">{rec.position} · Age {rec.age}</span>
                       </button>
                     ))}
                   </div>
@@ -311,7 +308,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
       <button
         onClick={handleRun}
         disabled={!canRun}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold text-sm transition-colors disabled:cursor-not-allowed"
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold text-sm transition-colors disabled:cursor-not-allowed"
       >
         {isLoading ? (
           <span className="flex items-center gap-2">

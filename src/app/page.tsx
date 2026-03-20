@@ -341,7 +341,7 @@ export default function HomePage() {
           Find the exact players<br />
           <span className="text-blue-400">your system demands</span>
         </h1>
-        <p className="text-slate-500 dark:text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
+        <p className="text-slate-600 dark:text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
           Search any club — we auto-detect the manager and analyse the squad for transfer window gaps.
         </p>
       </div>
@@ -367,12 +367,12 @@ export default function HomePage() {
 
           {/* Team results dropdown */}
           {teamResults.length > 0 && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-xl z-20">
+            <div className="absolute top-full left-0 right-0 mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-xl z-20">
               {teamResults.slice(0, 6).map((team) => (
                 <button
                   key={team.team.id}
                   onClick={() => handleSelectTeam(team)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-left"
                 >
                   {team.team.logo && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -380,7 +380,7 @@ export default function HomePage() {
                   )}
                   <div>
                     <p className="text-slate-900 dark:text-white text-sm font-medium">{team.team.name}</p>
-                    <p className="text-slate-500 text-xs">{team.team.country}</p>
+                    <p className="text-slate-600 text-xs">{team.team.country}</p>
                   </div>
                 </button>
               ))}
@@ -396,7 +396,7 @@ export default function HomePage() {
                 setOverrideOpen(!overrideOpen)
                 if (!overrideOpen) loadManagers()
               }}
-              className="flex items-center gap-1.5 text-slate-500 dark:text-slate-600 hover:text-slate-700 dark:hover:text-slate-400 text-xs transition-colors"
+              className="flex items-center gap-1.5 text-slate-600 dark:text-slate-600 hover:text-slate-700 dark:hover:text-slate-400 text-xs transition-colors"
             >
               <Settings2 className="w-3 h-3" />
               {selectedManagerId
@@ -409,7 +409,7 @@ export default function HomePage() {
               <div className="relative mt-2">
                 <button
                   onClick={() => setManagerDropdownOpen(!managerDropdownOpen)}
-                  className="w-full flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 hover:border-slate-300 dark:hover:border-slate-600 transition-colors text-left"
+                  className="w-full flex items-center justify-between gap-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 hover:border-slate-300 dark:hover:border-slate-600 transition-colors text-left"
                 >
                   <span className={`text-sm ${selectedManagerOverride ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                     {selectedManagerOverride
@@ -420,13 +420,13 @@ export default function HomePage() {
                 </button>
 
                 {managerDropdownOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto max-h-56 shadow-xl z-20">
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto max-h-56 shadow-xl z-20">
                     <button
                       onClick={() => {
                         setSelectedManagerId('')
                         setManagerDropdownOpen(false)
                       }}
-                      className="w-full px-4 py-2.5 text-left text-slate-400 dark:text-slate-500 text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
+                      className="w-full px-4 py-2.5 text-left text-slate-400 dark:text-slate-500 text-sm hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                     >
                       Auto-detect from team
                     </button>
@@ -437,7 +437,7 @@ export default function HomePage() {
                           setSelectedManagerId(m.id)
                           setManagerDropdownOpen(false)
                         }}
-                        className={`w-full px-4 py-2.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-sm ${
+                        className={`w-full px-4 py-2.5 text-left hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-sm ${
                           selectedManagerId === m.id ? 'bg-blue-500/10 text-blue-400' : 'text-slate-900 dark:text-white'
                         }`}
                       >
@@ -481,7 +481,7 @@ export default function HomePage() {
       {analysis && managerResult && !isAnalyzing && (
         <div ref={resultsRef} className="space-y-8">
           {/* Manager + score header */}
-          <div className="bg-slate-100/50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
+          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -490,7 +490,7 @@ export default function HomePage() {
                   </div>
                   <div>
                     <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? 'Unknown Manager'}</h2>
-                    <p className="text-slate-500 text-xs">{managerResult.currentClub}</p>
+                    <p className="text-slate-600 text-xs">{managerResult.currentClub}</p>
                   </div>
                 </div>
                 {managerResult.formations.length > 0 && (
@@ -511,9 +511,9 @@ export default function HomePage() {
               <div className="text-right flex-shrink-0">
                 <div className={`text-3xl font-bold ${getScoreColor(analysis.tacticalFitScore)}`}>
                   {analysis.tacticalFitScore}
-                  <span className="text-base text-slate-500">/10</span>
+                  <span className="text-base text-slate-600">/10</span>
                 </div>
-                <div className="text-slate-500 text-xs">Tactical Fit</div>
+                <div className="text-slate-600 text-xs">Tactical Fit</div>
               </div>
             </div>
 
@@ -524,7 +524,7 @@ export default function HomePage() {
                   <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">Strengths</p>
                   <ul className="space-y-1">
                     {analysis.squadStrengths?.map((s, i) => (
-                      <li key={i} className="text-slate-500 dark:text-slate-400 text-xs flex items-start gap-1.5">
+                      <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-green-400/60 mt-0.5">+</span>{s}
                       </li>
                     ))}
@@ -534,7 +534,7 @@ export default function HomePage() {
                   <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-2">Weaknesses</p>
                   <ul className="space-y-1">
                     {analysis.squadWeaknesses?.map((w, i) => (
-                      <li key={i} className="text-slate-500 dark:text-slate-400 text-xs flex items-start gap-1.5">
+                      <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-red-400/60 mt-0.5">−</span>{w}
                       </li>
                     ))}
@@ -572,7 +572,7 @@ export default function HomePage() {
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === 'gaps'
                     ? 'bg-blue-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Transfer Gaps
@@ -582,7 +582,7 @@ export default function HomePage() {
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === 'fit'
                     ? 'bg-blue-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Squad Fit Map
@@ -592,7 +592,7 @@ export default function HomePage() {
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === 'scenario'
                     ? 'bg-blue-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 Scenarios
@@ -607,7 +607,7 @@ export default function HomePage() {
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === 'xi'
                     ? 'bg-emerald-600 text-white'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
@@ -633,11 +633,11 @@ export default function HomePage() {
                 {/* Recommendations panel */}
                 <div ref={recsRef}>
                   {!selectedGap && (
-                    <div className="bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center">
+                    <div className="bg-[#EEF2F7] dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-8 text-center">
                       <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
                         <Search className="w-5 h-5 text-slate-400 dark:text-slate-600" />
                       </div>
-                      <p className="text-slate-500 text-sm">Select a gap to find transfer targets</p>
+                      <p className="text-slate-600 text-sm">Select a gap to find transfer targets</p>
                     </div>
                   )}
 
@@ -647,7 +647,7 @@ export default function HomePage() {
                       <p className="text-slate-900 dark:text-white font-semibold text-sm mb-1">
                         {selectedGap.position} — choose your budget
                       </p>
-                      <p className="text-slate-500 text-xs mb-3">
+                      <p className="text-slate-600 text-xs mb-3">
                         Claude will find real players that fit within this range
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -688,7 +688,7 @@ export default function HomePage() {
                         <h3 className="text-slate-900 dark:text-white font-semibold">
                           {selectedGap?.position} Targets
                         </h3>
-                        <span className="text-slate-500 text-xs">
+                        <span className="text-slate-600 text-xs">
                           {selectedBudget ? `${selectedBudget} · ${recommendations.length} players` : 'Select a budget above'}
                         </span>
                       </div>
@@ -699,7 +699,7 @@ export default function HomePage() {
                   )}
 
                   {selectedGap && !isLoadingRecs && selectedBudget && recommendations.length === 0 && !recsError && (
-                    <div className="bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center">
+                    <div className="bg-[#EEF2F7] dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center">
                       <p className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-1">No players found in this range</p>
                       <p className="text-slate-400 dark:text-slate-600 text-xs">Try a different budget — verified market values may not match the selected tier</p>
                     </div>
@@ -736,7 +736,7 @@ export default function HomePage() {
                 <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
                   <div className="mb-4">
                     <h3 className="text-slate-900 dark:text-white font-semibold text-sm">Build a Transfer Scenario</h3>
-                    <p className="text-slate-500 text-xs mt-0.5">
+                    <p className="text-slate-600 text-xs mt-0.5">
                       Select players leaving and add incoming signings — Claude will recalculate how the squad changes.
                     </p>
                   </div>
@@ -769,7 +769,7 @@ export default function HomePage() {
                         {scenarios.length} {scenarios.length === 1 ? 'Scenario' : 'Scenarios'}
                       </h3>
                       {scenarios.length >= 2 && !compareIds && (
-                        <p className="text-slate-500 text-xs">Click Compare on two scenarios to compare them</p>
+                        <p className="text-slate-600 text-xs">Click Compare on two scenarios to compare them</p>
                       )}
                     </div>
                     {scenarios.map((s) => {
@@ -790,7 +790,7 @@ export default function HomePage() {
 
                 {scenarios.length === 0 && !isRunningScenario && (
                   <div className="text-center py-8">
-                    <p className="text-slate-500 text-sm">Run your first scenario above to see results</p>
+                    <p className="text-slate-600 text-sm">Run your first scenario above to see results</p>
                   </div>
                 )}
               </div>
@@ -811,7 +811,7 @@ export default function HomePage() {
       {/* How it works */}
       {!analysis && !isAnalyzing && (
         <div className="max-w-3xl mx-auto mt-16">
-          <h2 className="text-center text-slate-400 dark:text-slate-500 text-sm font-medium uppercase tracking-wider mb-8">
+          <h2 className="text-center text-slate-500 dark:text-slate-500 text-sm font-medium uppercase tracking-wider mb-8">
             How it works
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
@@ -835,7 +835,7 @@ export default function HomePage() {
               <div key={step} className="text-center">
                 <div className="text-blue-500/30 font-bold text-4xl mb-3">{step}</div>
                 <h3 className="text-slate-900 dark:text-white font-semibold mb-2">{title}</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">{desc}</p>
+                <p className="text-slate-600 text-sm leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>

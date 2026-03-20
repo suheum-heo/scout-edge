@@ -11,36 +11,36 @@ const POSITION_ORDER = ['GK', 'RB', 'CB', 'LB', 'WB', 'CDM', 'CM', 'CAM', 'RW', 
 function scoreColor(score: number) {
   if (score >= 80) return 'text-emerald-400'
   if (score >= 65) return 'text-blue-400'
-  if (score >= 50) return 'text-slate-300'
-  return 'text-slate-500'
+  if (score >= 50) return 'text-slate-600 dark:text-slate-300'
+  return 'text-slate-400 dark:text-slate-500'
 }
 
 function PlayerCard({ player }: { player: UndervaluedPlayer }) {
   return (
-    <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-600 transition-colors">
+    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
       {/* Position + archetype */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="bg-slate-700 text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+        <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
       </div>
 
       {/* Name + score */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-white font-semibold text-sm leading-tight">{player.playerName}</span>
+        <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
         <span className={`text-xs font-bold flex-shrink-0 ${scoreColor(player.scoutScore)}`}>
           SE {player.scoutScore}
         </span>
       </div>
 
-      {/* Age + nationality + club */}
-      <div className="text-slate-500 text-xs">
+      {/* Age + nationality */}
+      <div className="text-slate-400 dark:text-slate-500 text-xs">
         {player.age} · {player.nationality}
       </div>
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
         ) : (
           <a
             href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(player.playerName)}`}
@@ -58,12 +58,12 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       <div className="flex items-center gap-3 text-xs">
         <span className="text-emerald-400 font-semibold">{player.estimatedValue}</span>
         {player.contractUntil && player.contractUntil !== 'Unknown' && (
-          <span className="text-slate-600">until {player.contractUntil}</span>
+          <span className="text-slate-400 dark:text-slate-600">until {player.contractUntil}</span>
         )}
       </div>
 
       {/* Why undervalued */}
-      <p className="text-slate-400 text-xs leading-relaxed border-t border-slate-700/50 pt-2 mt-1">
+      <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
         {player.whyUndervalued}
       </p>
     </div>
@@ -103,7 +103,6 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
     }
   }
 
-  // Sort players by formation position order
   const sortedPlayers = result
     ? [...result.players].sort(
         (a, b) => (POSITION_ORDER.indexOf(a.position) ?? 99) - (POSITION_ORDER.indexOf(b.position) ?? 99)
@@ -113,18 +112,18 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
   return (
     <div>
       <div className="mb-5">
-        <h2 className="text-white font-bold text-lg flex items-center gap-2">
+        <h2 className="text-slate-900 dark:text-white font-bold text-lg flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-emerald-400" />
           Undervalued XI
         </h2>
-        <p className="text-slate-500 text-sm mt-1">
+        <p className="text-slate-500 dark:text-slate-500 text-sm mt-1">
           The best tactical XI money {`can't`} buy — hidden gems that fit {managerName || 'this system'} within your budget.
         </p>
       </div>
 
       {/* Budget selector */}
       <div className="mb-4">
-        <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Total Budget</p>
+        <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Total Budget</p>
         <div className="flex flex-wrap gap-2">
           {BUDGETS.map((b) => (
             <button
@@ -133,7 +132,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                 budget === b
                   ? 'bg-emerald-600 border-emerald-500 text-white'
-                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-500 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
               {b}
@@ -169,16 +168,16 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
       {result && (
         <div>
           {/* XI header */}
-          <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 mb-5">
+          <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mb-5">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-white font-bold">{result.formation}</span>
+                  <span className="text-slate-900 dark:text-white font-bold">{result.formation}</span>
                   <span className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
                     {result.totalEstimatedCost}
                   </span>
                 </div>
-                <p className="text-slate-400 text-sm leading-relaxed">{result.concept}</p>
+                <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{result.concept}</p>
               </div>
             </div>
           </div>

@@ -31,7 +31,7 @@ export default function ScenarioDimensionChart({ dimensions }: Props) {
           <div className="flex items-center justify-between mb-1">
             <span className="text-slate-400 text-xs font-medium">{d.label}</span>
             <div className="flex items-center gap-2">
-              <span className="text-slate-500 text-xs">{d.baselineScore}/10</span>
+              <span className="text-slate-600 text-xs">{d.baselineScore}/10</span>
               <span className="text-slate-600 text-xs">→</span>
               <span className="text-white text-xs font-semibold">{d.scenarioScore}/10</span>
               <span className={`text-xs font-bold w-10 text-right ${deltaColor(d.delta)}`}>
@@ -56,7 +56,7 @@ export default function ScenarioDimensionChart({ dimensions }: Props) {
             />
           </div>
 
-          <p className="text-slate-500 text-[11px] italic">{d.insight}</p>
+          <p className="text-slate-600 text-[11px] italic">{d.insight}</p>
         </div>
       ))}
     </div>

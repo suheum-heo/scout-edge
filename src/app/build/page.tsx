@@ -12,32 +12,32 @@ const POSITION_ORDER = ['GK', 'RB', 'CB', 'LB', 'WB', 'CDM', 'CM', 'CAM', 'RW', 
 function fitColor(score: number) {
   if (score >= 90) return 'text-violet-400'
   if (score >= 75) return 'text-blue-400'
-  if (score >= 60) return 'text-slate-300'
-  return 'text-slate-500'
+  if (score >= 60) return 'text-slate-600 dark:text-slate-300'
+  return 'text-slate-400 dark:text-slate-500'
 }
 
 function PlayerCard({ player }: { player: IdealPlayer }) {
   return (
-    <div className="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-600 transition-colors">
+    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="bg-violet-500/20 border border-violet-500/30 text-violet-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+        <span className="bg-violet-500/20 border border-violet-500/30 text-violet-500 dark:text-violet-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
       </div>
 
       <div className="flex items-start justify-between gap-2">
-        <span className="text-white font-semibold text-sm leading-tight">{player.playerName}</span>
+        <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
         <span className={`text-base font-bold flex-shrink-0 ${fitColor(player.systemFitScore)}`}>
           {player.systemFitScore}
         </span>
       </div>
 
-      <div className="text-slate-500 text-xs">{player.age} · {player.nationality}</div>
+      <div className="text-slate-400 dark:text-slate-500 text-xs">{player.age} · {player.nationality}</div>
 
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
         ) : (
           <a
             href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(player.playerName)}`}
@@ -51,9 +51,9 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
         )}
       </div>
 
-      <div className="text-blue-400 text-xs font-semibold">{player.estimatedFee}</div>
+      <div className="text-blue-500 dark:text-blue-400 text-xs font-semibold">{player.estimatedFee}</div>
 
-      <p className="text-slate-400 text-xs leading-relaxed border-t border-slate-700/50 pt-2 mt-1">
+      <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
         {player.whyIdeal}
       </p>
     </div>
@@ -93,7 +93,6 @@ export default function BuildPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Fetch live manager data for examples on mount
   useEffect(() => {
     fetch('/api/managers')
       .then((r) => r.json())
@@ -161,10 +160,10 @@ export default function BuildPage() {
           <Wand2 className="w-3 h-3" />
           Manager Identity Mode
         </div>
-        <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-3">
+        <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
           Build their dream XI
         </h1>
-        <p className="text-slate-400 max-w-xl mx-auto leading-relaxed">
+        <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
           Pick any manager and a budget. ScoutEdge builds the ideal starting XI for their system — not just good players, but the exact profiles they demand at every position.
         </p>
       </div>
@@ -173,7 +172,7 @@ export default function BuildPage() {
       <div className="max-w-xl mx-auto space-y-4 mb-8">
         {/* Manager search */}
         <div className="relative" ref={managerRef}>
-          <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-violet-500/50 transition-colors">
+          <div className="flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 focus-within:border-violet-500/50 transition-colors">
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-500 to-blue-600 flex-shrink-0" />
             <input
               type="text"
@@ -182,24 +181,24 @@ export default function BuildPage() {
               onFocus={() => managerSuggestions.length > 0 && setManagerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleBuild()}
               placeholder="Manager name (e.g. Pep Guardiola, Klopp...)"
-              className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none text-sm"
+              className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm"
             />
-            {isSearchingManager && <div className="w-3 h-3 border border-slate-500 border-t-violet-400 rounded-full animate-spin flex-shrink-0" />}
+            {isSearchingManager && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-violet-400 rounded-full animate-spin flex-shrink-0" />}
             {selectedManager?.hasProfile && !isSearchingManager && (
               <span className="text-violet-400 text-xs flex-shrink-0">✓ Full profile</span>
             )}
           </div>
           {managerDropdownOpen && (managerSuggestions.length > 0 || isSearchingManager) && (
-            <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20">
+            <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20">
               {isSearchingManager && managerSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
                 : managerSuggestions.map((coach) => (
                     <button key={coach.id}
                       onMouseDown={() => { setManagerQuery(coach.name); setSelectedManager(coach); setManagerDropdownOpen(false) }}
-                      className="w-full px-4 py-2.5 text-left hover:bg-slate-800 transition-colors text-sm text-white flex items-center justify-between gap-3">
+                      className="w-full px-4 py-2.5 text-left hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-sm text-slate-900 dark:text-white flex items-center justify-between gap-3">
                       <div>
                         <span className="font-medium">{coach.name}</span>
-                        <span className="text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
                       </div>
                       {coach.hasProfile && <span className="text-violet-400 text-xs flex-shrink-0">Full profile</span>}
                     </button>
@@ -211,14 +210,14 @@ export default function BuildPage() {
 
         {/* Budget */}
         <div>
-          <p className="text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Budget</p>
+          <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Budget</p>
           <div className="flex flex-wrap gap-2">
             {BUDGETS.map((b) => (
               <button key={b} onClick={() => setBudget(b)}
                 className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors border ${
                   budget === b
                     ? 'bg-violet-600 border-violet-500 text-white'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-white'
+                    : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-500 hover:text-slate-900 dark:hover:text-white'
                 }`}>
                 {b}
               </button>
@@ -251,17 +250,17 @@ export default function BuildPage() {
       {result && !loading && (
         <div className="space-y-5">
           {/* Identity card */}
-          <div className="bg-slate-800/60 border border-violet-500/20 rounded-xl p-5">
+          <div className="bg-slate-50 dark:bg-slate-800/60 border border-violet-500/20 rounded-xl p-5">
             <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-white font-bold text-lg">{result.managerName}</span>
-                <span className="text-slate-500 text-sm">{result.formation}</span>
+                <span className="text-slate-900 dark:text-white font-bold text-lg">{result.managerName}</span>
+                <span className="text-slate-400 dark:text-slate-500 text-sm">{result.formation}</span>
               </div>
               <span className="bg-violet-500/15 border border-violet-500/30 text-violet-400 text-xs font-bold px-2.5 py-1 rounded-full">
                 {result.totalEstimatedCost}
               </span>
             </div>
-            <p className="text-slate-300 text-sm leading-relaxed">{result.identity}</p>
+            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">{result.identity}</p>
           </div>
 
           {/* Player grid */}
@@ -272,11 +271,11 @@ export default function BuildPage() {
           </div>
 
           {/* System fit legend */}
-          <div className="flex items-center gap-4 text-xs text-slate-600 justify-center pt-2">
+          <div className="flex items-center gap-4 text-xs text-slate-400 dark:text-slate-600 justify-center pt-2">
             <span>System fit score:</span>
             <span className="text-violet-400">90+ Elite</span>
             <span className="text-blue-400">75+ Strong</span>
-            <span className="text-slate-400">60+ Good</span>
+            <span className="text-slate-500">60+ Good</span>
           </div>
         </div>
       )}
@@ -284,7 +283,7 @@ export default function BuildPage() {
       {/* Examples */}
       {!result && !loading && exampleManagers.length > 0 && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-600 text-sm text-center mb-4">Try these</p>
+          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">Try these</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {exampleManagers.map((m) => (
               <button key={m.id}
@@ -292,9 +291,9 @@ export default function BuildPage() {
                   setManagerQuery(m.name)
                   setSelectedManager({ id: m.id, profileId: m.id, name: m.name, currentClub: m.currentClub, hasProfile: true })
                 }}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
-                <p className="text-white text-sm font-medium">{m.name}</p>
-                <p className="text-slate-500 text-xs">{m.currentClub}</p>
+                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
+                <p className="text-slate-900 dark:text-white text-sm font-medium">{m.name}</p>
+                <p className="text-slate-400 dark:text-slate-500 text-xs">{m.currentClub}</p>
               </button>
             ))}
           </div>

@@ -25,7 +25,6 @@ interface PlayerResult {
 }
 
 export default function PlayerCheckPage() {
-  // Target club search
   const [clubQuery, setClubQuery] = useState('')
   const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; country: string; logo: string }>>([])
   const [isSearchingClub, setIsSearchingClub] = useState(false)
@@ -33,7 +32,6 @@ export default function PlayerCheckPage() {
   const clubRef = useRef<HTMLDivElement>(null)
   const clubDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Player search
   const [playerQuery, setPlayerQuery] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerResult[]>([])
@@ -42,7 +40,6 @@ export default function PlayerCheckPage() {
   const playerRef = useRef<HTMLDivElement>(null)
   const playerDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Manager search
   const [managerQuery, setManagerQuery] = useState('')
   const [selectedManager, setSelectedManager] = useState<CoachResult | null>(null)
   const [managerSuggestions, setManagerSuggestions] = useState<CoachResult[]>([])
@@ -56,7 +53,6 @@ export default function PlayerCheckPage() {
   const [tmPlayer, setTmPlayer] = useState<TMPlayerData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (playerRef.current && !playerRef.current.contains(e.target as Node)) setPlayerDropdownOpen(false)
@@ -67,7 +63,6 @@ export default function PlayerCheckPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Pre-warm the team cache on page load
   useEffect(() => {
     fetch('/api/teams?q=united').catch(() => {})
   }, [])
@@ -75,11 +70,7 @@ export default function PlayerCheckPage() {
   const handleClubInput = (value: string) => {
     setClubQuery(value)
     if (clubDebounceRef.current) clearTimeout(clubDebounceRef.current)
-    if (value.trim().length < 2) {
-      setClubSuggestions([])
-      setClubDropdownOpen(false)
-      return
-    }
+    if (value.trim().length < 2) { setClubSuggestions([]); setClubDropdownOpen(false); return }
     setIsSearchingClub(true)
     setClubDropdownOpen(true)
     clubDebounceRef.current = setTimeout(async () => {
@@ -87,39 +78,25 @@ export default function PlayerCheckPage() {
         const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}`)
         const data = await res.json()
         setClubSuggestions((data.teams || []).map((t: { team: { id: number; name: string; country: string; logo: string } }) => t.team))
-      } catch {
-        setClubSuggestions([])
-      } finally {
-        setIsSearchingClub(false)
-      }
+      } catch { setClubSuggestions([]) }
+      finally { setIsSearchingClub(false) }
     }, 300)
   }
 
   const handlePlayerInput = (value: string) => {
     setPlayerQuery(value)
     setSelectedPlayer(null)
-
     if (playerDebounceRef.current) clearTimeout(playerDebounceRef.current)
-
-    if (value.trim().length < 2) {
-      setPlayerSuggestions([])
-      setPlayerDropdownOpen(false)
-      return
-    }
-
+    if (value.trim().length < 2) { setPlayerSuggestions([]); setPlayerDropdownOpen(false); return }
     setIsSearchingPlayer(true)
     setPlayerDropdownOpen(true)
-
     playerDebounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/players/search?q=${encodeURIComponent(value.trim())}`)
         const data = await res.json()
         setPlayerSuggestions(data.players || [])
-      } catch {
-        setPlayerSuggestions([])
-      } finally {
-        setIsSearchingPlayer(false)
-      }
+      } catch { setPlayerSuggestions([]) }
+      finally { setIsSearchingPlayer(false) }
     }, 300)
   }
 
@@ -133,28 +110,17 @@ export default function PlayerCheckPage() {
   const handleManagerInput = (value: string) => {
     setManagerQuery(value)
     setSelectedManager(null)
-
     if (managerDebounceRef.current) clearTimeout(managerDebounceRef.current)
-
-    if (value.trim().length < 2) {
-      setManagerSuggestions([])
-      setManagerDropdownOpen(false)
-      return
-    }
-
+    if (value.trim().length < 2) { setManagerSuggestions([]); setManagerDropdownOpen(false); return }
     setIsSearchingManager(true)
     setManagerDropdownOpen(true)
-
     managerDebounceRef.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/managers/search?q=${encodeURIComponent(value.trim())}`)
         const data = await res.json()
         setManagerSuggestions(data.coaches || [])
-      } catch {
-        setManagerSuggestions([])
-      } finally {
-        setIsSearchingManager(false)
-      }
+      } catch { setManagerSuggestions([]) }
+      finally { setIsSearchingManager(false) }
     }, 300)
   }
 
@@ -167,15 +133,11 @@ export default function PlayerCheckPage() {
 
   const handleCheck = async () => {
     if (!playerQuery.trim() || !managerQuery.trim()) return
-
     setIsChecking(true)
     setError(null)
     setResult(null)
     setTmPlayer(null)
-
-    // Use canonical name from typeahead selection if available, else raw query
     const resolvedPlayerName = selectedPlayer?.name || playerQuery.trim()
-
     try {
       const res = await fetch('/api/player-check', {
         method: 'POST',
@@ -188,14 +150,8 @@ export default function PlayerCheckPage() {
           targetTeam: clubQuery.trim() || undefined,
         }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error || 'Analysis failed')
-        return
-      }
-
+      if (!res.ok) { setError(data.error || 'Analysis failed'); return }
       setResult(data.compatibility)
       setTmPlayer(data.player || null)
     } catch {
@@ -205,6 +161,11 @@ export default function PlayerCheckPage() {
     }
   }
 
+  const inputBase = 'flex items-center gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 transition-colors'
+  const inputText = 'flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm'
+  const dropdownBase = 'absolute top-full left-0 right-0 mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20'
+  const dropdownItem = 'w-full px-4 py-2.5 text-left hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-sm text-slate-900 dark:text-white flex items-center justify-between gap-3'
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
       {/* Header */}
@@ -213,10 +174,10 @@ export default function PlayerCheckPage() {
           <GitCompare className="w-3 h-3" />
           Player Compatibility
         </div>
-        <h1 className="text-3xl sm:text-4xl font-bold text-white tracking-tight mb-3">
+        <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
           Does this player fit?
         </h1>
-        <p className="text-slate-400 max-w-xl mx-auto leading-relaxed">
+        <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
           Enter any player&apos;s name and select a manager to get a detailed tactical compatibility
           report — including role, fit score, strengths, concerns, and scout comparison.
         </p>
@@ -226,130 +187,98 @@ export default function PlayerCheckPage() {
       <div className="max-w-xl mx-auto space-y-4 mb-8">
         {/* Player live search */}
         <div className="relative" ref={playerRef}>
-          <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-purple-500/50 transition-colors">
+          <div className={`${inputBase} focus-within:border-purple-500/50`}>
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-green-500 to-teal-600 flex-shrink-0" />
             <input
-              type="text"
-              value={playerQuery}
+              type="text" value={playerQuery}
               onChange={(e) => handlePlayerInput(e.target.value)}
               onFocus={() => playerSuggestions.length > 0 && setPlayerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
               placeholder="Player name (e.g. Micky van de Ven)"
-              className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none text-sm"
+              className={inputText}
             />
-            {isSearchingPlayer && (
-              <div className="w-3 h-3 border border-slate-500 border-t-green-400 rounded-full animate-spin flex-shrink-0" />
-            )}
-            {selectedPlayer && !isSearchingPlayer && (
-              <span className="text-green-400 text-xs flex-shrink-0">✓ Found</span>
-            )}
+            {isSearchingPlayer && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-green-400 rounded-full animate-spin flex-shrink-0" />}
+            {selectedPlayer && !isSearchingPlayer && <span className="text-green-400 text-xs flex-shrink-0">✓ Found</span>}
           </div>
-
           {playerDropdownOpen && (playerSuggestions.length > 0 || isSearchingPlayer) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20">
-              {isSearchingPlayer && playerSuggestions.length === 0 ? (
-                <div className="px-4 py-3 text-slate-500 text-sm">Searching...</div>
-              ) : (
-                playerSuggestions.map((player) => (
-                  <button
-                    key={player.id}
-                    onClick={() => handleSelectPlayer(player)}
-                    className="w-full px-4 py-2.5 text-left hover:bg-slate-800 transition-colors text-sm text-white flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <span className="font-medium">{player.name}</span>
-                      <span className="text-slate-500 ml-2 text-xs">{player.club}</span>
-                    </div>
-                    <span className="text-slate-500 text-xs flex-shrink-0">{player.position}</span>
-                  </button>
-                ))
-              )}
+            <div className={dropdownBase}>
+              {isSearchingPlayer && playerSuggestions.length === 0
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                : playerSuggestions.map((player) => (
+                    <button key={player.id} onClick={() => handleSelectPlayer(player)} className={dropdownItem}>
+                      <div>
+                        <span className="font-medium">{player.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{player.club}</span>
+                      </div>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{player.position}</span>
+                    </button>
+                  ))
+              }
             </div>
           )}
         </div>
 
         {/* Manager live search */}
         <div className="relative" ref={managerRef}>
-          <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-purple-500/50 transition-colors">
+          <div className={`${inputBase} focus-within:border-purple-500/50`}>
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex-shrink-0" />
             <input
-              type="text"
-              value={managerQuery}
+              type="text" value={managerQuery}
               onChange={(e) => handleManagerInput(e.target.value)}
               onFocus={() => managerSuggestions.length > 0 && setManagerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
               placeholder="Manager name (e.g. Klopp, Vitor Pereira...)"
-              className="flex-1 bg-transparent text-white placeholder-slate-500 outline-none text-sm"
+              className={inputText}
             />
-            {isSearchingManager && (
-              <div className="w-3 h-3 border border-slate-500 border-t-purple-400 rounded-full animate-spin flex-shrink-0" />
-            )}
-            {selectedManager?.hasProfile && !isSearchingManager && (
-              <span className="text-purple-400 text-xs flex-shrink-0">✓ Full profile</span>
-            )}
+            {isSearchingManager && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-purple-400 rounded-full animate-spin flex-shrink-0" />}
+            {selectedManager?.hasProfile && !isSearchingManager && <span className="text-purple-400 text-xs flex-shrink-0">✓ Full profile</span>}
           </div>
-
           {managerDropdownOpen && (managerSuggestions.length > 0 || isSearchingManager) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20">
-              {isSearchingManager && managerSuggestions.length === 0 ? (
-                <div className="px-4 py-3 text-slate-500 text-sm">Searching...</div>
-              ) : (
-                managerSuggestions.map((coach) => (
-                  <button
-                    key={coach.id}
-                    onClick={() => handleSelectManager(coach)}
-                    className="w-full px-4 py-2.5 text-left hover:bg-slate-800 transition-colors text-sm text-white flex items-center justify-between gap-3"
-                  >
-                    <div>
-                      <span className="font-medium">{coach.name}</span>
-                      <span className="text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
-                    </div>
-                    {coach.hasProfile && (
-                      <span className="text-purple-400 text-xs flex-shrink-0">Full profile</span>
-                    )}
-                  </button>
-                ))
-              )}
+            <div className={dropdownBase}>
+              {isSearchingManager && managerSuggestions.length === 0
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                : managerSuggestions.map((coach) => (
+                    <button key={coach.id} onClick={() => handleSelectManager(coach)} className={dropdownItem}>
+                      <div>
+                        <span className="font-medium">{coach.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
+                      </div>
+                      {coach.hasProfile && <span className="text-purple-400 text-xs flex-shrink-0">Full profile</span>}
+                    </button>
+                  ))
+              }
             </div>
           )}
         </div>
 
-        {/* Optional target club with typeahead */}
+        {/* Optional target club */}
         <div className="relative" ref={clubRef}>
-          <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 focus-within:border-slate-600 transition-colors">
-            <Search className="w-4 h-4 text-slate-600 flex-shrink-0" />
+          <div className={`${inputBase} focus-within:border-slate-400`}>
+            <Search className="w-4 h-4 text-slate-400 dark:text-slate-600 flex-shrink-0" />
             <input
-              type="text"
-              value={clubQuery}
+              type="text" value={clubQuery}
               onChange={(e) => handleClubInput(e.target.value)}
               onFocus={() => clubSuggestions.length > 0 && setClubDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
               placeholder="Target club (optional — e.g. Arsenal)"
-              className="flex-1 bg-transparent text-white placeholder-slate-600 outline-none text-sm"
+              className={inputText}
             />
-            {isSearchingClub && (
-              <div className="w-3 h-3 border border-slate-600 border-t-slate-400 rounded-full animate-spin flex-shrink-0" />
-            )}
+            {isSearchingClub && <div className="w-3 h-3 border border-slate-300 dark:border-slate-600 border-t-slate-400 rounded-full animate-spin flex-shrink-0" />}
           </div>
-
           {clubDropdownOpen && (clubSuggestions.length > 0 || isSearchingClub) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-slate-900 border border-slate-700 rounded-xl overflow-auto max-h-48 shadow-xl z-20">
-              {isSearchingClub && clubSuggestions.length === 0 ? (
-                <div className="px-4 py-3 text-slate-500 text-sm">Searching...</div>
-              ) : (
-                clubSuggestions.map((club) => (
-                  <button
-                    key={club.id}
-                    onClick={() => { setClubQuery(club.name); setClubDropdownOpen(false); setClubSuggestions([]) }}
-                    className="w-full px-4 py-2.5 text-left hover:bg-slate-800 transition-colors text-sm text-white flex items-center gap-3"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
-                    <span className="font-medium">{club.name}</span>
-                    <span className="text-slate-500 text-xs ml-auto">{club.country}</span>
-                  </button>
-                ))
-              )}
+            <div className={dropdownBase + ' max-h-48'}>
+              {isSearchingClub && clubSuggestions.length === 0
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                : clubSuggestions.map((club) => (
+                    <button key={club.id} onClick={() => { setClubQuery(club.name); setClubDropdownOpen(false); setClubSuggestions([]) }}
+                      className={dropdownItem}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
+                      <span className="font-medium">{club.name}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.country}</span>
+                    </button>
+                  ))
+              }
             </div>
           )}
         </div>
@@ -358,7 +287,7 @@ export default function PlayerCheckPage() {
         <button
           onClick={handleCheck}
           disabled={!playerQuery.trim() || !managerQuery.trim() || isChecking}
-          className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
+          className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
           {isChecking ? 'Analyzing compatibility...' : 'Check Compatibility'}
         </button>
@@ -372,66 +301,43 @@ export default function PlayerCheckPage() {
         </div>
       )}
 
-      {isChecking && (
-        <LoadingSpinner
-          message="Running scout analysis..."
-          submessage="Fetching player stats and analyzing tactical compatibility"
-        />
-      )}
+      {isChecking && <LoadingSpinner message="Running scout analysis..." submessage="Fetching player stats and analyzing tactical compatibility" />}
 
       {/* Results */}
       {result && !isChecking && (
         <div className="space-y-6">
-          {/* Player info bar */}
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
+          <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-3">
                 {tmPlayer?.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={tmPlayer.imageUrl} alt={tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-700 flex-shrink-0" />
+                  <img src={tmPlayer.imageUrl} alt={tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
                 ) : (
-                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-600 to-slate-800 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-400 dark:from-slate-600 to-slate-600 dark:to-slate-800 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
                     {result.playerName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
                 )}
                 <div>
-                  <p className="text-white font-semibold">{result.playerName}</p>
-                  <p className="text-slate-400 text-sm">{tmPlayer?.currentClub || result.currentClub || '—'}</p>
-                  <p className="text-slate-500 text-xs">
+                  <p className="text-slate-900 dark:text-white font-semibold">{result.playerName}</p>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer?.currentClub || result.currentClub || '—'}</p>
+                  <p className="text-slate-400 dark:text-slate-500 text-xs">
                     {tmPlayer?.position || result.position}
                     {(tmPlayer?.age || result.age) ? ` · Age ${tmPlayer?.age || result.age}` : ''}
                     {(tmPlayer?.nationality || result.nationality) ? ` · ${tmPlayer?.nationality || result.nationality}` : ''}
                   </p>
                 </div>
               </div>
-
               {tmPlayer && (
                 <div className="flex items-center gap-4 flex-wrap">
-                  <div className="text-center">
-                    <p className="text-white font-bold text-sm">{tmPlayer.goals}</p>
-                    <p className="text-slate-500 text-xs">Goals</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white font-bold text-sm">{tmPlayer.assists}</p>
-                    <p className="text-slate-500 text-xs">Assists</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white font-bold text-sm">{tmPlayer.appearances}</p>
-                    <p className="text-slate-500 text-xs">Apps</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p>
-                    <p className="text-slate-500 text-xs">Value</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p>
-                    <p className="text-slate-500 text-xs">Contract</p>
-                  </div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.goals}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Goals</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.assists}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Assists</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.appearances}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Apps</p></div>
+                  <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Value</p></div>
+                  <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Contract</p></div>
                 </div>
               )}
             </div>
           </div>
-
           <CompatibilityReport result={result} />
         </div>
       )}
@@ -439,7 +345,7 @@ export default function PlayerCheckPage() {
       {/* Examples */}
       {!result && !isChecking && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-600 text-sm text-center mb-4">Try these examples</p>
+          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">Try these examples</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
               { player: 'Bukayo Saka', manager: 'Mikel Arteta', profileId: 'mikel-arteta' },
@@ -451,14 +357,14 @@ export default function PlayerCheckPage() {
                 key={player + manager}
                 onClick={() => {
                   setPlayerQuery(player)
-                  setSelectedPlayer(null) // no TM id for examples — will search on submit
+                  setSelectedPlayer(null)
                   setManagerQuery(manager)
                   setSelectedManager({ id: profileId, profileId, name: manager, currentClub: '', formations: [], hasProfile: true })
                 }}
-                className="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-3 text-left transition-colors"
+                className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3 text-left transition-colors"
               >
-                <p className="text-white text-sm font-medium">{player}</p>
-                <p className="text-slate-500 text-xs">→ {manager}</p>
+                <p className="text-slate-900 dark:text-white text-sm font-medium">{player}</p>
+                <p className="text-slate-400 dark:text-slate-500 text-xs">→ {manager}</p>
               </button>
             ))}
           </div>
