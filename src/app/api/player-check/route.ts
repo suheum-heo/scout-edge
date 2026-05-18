@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getManagerById } from '@/lib/managers'
 import { analyzePlayerCompatibility } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 
 export async function POST(request: NextRequest) {
@@ -56,6 +57,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Player check error:', error)
-    return NextResponse.json({ error: 'Analysis failed. Please try again.' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Analysis failed. Please try again.')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

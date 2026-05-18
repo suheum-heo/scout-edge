@@ -4,6 +4,7 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import { analyzeSquadSystemFit } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
 export async function POST(request: NextRequest) {
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ fits })
   } catch (error) {
     console.error('Squad fit error:', error)
-    return NextResponse.json({ error: 'Failed to analyse squad fit' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Failed to analyse squad fit')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

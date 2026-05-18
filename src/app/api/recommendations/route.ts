@@ -5,6 +5,7 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, getPlayerData, formatMarketValue } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 
@@ -141,6 +142,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ recommendations: filtered })
   } catch (error) {
     console.error('Recommendations error:', error)
-    return NextResponse.json({ error: 'Failed to generate recommendations' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Failed to generate recommendations')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

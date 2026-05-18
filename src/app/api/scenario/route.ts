@@ -4,6 +4,7 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import { analyzeScenario, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
 export async function POST(request: NextRequest) {
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result })
   } catch (error) {
     console.error('Scenario error:', error)
-    return NextResponse.json({ error: 'Scenario analysis failed. Please try again.' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Scenario analysis failed. Please try again.')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

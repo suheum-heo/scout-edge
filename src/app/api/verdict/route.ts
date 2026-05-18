@@ -4,6 +4,7 @@ export const maxDuration = 60
 
 import { getManagerByName } from '@/lib/managers'
 import { analyzeTransferVerdict } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 import { getTeamData, APICoach } from '@/lib/football-data'
 import { getSquadAndCoach as fotmobGetSquadAndCoach } from '@/lib/fotmob'
@@ -74,6 +75,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Verdict error:', error)
-    return NextResponse.json({ error: 'Analysis failed. Please try again.' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Analysis failed. Please try again.')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

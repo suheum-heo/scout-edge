@@ -4,6 +4,7 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import { buildManagerXI, IdealPlayer } from '@/lib/claude'
+import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, getPlayerData, formatMarketValue } from '@/lib/transfermarkt'
 
 const TM_TIMEOUT_MS = 12000
@@ -73,6 +74,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ...result, players: enriched })
   } catch (error) {
     console.error('Manager XI error:', error)
-    return NextResponse.json({ error: 'Failed to build XI. Please try again.' }, { status: 500 })
+    const details = getAIErrorDetails(error, 'Failed to build XI. Please try again.')
+    return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }
