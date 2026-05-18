@@ -36,6 +36,10 @@ interface ManagerResult {
   keyPrinciples: string[]
 }
 
+function makeAvailabilityKey(ids?: Iterable<string>): string {
+  return ids ? [...ids].sort().join('|') : ''
+}
+
 export default function HomePage() {
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
@@ -67,6 +71,7 @@ export default function HomePage() {
   const [fitError, setFitError] = useState<string | null>(null)
 
   const [unavailableIds, setUnavailableIds] = useState<Set<string>>(new Set())
+  const [analyzedUnavailableKey, setAnalyzedUnavailableKey] = useState('')
 
   const [scenarios, setScenarios] = useState<ScenarioResult[]>([])
   const [isRunningScenario, setIsRunningScenario] = useState(false)
@@ -129,6 +134,7 @@ export default function HomePage() {
     setScenarios([])
     setCompareIds(null)
     setUnavailableIds(new Set())
+    setAnalyzedUnavailableKey('')
     setActiveTab('gaps')
     setError(null)
   }
@@ -139,6 +145,16 @@ export default function HomePage() {
       next.has(playerId) ? next.delete(playerId) : next.add(playerId)
       return next
     })
+    setSquadFit([])
+    setFitError(null)
+    setSelectedGap(null)
+    setSelectedBudget('')
+    setRecommendations([])
+    setRecsError(null)
+    setScenarios([])
+    setCompareIds(null)
+    setScenarioError(null)
+    setActiveTab('gaps')
   }
 
   const handleAnalyze = async (excludeIds?: Set<string>) => {
@@ -157,6 +173,7 @@ export default function HomePage() {
     if (!isReAnalyse) {
       setSquad([])
       setUnavailableIds(new Set())
+      setAnalyzedUnavailableKey('')
     }
 
     try {
@@ -190,6 +207,7 @@ export default function HomePage() {
       setSquad((data.squad as SquadPlayer[]) || [])
       setManagerResult(data.manager as ManagerResult)
       setNationalTeamCountry((data.nationalTeamCountry as string) || null)
+      setAnalyzedUnavailableKey(makeAvailabilityKey(excludeIds))
 
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -213,6 +231,11 @@ export default function HomePage() {
 
   const handleSelectBudget = async (budget: string) => {
     if (!selectedGap || !selectedTeam || !managerResult) return
+    if (availabilityDirty) {
+      setRecsError('Re-analyse the squad after updating availability before requesting transfer targets.')
+      setRecommendations([])
+      return
+    }
     setSelectedBudget(budget)
     setRecommendations([])
     setRecsError(null)
@@ -228,7 +251,7 @@ export default function HomePage() {
           managerName: managerResult.name,
           teamName: selectedTeam.team.name,
           budget,
-          squad,
+          squad: availableSquad,
           nationalTeamCountry: nationalTeamCountry || undefined,
         }),
       })
@@ -247,7 +270,7 @@ export default function HomePage() {
   }
 
   const handleRunScenario = async (out: ScenarioOutPlayer[], inn: ScenarioInPlayer[]) => {
-    if (!squad.length || !managerResult || !selectedTeam) return
+    if (!availableSquad.length || !managerResult || !selectedTeam) return
     setIsRunningScenario(true)
     setScenarioError(null)
     try {
@@ -255,7 +278,7 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          squad,
+          squad: availableSquad,
           playersOut: out,
           playersIn: inn,
           managerId: managerResult.id || undefined,
@@ -294,15 +317,15 @@ export default function HomePage() {
       setScenarioError(null)
       return
     }
-    if (tab === 'fit' && !squadFit.length && !isLoadingFit && squad.length && managerResult) {
+    if (tab === 'fit' && !squadFit.length && !isLoadingFit && availableSquad.length && managerResult) {
       setIsLoadingFit(true)
       setFitError(null)
       try {
         const res = await fetch('/api/squad-fit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            squad,
+        body: JSON.stringify({
+            squad: availableSquad,
             managerId: managerResult.id || undefined,
             managerName: managerResult.name,
             teamName: selectedTeam?.team.name,
@@ -323,6 +346,21 @@ export default function HomePage() {
   }
 
   const selectedManagerOverride = managers.find((m) => m.id === selectedManagerId)
+  const currentAvailabilityKey = makeAvailabilityKey(unavailableIds)
+  const availabilityDirty = currentAvailabilityKey !== analyzedUnavailableKey
+  const availableSquad = unavailableIds.size > 0
+    ? squad.filter((player) => !unavailableIds.has(player.playerId))
+    : squad
+  const unavailablePlayers = unavailableIds.size > 0
+    ? squad.filter((player) => unavailableIds.has(player.playerId))
+    : []
+  const unavailableSummary = unavailablePlayers
+    .slice(0, 4)
+    .map((player) => player.name)
+    .join(', ')
+  const unavailableOverflow = unavailablePlayers.length > 4
+    ? ` +${unavailablePlayers.length - 4} more`
+    : ''
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
@@ -547,6 +585,17 @@ export default function HomePage() {
                 unavailableIds={unavailableIds}
                 onToggle={handleToggleUnavailable}
               />
+              {unavailablePlayers.length > 0 && (
+                <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+                  availabilityDirty
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-300'
+                    : 'bg-blue-500/10 border-blue-500/20 text-blue-300'
+                }`}>
+                  {availabilityDirty
+                    ? `Availability changed: re-analyse to refresh the gap list and transfer target logic without ${unavailableSummary}${unavailableOverflow}.`
+                    : `Manager availability mode is active: Squad Fit, coverage checks, and scenarios are using the currently available squad without ${unavailableSummary}${unavailableOverflow}.`}
+                </div>
+              )}
               {unavailableIds.size > 0 && (
                 <button
                   onClick={() => handleAnalyze(unavailableIds)}
@@ -732,11 +781,11 @@ export default function HomePage() {
                   <div className="mb-4">
                     <h3 className="text-slate-900 dark:text-white font-semibold text-sm">Build a Transfer Scenario</h3>
                     <p className="text-slate-600 text-xs mt-0.5">
-                      Select players leaving and add incoming signings — Claude will recalculate how the squad changes.
+                      Select players leaving and add incoming signings — Claude will recalculate how the currently available squad changes.
                     </p>
                   </div>
                   <ScenarioBuilder
-                    squad={squad}
+                    squad={availableSquad}
                     recommendations={recommendations}
                     onRun={handleRunScenario}
                     isLoading={isRunningScenario}

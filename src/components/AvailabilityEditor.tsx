@@ -49,7 +49,7 @@ export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: 
           <div className="min-w-0">
             <span className="text-slate-700 dark:text-slate-300 text-sm font-medium">Squad Availability</span>
             {!open && count === 0 && (
-              <span className="text-slate-400 dark:text-slate-500 text-xs ml-2">Mark injured or suspended players before re-analysing</span>
+              <span className="text-slate-400 dark:text-slate-500 text-xs ml-2">Mark players unavailable right now before re-analysing</span>
             )}
           </div>
           {count > 0 && (
@@ -64,7 +64,7 @@ export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: 
       {open && (
         <div className="p-4 border-t border-slate-200/50 dark:border-slate-700/50">
           <p className="text-slate-400 dark:text-slate-500 text-xs mb-4">
-            Tap players to mark as injured or suspended — they&apos;ll be excluded from the next analysis.
+            Tap players to mark them unavailable right now — injured, suspended, or otherwise out. They&apos;ll be excluded from the next analysis pass.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {GROUP_ORDER.map(g => grouped[g].length > 0 && (
