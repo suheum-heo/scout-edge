@@ -129,6 +129,7 @@ export interface PlayerSystemFit {
 
 const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
 const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
+const SQUAD_FIT_BATCH_SIZE = 12
 
 export interface PlayerCompatibilityResult {
   playerName: string
@@ -146,6 +147,63 @@ export interface PlayerCompatibilityResult {
   age?: number
   nationality?: string
   position?: string
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+function buildFallbackSystemFit(player: SquadPlayer): PlayerSystemFit {
+  return {
+    playerName: player.name,
+    position: player.position,
+    age: player.age,
+    fitScore: 5,
+    fitLabel: 'Rotation',
+    reason: `${player.name} needs a manual tactical review for this system.`,
+    scoutScore: 50,
+    valueLabel: 'Fair Value',
+  }
+}
+
+function normalizeSystemFit(player: SquadPlayer, fit?: Partial<PlayerSystemFit>): PlayerSystemFit {
+  const fitScore = typeof fit?.fitScore === 'number' && fit.fitScore >= 1 && fit.fitScore <= 10
+    ? fit.fitScore
+    : 5
+  const fitLabel = FIT_LABELS.has(fit?.fitLabel as FitLabel)
+    ? fit!.fitLabel as FitLabel
+    : fitScore >= 9
+    ? 'Key Man'
+    : fitScore >= 7
+    ? 'Good Fit'
+    : fitScore >= 5
+    ? 'Rotation'
+    : fitScore >= 3
+    ? 'Poor Fit'
+    : 'Sell Candidate'
+  const scoutScore = typeof fit?.scoutScore === 'number'
+    ? Math.max(0, Math.min(100, Math.round(fit.scoutScore)))
+    : fitScore * 10
+  const valueLabel = VALUE_LABELS.has(fit?.valueLabel as PlayerSystemFit['valueLabel'])
+    ? fit!.valueLabel as PlayerSystemFit['valueLabel']
+    : 'Fair Value'
+
+  return {
+    playerName: player.name,
+    position: player.position,
+    age: player.age,
+    fitScore,
+    fitLabel,
+    reason: typeof fit?.reason === 'string' && fit.reason.trim()
+      ? fit.reason.trim()
+      : `${player.name} needs a manual tactical review for this system.`,
+    scoutScore,
+    valueLabel,
+  }
 }
 
 /** Quick Claude call to identify players whose real tactical role differs from their registered position */
@@ -513,10 +571,6 @@ export async function analyzeSquadSystemFit(
 
   const resolvedName = manager?.name || managerName || 'the manager'
 
-  const playerList = squad
-    .map((p) => `- ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
-    .join('\n')
-
   const managerSection = manager
     ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
@@ -526,19 +580,26 @@ ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel})
     : `Use your knowledge of ${resolvedName}'s tactical system — formations, pressing intensity, build-up style, and what he demands from players in each role.`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const squadChunks = chunkArray(squad, SQUAD_FIT_BATCH_SIZE)
 
-  const prompt = `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
+  const results = await Promise.all(
+    squadChunks.map(async (chunk, chunkIndex) => {
+      const playerList = chunk
+        .map((p, index) => `${index + 1}. ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
+        .join('\n')
+
+      const prompt = `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
 
 ## Manager: ${resolvedName}
 ${managerSection}
 
-## Squad at ${teamName}:
+## Squad batch ${chunkIndex + 1} of ${squadChunks.length} at ${teamName}:
 ${playerList}
 
 For EVERY player listed, assess:
 - fitScore (1-10): how well they suit this specific system and playing style
 - fitLabel: exactly one of the five labels below
-- reason: ONE sentence — cite a specific tactical reason (not just "good player")
+- reason: ONE short sentence, maximum 18 words, citing a specific tactical reason
 
 fitLabel rules:
 - "Key Man" (9-10): indispensable to this system, would be a major loss
@@ -547,17 +608,16 @@ fitLabel rules:
 - "Poor Fit" (3-4): doesn't suit the system's demands, limited usefulness
 - "Sell Candidate" (1-2): actively misaligned — wrong profile, wasted wages, or blocking development
 
-Be honest — not every team has 11 Key Men. A team with a new manager will have several Poor Fit / Sell Candidate players. Reference the tactical system specifically (e.g. "can't play as a pressing winger", "lacks the ball-playing ability this system requires").
+Be honest — not every team has 11 Key Men. Reference the tactical system specifically.
 
 scoutScore (0-100) is a composite score computed as:
   - System fit (40 pts max): fitScore × 4
-  - Value efficiency (40 pts max): how much quality this player provides relative to their likely market value. A €5M player performing like a €20M player = 38-40pts. A €80M player underperforming = 10-15pts.
+  - Value efficiency (40 pts max): quality relative to likely market value
   - Versatility (20 pts max): how many roles can this player credibly fill in this system?
-Higher scoutScore = more valuable to acquire/retain at their price point.
 
 valueLabel rules:
-- "Undervalued": market value is clearly below their output and tactical importance (scoutScore contribution from value efficiency ≥ 32)
-- "Overpriced": market value is clearly above their contribution (value efficiency ≤ 15)
+- "Undervalued": market value is clearly below their output and tactical importance
+- "Overpriced": market value is clearly above their contribution
 - "Fair Value": everything else
 
 Return JSON array, one object per player, in the same order as the input:
@@ -568,7 +628,7 @@ Return JSON array, one object per player, in the same order as the input:
     "age": 24,
     "fitScore": 8,
     "fitLabel": "Good Fit",
-    "reason": "One sentence citing a specific tactical reason",
+    "reason": "One short tactical sentence",
     "scoutScore": 74,
     "valueLabel": "Fair Value"
   }
@@ -577,52 +637,25 @@ Return JSON array, one object per player, in the same order as the input:
 No other text. Cover every player.
 Do not rename players. Copy playerName, position, and age exactly from the input list.`
 
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
-  })
+      try {
+        const res = await anthropic.messages.create({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 1400,
+          temperature: 0,
+          messages: [{ role: 'user', content: prompt }],
+        })
 
-  const text = res.content[0].type === 'text' ? res.content[0].text : ''
-  const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
+        const text = res.content[0].type === 'text' ? res.content[0].text : ''
+        const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
+        return chunk.map((player, index) => normalizeSystemFit(player, parsed[index]))
+      } catch (error) {
+        console.error(`Squad fit chunk ${chunkIndex + 1} failed for ${teamName}:`, error)
+        return chunk.map((player) => buildFallbackSystemFit(player))
+      }
+    })
+  )
 
-  return squad.map((player, index) => {
-    const fit = parsed[index] || {}
-    const fitScore = typeof fit.fitScore === 'number' && fit.fitScore >= 1 && fit.fitScore <= 10
-      ? fit.fitScore
-      : 5
-    const fitLabel = FIT_LABELS.has(fit.fitLabel as FitLabel)
-      ? fit.fitLabel as FitLabel
-      : fitScore >= 9
-      ? 'Key Man'
-      : fitScore >= 7
-      ? 'Good Fit'
-      : fitScore >= 5
-      ? 'Rotation'
-      : fitScore >= 3
-      ? 'Poor Fit'
-      : 'Sell Candidate'
-    const scoutScore = typeof fit.scoutScore === 'number'
-      ? Math.max(0, Math.min(100, Math.round(fit.scoutScore)))
-      : fitScore * 10
-    const valueLabel = VALUE_LABELS.has(fit.valueLabel as PlayerSystemFit['valueLabel'])
-      ? fit.valueLabel as PlayerSystemFit['valueLabel']
-      : 'Fair Value'
-
-    return {
-      playerName: player.name,
-      position: player.position,
-      age: player.age,
-      fitScore,
-      fitLabel,
-      reason: typeof fit.reason === 'string' && fit.reason.trim()
-        ? fit.reason.trim()
-        : `${player.name} needs a manual tactical review for this system.`,
-      scoutScore,
-      valueLabel,
-    }
-  })
+  return results.flat()
 }
 
 // Recommend specific real transfer targets for a tactical gap within a budget
