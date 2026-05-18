@@ -218,7 +218,6 @@ export async function analyzeSquadGaps(
   })
 
   const squadSummary = sortedPlayers
-    .slice(0, 35)
     .map((p) => {
       if (hasFullStats) {
         return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality}) | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
@@ -275,6 +274,8 @@ Analyze the squad and identify:
 IMPORTANT: The squad list above is the authoritative source of truth. If your prior knowledge conflicts with the dataset, always trust the dataset — it reflects the most recent transfer activity and may include signings made after your training cutoff. Do not contradict the squad list based on prior knowledge of which club a player belongs to.
 
 For positional coverage, treat registered positions as starting points only. Use your knowledge of modern tactical roles and each player's career-wide versatility. Specific rule: a player registered as "Center-back" who has regularly played left-back (e.g. as a LCB/LB hybrid) counts as left-back cover — do not flag a LB gap if such a player is in the squad. Similarly, a right-back who inverts can cover attacking midfield, a CM deployed as a #6 covers the holding role, etc. Apply your understanding of modern roles (inverted full-backs, hybrid CBs, half-space runners, pressing triggers) when judging fit. Do not claim a team lacks depth at a position if a versatile senior player in the squad can credibly fill that role. Cross-reference every gap against the actual players listed and their [Note:] annotations before flagging it.
+
+Before flagging a sided-role gap such as left-back, right-back, left wing-back, right wing-back, left wing, or right wing, explicitly scan the squad list for any player whose listed position already matches that side. If a listed player exists, you must discuss that player by name before concluding the role is uncovered or tactically insufficient.
 
 Respond in this exact JSON format:
 {

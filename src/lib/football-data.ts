@@ -192,26 +192,30 @@ function calcAge(dateOfBirth: string): number {
   return age
 }
 
-/** Map football-data.org position strings to our 4-category codes */
-function mapPosition(pos: string | undefined): string {
+/** Preserve specific FD positions so analysis can distinguish LB/CB/RB/etc. */
+function normalizePositionLabel(pos: string | undefined): string {
   if (!pos) return 'Midfielder'
-  const p = pos.toLowerCase()
-  if (p.includes('goalkeeper') || p === 'gk') return 'Goalkeeper'
-  if (
-    p.includes('back') ||
-    p.includes('defence') ||
-    p.includes('center-back') ||
-    p.includes('centre-back') ||
-    p === 'defender'
-  ) return 'Defender'
-  if (
-    p.includes('forward') ||
-    p.includes('winger') ||
-    p.includes('striker') ||
-    p === 'offence' ||
-    p === 'attack'
-  ) return 'Attacker'
-  return 'Midfielder'
+
+  const raw = pos.trim()
+  if (!raw) return 'Midfielder'
+
+  const p = raw.toLowerCase()
+  if (p === 'gk') return 'Goalkeeper'
+  if (p === 'cb' || p === 'centre-back' || p === 'center-back') return 'Centre-Back'
+  if (p === 'lb' || p === 'left-back') return 'Left-Back'
+  if (p === 'rb' || p === 'right-back') return 'Right-Back'
+  if (p === 'lwb' || p === 'left wing-back') return 'Left Wing-Back'
+  if (p === 'rwb' || p === 'right wing-back') return 'Right Wing-Back'
+  if (p === 'dm' || p === 'defensive midfield') return 'Defensive Midfield'
+  if (p === 'cm' || p === 'central midfield') return 'Central Midfield'
+  if (p === 'am' || p === 'attacking midfield') return 'Attacking Midfield'
+  if (p === 'lw' || p === 'left winger') return 'Left Winger'
+  if (p === 'rw' || p === 'right winger') return 'Right Winger'
+  if (p === 'cf' || p === 'st' || p === 'striker' || p === 'centre-forward' || p === 'center-forward') return 'Striker'
+
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function teamLogoUrl(id: number): string {
@@ -285,7 +289,7 @@ export async function getTeamData(
             appearences: 0,
             lineups: 0,
             minutes: 0,
-            position: mapPosition(p.position),
+            position: normalizePositionLabel(p.position),
             rating: '0',
           },
           goals: { total: 0, assists: 0 },
