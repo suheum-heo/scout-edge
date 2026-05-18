@@ -59,8 +59,6 @@ export default function VerdictPage() {
   const [detectedManager, setDetectedManager] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { fetch('/api/teams?q=united').catch(() => {}) }, [])
-
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (playerRef.current && !playerRef.current.contains(e.target as Node)) setPlayerDropdownOpen(false)

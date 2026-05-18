@@ -89,11 +89,6 @@ export default function HomePage() {
     }
   }, [managers.length])
 
-  // Pre-warm the team cache on page load so first search is fast
-  useEffect(() => {
-    fetch('/api/teams?q=united').catch(() => {})
-  }, [])
-
   const handleTeamSearch = useCallback((value: string) => {
     setTeamQuery(value)
     setSelectedTeam(null)

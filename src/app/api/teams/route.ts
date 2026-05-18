@@ -1,11 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { searchFDTeams } from '@/lib/football-data'
 import { searchLocalTeams } from '@/lib/teams-db'
-import { searchTeams as fotmobSearchTeams } from '@/lib/fotmob'
 import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
 
 function normalizeName(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+}
+
+type TeamSearchResult = {
+  team: {
+    id: number | string
+    name: string
+    country: string
+    logo: string
+    source?: 'af' | 'tm' | 'fotmob'
+    fotmobId?: number
+  }
+  venue: { name: string; city: string }
+}
+
+const REMOTE_SEARCH_TTL_MS = 10 * 60 * 1000
+const remoteSearchCache = new Map<string, { teams: TeamSearchResult[]; expiresAt: number }>()
+
+function getCachedRemoteSearch(query: string): TeamSearchResult[] | null {
+  const cached = remoteSearchCache.get(query)
+  if (!cached) return null
+  if (Date.now() > cached.expiresAt) {
+    remoteSearchCache.delete(query)
+    return null
+  }
+  return cached.teams
+}
+
+function setCachedRemoteSearch(query: string, teams: TeamSearchResult[]) {
+  remoteSearchCache.set(query, {
+    teams,
+    expiresAt: Date.now() + REMOTE_SEARCH_TTL_MS,
+  })
 }
 
 // ISO 3166-1 alpha-2 codes (+ subdivision codes for GB nations) for football nations
@@ -58,73 +89,40 @@ function nationalTeamFlag(name: string): string | null {
 }
 
 export async function GET(request: NextRequest) {
-  const query = request.nextUrl.searchParams.get('q')
+  const query = request.nextUrl.searchParams.get('q')?.trim()
 
   if (!query || query.length < 2) {
     return NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
   }
 
   try {
-    // Local DB first — instant, handles partial names and aliases.
-    // Run TM in parallel so national teams can be prepended even when local DB hits.
+    // Fast path: local DB results are already accurate enough for selection and include
+    // the IDs needed to fetch live squad/coach data after the user chooses a team.
     const localResults = searchLocalTeams(query)
     if (localResults.length > 0) {
-      const [enriched, tmResults] = await Promise.all([
-        // Enrich 'af' teams with live FotMob data so names/logos are always current.
-        Promise.all(
-          localResults.map(async (result): Promise<{ team: { id: number | string; name: string; country: string; logo: string; source?: string; fotmobId?: number }; venue: { name: string; city: string } }> => {
-            if (result.team.source !== 'af') return result
-            try {
-              const searchQuery = result.team.fotmobSearch ?? result.team.name
-              const fmTeams = await fotmobSearchTeams(searchQuery)
-              const fmTeam = fmTeams[0]
-              if (fmTeam) {
-                return {
-                  team: { id: fmTeam.team.id, name: result.team.name, country: result.team.country, logo: fmTeam.team.logo, source: 'fotmob' },
-                  venue: result.venue,
-                }
-              }
-            } catch (e) {
-              console.error('[teams] FotMob enrich failed for', result.team.name, e)
-            }
-            return result
-          })
-        ),
-        tmSearchClubs(query),
-      ])
-
-      // Prepend any national team from TM that isn't already in the local results
-      const localNames = new Set(enriched.map((r) => normalizeName(r.team.name)))
-      const nationalTeams = tmResults
-        .filter((c) => nationalTeamFlag(c.name) && !localNames.has(normalizeName(c.name)))
-        .map((c) => ({
-          team: { id: c.id as unknown as number, name: c.name, country: c.country, logo: nationalTeamFlag(c.name)!, source: 'tm' as const },
-          venue: { name: '', city: '' },
-        }))
-
-      return NextResponse.json({ teams: [...nationalTeams, ...enriched].slice(0, 8) })
+      return NextResponse.json({ teams: localResults.slice(0, 8) })
     }
 
-    // Run FD, FotMob, and TM in parallel.
-    // FD: European leagues (correct squad IDs). FotMob: global clubs + logos.
-    // TM: global fallback including national teams — always run so they appear alongside clubs.
-    const [fdResults, fmResults, tmResults] = await Promise.all([
+    const cacheKey = normalizeName(query)
+    const cachedResults = getCachedRemoteSearch(cacheKey)
+    if (cachedResults) {
+      return NextResponse.json({ teams: cachedResults })
+    }
+
+    // Remote fallback only when the local DB misses.
+    // FD gives correct IDs for covered leagues, TM fills in the global gaps.
+    const [fdResults, tmResults] = await Promise.all([
       searchFDTeams(query),
-      fotmobSearchTeams(query),
       tmSearchClubs(query),
     ])
 
-    // Merge: FD first, then FotMob-only, then TM-only — deduplicated by normalized name.
+    // Merge: FD first, then TM-only — deduplicated by normalized name.
     const seenNames = new Set<string>()
-    const merged: Array<{ team: { id: number | string; name: string; country: string; logo: string; source?: string }; venue: { name: string; city: string } }> = []
+    const merged: TeamSearchResult[] = []
 
     for (const t of fdResults) {
       const key = normalizeName(t.team.name)
       if (!seenNames.has(key)) { seenNames.add(key); merged.push(t) }
-    }
-    for (const t of fmResults) {
-      const key = normalizeName(t.team.name)
-      if (!seenNames.has(key)) { seenNames.add(key); merged.push({ ...t, team: { ...t.team, source: 'fotmob' as const } }) }
     }
     for (const c of tmResults) {
       const key = normalizeName(c.name)
@@ -143,7 +141,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ teams: merged.slice(0, 8) })
+    const teams = merged.slice(0, 8)
+    setCachedRemoteSearch(cacheKey, teams)
+
+    return NextResponse.json({ teams })
   } catch (error) {
     console.error('Team search error:', error)
     return NextResponse.json({ error: 'Failed to search teams' }, { status: 500 })
