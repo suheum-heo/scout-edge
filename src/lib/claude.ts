@@ -127,6 +127,9 @@ export interface PlayerSystemFit {
   valueLabel: 'Undervalued' | 'Fair Value' | 'Overpriced'
 }
 
+const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
+const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
+
 export interface PlayerCompatibilityResult {
   playerName: string
   managerName: string
@@ -511,7 +514,6 @@ export async function analyzeSquadSystemFit(
   const resolvedName = manager?.name || managerName || 'the manager'
 
   const playerList = squad
-    .slice(0, 30)
     .map((p) => `- ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
     .join('\n')
 
@@ -572,7 +574,8 @@ Return JSON array, one object per player, in the same order as the input:
   }
 ]
 
-No other text. Cover every player.`
+No other text. Cover every player.
+Do not rename players. Copy playerName, position, and age exactly from the input list.`
 
   const res = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
@@ -582,7 +585,44 @@ No other text. Cover every player.`
   })
 
   const text = res.content[0].type === 'text' ? res.content[0].text : ''
-  return extractJSON(text, 'array') as PlayerSystemFit[]
+  const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
+
+  return squad.map((player, index) => {
+    const fit = parsed[index] || {}
+    const fitScore = typeof fit.fitScore === 'number' && fit.fitScore >= 1 && fit.fitScore <= 10
+      ? fit.fitScore
+      : 5
+    const fitLabel = FIT_LABELS.has(fit.fitLabel as FitLabel)
+      ? fit.fitLabel as FitLabel
+      : fitScore >= 9
+      ? 'Key Man'
+      : fitScore >= 7
+      ? 'Good Fit'
+      : fitScore >= 5
+      ? 'Rotation'
+      : fitScore >= 3
+      ? 'Poor Fit'
+      : 'Sell Candidate'
+    const scoutScore = typeof fit.scoutScore === 'number'
+      ? Math.max(0, Math.min(100, Math.round(fit.scoutScore)))
+      : fitScore * 10
+    const valueLabel = VALUE_LABELS.has(fit.valueLabel as PlayerSystemFit['valueLabel'])
+      ? fit.valueLabel as PlayerSystemFit['valueLabel']
+      : 'Fair Value'
+
+    return {
+      playerName: player.name,
+      position: player.position,
+      age: player.age,
+      fitScore,
+      fitLabel,
+      reason: typeof fit.reason === 'string' && fit.reason.trim()
+        ? fit.reason.trim()
+        : `${player.name} needs a manual tactical review for this system.`,
+      scoutScore,
+      valueLabel,
+    }
+  })
 }
 
 // Recommend specific real transfer targets for a tactical gap within a budget

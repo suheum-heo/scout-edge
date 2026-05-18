@@ -68,6 +68,14 @@ function normalize(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
 }
 
+const PLAYER_NAME_OVERRIDES: Record<string, string> = {
+  'mickey van de ven': 'Micky van de Ven',
+}
+
+function normalizePlayerName(name: string): string {
+  return PLAYER_NAME_OVERRIDES[name.toLowerCase()] || name
+}
+
 /**
  * Fetches all teams across supported competitions and caches for 24h.
  * Guarantees football-data.org IDs — no cross-system mismatch.
@@ -201,16 +209,19 @@ function normalizePositionLabel(pos: string | undefined): string {
 
   const p = raw.toLowerCase()
   if (p === 'gk') return 'Goalkeeper'
+  if (p === 'defence' || p === 'defense' || p === 'defender') return 'Defender'
   if (p === 'cb' || p === 'centre-back' || p === 'center-back') return 'Centre-Back'
   if (p === 'lb' || p === 'left-back') return 'Left-Back'
   if (p === 'rb' || p === 'right-back') return 'Right-Back'
   if (p === 'lwb' || p === 'left wing-back') return 'Left Wing-Back'
   if (p === 'rwb' || p === 'right wing-back') return 'Right Wing-Back'
+  if (p === 'midfield' || p === 'midfielder') return 'Midfielder'
   if (p === 'dm' || p === 'defensive midfield') return 'Defensive Midfield'
   if (p === 'cm' || p === 'central midfield') return 'Central Midfield'
   if (p === 'am' || p === 'attacking midfield') return 'Attacking Midfield'
   if (p === 'lw' || p === 'left winger') return 'Left Winger'
   if (p === 'rw' || p === 'right winger') return 'Right Winger'
+  if (p === 'attack' || p === 'attacker' || p === 'offence' || p === 'offense' || p === 'forward') return 'Attacker'
   if (p === 'cf' || p === 'st' || p === 'striker' || p === 'centre-forward' || p === 'center-forward') return 'Striker'
 
   return raw
@@ -272,9 +283,9 @@ export async function getTeamData(
     const players: APIPlayer[] = (data.squad || []).map((p) => ({
       player: {
         id: p.id,
-        name: p.name,
-        firstname: p.name.split(' ').slice(0, -1).join(' '),
-        lastname: p.name.split(' ').pop() || '',
+        name: normalizePlayerName(p.name),
+        firstname: normalizePlayerName(p.name).split(' ').slice(0, -1).join(' '),
+        lastname: normalizePlayerName(p.name).split(' ').pop() || '',
         age: calcAge(p.dateOfBirth || ''),
         nationality: p.nationality || '',
         photo: '',

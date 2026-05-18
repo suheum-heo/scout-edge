@@ -15,8 +15,9 @@ type Group = 'GK' | 'DEF' | 'MID' | 'ATT'
 function posGroup(pos: string): Group {
   const p = pos.toLowerCase()
   if (p.includes('goalkeeper') || p === 'gk') return 'GK'
-  if (p.includes('back') || p.includes('defender') || p.includes('cb') || p.includes('lb') || p.includes('rb')) return 'DEF'
+  if (p.includes('back') || p.includes('defender') || p.includes('defence') || p.includes('defense') || p.includes('cb') || p.includes('lb') || p.includes('rb')) return 'DEF'
   if (p.includes('mid') || p.includes('winger') || p.includes('wing')) return 'MID'
+  if (p.includes('att') || p.includes('striker') || p.includes('forward') || p.includes('offence') || p.includes('offense')) return 'ATT'
   return 'ATT'
 }
 
