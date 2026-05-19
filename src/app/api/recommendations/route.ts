@@ -24,6 +24,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
+function normalizeTMPositionLabel(position?: string | null): string {
+  if (!position) return 'Unknown'
+
+  const raw = position.trim()
+  if (!raw) return 'Unknown'
+
+  const p = raw.toLowerCase()
+  if (p === 'gk' || p.includes('goalkeeper')) return 'Goalkeeper'
+  if (p === 'cb' || p.includes('centre-back') || p.includes('center-back')) return 'Centre-Back'
+  if (p === 'lb' || p.includes('left-back')) return 'Left-Back'
+  if (p === 'rb' || p.includes('right-back')) return 'Right-Back'
+  if (p === 'lwb' || p.includes('left wing-back')) return 'Left Wing-Back'
+  if (p === 'rwb' || p.includes('right wing-back')) return 'Right Wing-Back'
+  if (p === 'dm' || p.includes('defensive midfield')) return 'Defensive Midfield'
+  if (p === 'cm' || p.includes('central midfield')) return 'Central Midfield'
+  if (p === 'am' || p.includes('attacking midfield')) return 'Attacking Midfield'
+  if (p === 'lw' || p.includes('left wing')) return 'Left Wing'
+  if (p === 'rw' || p.includes('right wing')) return 'Right Wing'
+  if (p === 'cf' || p === 'st' || p.includes('centre-forward') || p.includes('center-forward') || p.includes('striker')) return 'Striker'
+
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 function isUsableTMClubName(clubName?: string | null): clubName is string {
   if (!clubName) return false
   const clubLow = clubName.toLowerCase()
@@ -51,9 +76,11 @@ function mergeSearchResult(target: TransferTarget, searchResult: TMPlayerSearchR
   const searchClub = searchResult.club?.name
   return {
     ...target,
+    playerName: searchResult.name || target.playerName,
     currentClub: isUsableTMClubName(searchClub) ? searchClub : target.currentClub,
     age: searchResult.age ?? target.age,
     nationality: searchResult.nationalities?.[0] || target.nationality,
+    position: normalizeTMPositionLabel(searchResult.position) || target.position,
     estimatedFee: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : target.estimatedFee,
     tmVerified: isUsableTMClubName(searchClub),
   }
@@ -73,9 +100,11 @@ async function enrichOne(target: TransferTarget): Promise<TransferTarget> {
 
   return {
     ...verifiedFromSearch,
+    playerName: tmData.name || verifiedFromSearch.playerName,
     currentClub: isUsableTMClubName(tmData.currentClub) ? tmData.currentClub : verifiedFromSearch.currentClub,
     age: tmData.age ?? verifiedFromSearch.age,
     nationality: tmData.nationality || verifiedFromSearch.nationality,
+    position: normalizeTMPositionLabel(tmData.position) || verifiedFromSearch.position,
     contractUntil: tmData.contractYear,
     estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : verifiedFromSearch.estimatedFee,
     tmVerified: isUsableTMClubName(tmData.currentClub) || verifiedFromSearch.tmVerified === true,
@@ -151,7 +180,12 @@ export async function POST(request: NextRequest) {
       return true
     })
 
-    return NextResponse.json({ recommendations: filtered })
+    const sorted = [...filtered].sort((a, b) => {
+      if (!!b.tmVerified !== !!a.tmVerified) return Number(!!b.tmVerified) - Number(!!a.tmVerified)
+      return (b.tacticalFitScore ?? 0) - (a.tacticalFitScore ?? 0)
+    })
+
+    return NextResponse.json({ recommendations: sorted })
   } catch (error) {
     console.error('Recommendations error:', error)
     const details = getAIErrorDetails(error, 'Failed to generate recommendations')

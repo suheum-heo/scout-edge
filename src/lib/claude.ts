@@ -678,7 +678,7 @@ export async function recommendPlayersForGap(
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-  const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
+  const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend up to 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -694,10 +694,15 @@ ${roleCoverageContext ? `**Current squad coverage**: ${roleCoverageContext}` : '
 
 ${nationalTeamCountry ? `## NATIONAL TEAM ELIGIBILITY — CRITICAL:
 ${teamName} is a national team. Every recommended player MUST hold ${nationalTeamCountry} nationality and be eligible to represent ${teamName}. Recommending a player who cannot legally play for this country is a disqualifying error. No exceptions.\n` : ''}## Your Task:
-Name 4 real professional players who:
+Name 2 to 4 real professional players who:
 1. Fit the tactical profile for ${resolvedName}'s system
 2. Are realistically gettable within this budget (consider transfer fee, wages, club situation)
 3. Would be a credible signing for ${teamName}${nationalTeamCountry ? `\n4. Hold ${nationalTeamCountry} nationality and are eligible for ${teamName}` : ''}
+
+Quality bar:
+- It is better to return 2 or 3 genuinely strong, system-true options than 4 padded names.
+- Do NOT include a player just because they are cheap or available if their primary tactical identity clashes with the role.
+- Avoid “stretch” options who would need a position change or major tactical accommodation unless they are already proven in a closely related role.
 
 Use your knowledge of player market values, contract situations, and playing styles. Be realistic — don't suggest €100M players on a €20M budget. Rank by tactical fit.
 
