@@ -163,6 +163,22 @@ function tmManagerToCoach(manager: Awaited<ReturnType<typeof getClubManager>>, t
   }
 }
 
+async function resolveTMManagerCoach(
+  teamId: number | string,
+  teamName: string,
+  tmClubId?: string | null
+): Promise<APICoach | null> {
+  try {
+    const resolvedTmClubId = tmClubId ?? await searchClub(teamName)
+    if (!resolvedTmClubId) return null
+
+    const tmManager = await getClubManager(String(resolvedTmClubId))
+    return tmManagerToCoach(tmManager, teamId, teamName)
+  } catch {
+    return null
+  }
+}
+
 function formatTMFallbackSquad(
   teamName: string,
   tmPlayers: Awaited<ReturnType<typeof getClubSquad>>
@@ -274,6 +290,10 @@ export async function POST(request: NextRequest) {
         console.error('[analyze] FotMob direct fetch failed:', e)
       }
 
+      if (!coach) {
+        coach = await resolveTMManagerCoach(teamId, teamName)
+      }
+
       if (!fotmobSquad.length) {
         try {
           const tmId = await searchClub(teamName)
@@ -298,6 +318,10 @@ export async function POST(request: NextRequest) {
 
       // FotMob coach is live — prefer it over potentially stale AF data
       coach = (fmResult?.coach as unknown as APICoach | null) ?? afCoach
+
+      if (!coach && tmId) {
+        coach = await resolveTMManagerCoach(teamId, teamName, tmId)
+      }
 
       // Squad: FotMob (has stats) > TM > AF
       if (fmResult?.squad.length) {
@@ -330,6 +354,10 @@ export async function POST(request: NextRequest) {
         if (!coach && fotmobResult.coach) {
           coach = fotmobResult.coach as unknown as APICoach
         }
+      }
+
+      if (!coach) {
+        coach = await resolveTMManagerCoach(teamId, teamName)
       }
 
       // fotmobId wasn't in local DB — try FotMob search by name
