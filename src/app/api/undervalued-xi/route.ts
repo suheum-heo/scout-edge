@@ -3,12 +3,35 @@ import { NextRequest, NextResponse } from 'next/server'
 export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
-import { generateUndervaluedXI, UndervaluedPlayer, UndervaluedXIResult } from '@/lib/claude'
+import {
+  generateUndervaluedXICandidatePool,
+  UndervaluedPlayer,
+  UndervaluedXIResult,
+  UndervaluedXISlot,
+} from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
-import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_SEARCH_TIMEOUT_MS = 10000
-const TM_PROFILE_TIMEOUT_MS = 10000
+const TM_SEARCH_TIMEOUT_MS = 5000
+
+interface CandidateEvaluation {
+  player: UndervaluedPlayer
+  tmId?: string
+}
+
+interface EnrichedSlot {
+  slotId: string
+  position: string
+  archetypeLabel: string
+  candidates: CandidateEvaluation[]
+}
+
+interface SelectionSummary {
+  chosen: CandidateEvaluation[]
+  total: number
+  score: number
+  withinBudget: boolean
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
@@ -71,10 +94,10 @@ function formatCompactEuros(value: number): string {
 }
 
 function calculateTotalEstimatedCost(players: UndervaluedPlayer[]): number {
-  return players.reduce((sum, player) => sum + (parseEstimatedValue(player.estimatedValue) ?? 0), 0)
+  return players.reduce((sum, player) => sum + candidateCost({ player }), 0)
 }
 
-function buildBudgetInstructions(budget: string, cap: number, previousPlayers?: UndervaluedPlayer[]): string {
+function buildBudgetInstructions(budget: string, cap: number): string {
   const averagePerStarter = Math.floor(cap / 11)
   const bracketRules =
     budget === '< €50M'
@@ -105,34 +128,72 @@ function buildBudgetInstructions(budget: string, cap: number, previousPlayers?: 
         ]
       : []
 
-  const base = [
+  return [
     `Treat ${budget} as a hard ceiling, not a vibe.`,
     `Your XI must come in at or below ${formatCompactEuros(cap)} in total estimated cost.`,
-    `That means the average starter can only cost about ${formatCompactEuros(averagePerStarter)}.`,
-    'Use a realistic mix of cheaper breakout players, smaller-league value picks, expiring deals, and free agents.',
-    'Do not stack the XI with multiple €20M+ or €30M+ names unless the rest of the side is almost entirely bargain-bin.',
-    'Be conservative with your fee estimates when you are near the ceiling.',
-    'Before you answer, do the arithmetic and sanity-check that the XI genuinely fits the bracket.',
+    `The average starter can only cost about ${formatCompactEuros(averagePerStarter)}.`,
+    'For every slot, provide one best-fit option, one balanced option, and one cheaper safety option.',
+    'The pool must be diverse enough that a code-based selector can build a full XI under budget.',
+    'Keep estimated values conservative and realistic for a real transfer discussion.',
+    'Before you answer, do the arithmetic and sanity-check that the pool genuinely contains a legal under-budget XI.',
     ...bracketRules,
-  ]
-
-  if (!previousPlayers?.length) return base.join(' ')
-
-  const currentTotal = calculateTotalEstimatedCost(previousPlayers)
-  const overBy = Math.max(0, currentTotal - cap)
-  const expensivePlayers = [...previousPlayers]
-    .map((player) => ({ player, value: parseEstimatedValue(player.estimatedValue) ?? 0 }))
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5)
-    .map(({ player }) => `${player.playerName} (${player.position}, ${player.estimatedValue})`)
-    .join('; ')
-
-  return [
-    ...base,
-    `Your previous XI came out to about ${formatCompactEuros(currentTotal)}, which is ${formatCompactEuros(overBy)} over budget.`,
-    `The most expensive picks were: ${expensivePlayers}.`,
-    'Replace enough of those expensive slots with clearly cheaper but still tactically coherent alternatives.',
   ].join(' ')
+}
+
+function materializeCandidates(slot: UndervaluedXISlot): UndervaluedPlayer[] {
+  return slot.candidates.map((candidate) => ({
+    ...candidate,
+    position: slot.position,
+    archetypeLabel: slot.archetypeLabel,
+    nationality: 'Unknown',
+    contractUntil: 'Unknown',
+    whyUndervalued: '',
+  }))
+}
+
+function normalizeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function playerKey(player: UndervaluedPlayer): string {
+  return `${normalizeKey(player.playerName)}|${normalizeKey(player.currentClub)}`
+}
+
+function candidateCost(candidate: CandidateEvaluation): number {
+  return parseEstimatedValue(candidate.player.estimatedValue) ?? 999_000_000
+}
+
+function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
+  const bestByKey = new Map<string, CandidateEvaluation>()
+
+  for (const candidate of candidates) {
+    const key = playerKey(candidate.player)
+    const existing = bestByKey.get(key)
+    if (!existing) {
+      bestByKey.set(key, candidate)
+      continue
+    }
+
+    const currentCost = candidateCost(candidate)
+    const existingCost = candidateCost(existing)
+
+    if (
+      candidate.player.scoutScore > existing.player.scoutScore ||
+      (candidate.player.scoutScore === existing.player.scoutScore && currentCost < existingCost)
+    ) {
+      bestByKey.set(key, candidate)
+    }
+  }
+
+  return Array.from(bestByKey.values()).sort((a, b) => {
+    if (b.player.scoutScore !== a.player.scoutScore) return b.player.scoutScore - a.player.scoutScore
+    return candidateCost(a) - candidateCost(b)
+  })
 }
 
 async function findSearchResult(player: UndervaluedPlayer): Promise<TMPlayerSearchResult | null> {
@@ -163,27 +224,101 @@ function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSear
   }
 }
 
-async function enrichPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
+async function enrichCandidateFast(player: UndervaluedPlayer): Promise<CandidateEvaluation> {
   const searchResult = await findSearchResult(player)
-  if (!searchResult) return player
-
-  const verifiedFromSearch = mergeSearchResult(player, searchResult)
-
-  const tmData = await withTimeout(getPlayerData(searchResult.id), TM_PROFILE_TIMEOUT_MS, null)
-  if (!tmData) {
-    return verifiedFromSearch
-  }
+  if (!searchResult) return { player }
 
   return {
-    ...verifiedFromSearch,
-    playerName: tmData.name || verifiedFromSearch.playerName,
-    currentClub: isUsableTMClubName(tmData.currentClub) ? tmData.currentClub : verifiedFromSearch.currentClub,
-    age: tmData.age ?? verifiedFromSearch.age,
-    nationality: tmData.nationality || verifiedFromSearch.nationality,
-    contractUntil: tmData.contractYear || verifiedFromSearch.contractUntil,
-    estimatedValue: tmData.marketValue ? formatMarketValue(tmData.marketValue) : verifiedFromSearch.estimatedValue,
-    tmVerified: isUsableTMClubName(tmData.currentClub) || verifiedFromSearch.tmVerified === true,
+    player: {
+      ...mergeSearchResult(player, searchResult),
+      contractUntil: 'Unknown',
+    },
+    tmId: searchResult.id,
   }
+}
+
+function finalizeSelectedPlayer(candidate: CandidateEvaluation): UndervaluedPlayer {
+  return {
+    ...candidate.player,
+    contractUntil: 'Unknown',
+    whyUndervalued: buildWhyUndervaluedSummary(candidate.player),
+  }
+}
+
+function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
+  const valueContext = player.estimatedValue && player.estimatedValue !== 'Unknown'
+    ? `at ${player.estimatedValue}`
+    : 'at a manageable market cost'
+
+  return `${player.archetypeLabel} profile ${valueContext} for a ${player.age}-year-old. Built as a value-first fit for this system rather than a prestige signing.`
+}
+
+async function enrichSlot(slot: UndervaluedXISlot): Promise<EnrichedSlot> {
+  const enriched = await Promise.all(materializeCandidates(slot).map(enrichCandidateFast))
+  const deduped = dedupeCandidates(enriched)
+
+  return {
+    slotId: slot.slotId,
+    position: slot.position,
+    archetypeLabel: slot.archetypeLabel,
+    candidates: deduped.length > 0 ? deduped : enriched,
+  }
+}
+
+function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): SelectionSummary {
+  let bestWithin: SelectionSummary | null = null
+  let bestOver: SelectionSummary | null = null
+
+  function recordSelection(chosen: CandidateEvaluation[], total: number, score: number) {
+    if (cap === null || total <= cap) {
+      if (
+        !bestWithin ||
+        score > bestWithin.score ||
+        (score === bestWithin.score && total < bestWithin.total)
+      ) {
+        bestWithin = { chosen: [...chosen], total, score, withinBudget: true }
+      }
+      return
+    }
+
+    const overrun = total - cap
+    const currentBestOverrun = bestOver ? bestOver.total - cap : Infinity
+    if (
+      !bestOver ||
+      overrun < currentBestOverrun ||
+      (overrun === currentBestOverrun && score > bestOver.score)
+    ) {
+      bestOver = { chosen: [...chosen], total, score, withinBudget: false }
+    }
+  }
+
+  function dfs(index: number, chosen: CandidateEvaluation[], used: Set<string>, total: number, score: number) {
+    if (index === slots.length) {
+      recordSelection(chosen, total, score)
+      return
+    }
+
+    const slot = slots[index]
+    const candidates = slot.candidates
+
+    for (const candidate of candidates) {
+      const key = playerKey(candidate.player)
+      if (used.has(key)) continue
+
+      const nextTotal = total + candidateCost(candidate)
+      if (cap !== null && bestWithin && nextTotal > cap) continue
+
+      used.add(key)
+      chosen.push(candidate)
+      dfs(index + 1, chosen, used, nextTotal, score + candidate.player.scoutScore)
+      chosen.pop()
+      used.delete(key)
+    }
+  }
+
+  dfs(0, [], new Set<string>(), 0, 0)
+
+  return bestWithin ?? bestOver ?? { chosen: [], total: 0, score: 0, withinBudget: false }
 }
 
 function withComputedBudget(result: UndervaluedXIResult, players: UndervaluedPlayer[], budget: string): UndervaluedXIResult {
@@ -220,7 +355,7 @@ export async function POST(request: NextRequest) {
       ? buildBudgetInstructions(budget, cap)
       : undefined
 
-    const result = await generateUndervaluedXI(
+    const pool = await generateUndervaluedXICandidatePool(
       budget,
       manager || null,
       managerName,
@@ -228,11 +363,26 @@ export async function POST(request: NextRequest) {
       budgetInstructions
     )
 
-    // Fast TM enrich using search-only data so the route stays responsive.
-    const enriched = await Promise.all(result.players.map(enrichPlayer))
-    const finalResult = withComputedBudget(result, enriched, budget)
+    const enrichedSlots = await Promise.all(pool.slots.map(enrichSlot))
+    const selection = selectPlayersForSlots(enrichedSlots, cap)
 
-    return NextResponse.json(finalResult)
+    if (selection.chosen.length !== enrichedSlots.length) {
+      return NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
+    }
+
+    const selectedPlayers = selection.chosen.map(finalizeSelectedPlayer)
+    const result = withComputedBudget(
+      {
+        formation: pool.formation,
+        concept: pool.concept,
+        players: selectedPlayers,
+        totalEstimatedCost: `≈${formatCompactEuros(selection.total)}`,
+      },
+      selectedPlayers,
+      budget
+    )
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Undervalued XI error:', error)
     const details = getAIErrorDetails(error, 'Failed to generate Undervalued XI')

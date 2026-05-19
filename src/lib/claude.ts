@@ -770,6 +770,27 @@ export interface UndervaluedXIResult {
   budgetOverrun?: string
 }
 
+export interface UndervaluedSlotCandidate {
+  playerName: string
+  age: number
+  currentClub: string
+  estimatedValue: string
+  scoutScore: number
+}
+
+export interface UndervaluedXISlot {
+  slotId: string
+  position: string
+  archetypeLabel: string
+  candidates: UndervaluedSlotCandidate[]
+}
+
+export interface UndervaluedXICandidatePool {
+  formation: string
+  concept: string
+  slots: UndervaluedXISlot[]
+}
+
 export async function generateUndervaluedXI(
   budget: string,
   manager: ManagerProfile | null,
@@ -841,6 +862,83 @@ Include exactly 11 players covering every position in your chosen formation.`
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
   return extractJSON(sanitizeHomoglyphs(raw), 'object') as UndervaluedXIResult
+}
+
+export async function generateUndervaluedXICandidatePool(
+  budget: string,
+  manager: ManagerProfile | null,
+  managerName?: string,
+  teamName?: string,
+  extraBudgetInstructions?: string
+): Promise<UndervaluedXICandidatePool> {
+  const resolvedName = manager?.name || managerName || 'a modern pressing manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
+    : `Use your knowledge of ${resolvedName}'s preferred tactical system.`
+
+  const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
+
+## Manager: ${resolvedName}
+${managerSection}
+${teamName ? `\n## Buying Club: ${teamName}` : ''}
+
+## Total Budget: ${budget}
+
+## Rules:
+1. Choose one formation that suits ${resolvedName}'s system and return exactly 11 slots for that formation
+2. For EACH slot, return exactly 2 candidates: one best-fit option and one cheaper budget-safety option
+3. Every candidate must be ACTIVELY playing professional football right now
+4. The combined pool must contain enough value options that a complete XI can realistically fit within ${budget}
+5. "Undervalued" means their quality, output, and tactical fit significantly exceed their market value or contract situation
+6. Do NOT reuse the same player in multiple slots
+7. Spread across leagues — avoid building the entire pool from one league
+8. Use only standard Latin characters in names. Be confident about current clubs.
+${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructions}` : ''}
+
+## ACCURACY RULES (critical):
+- Only recommend currently ACTIVE professional players
+- Only name players whose current club you are highly confident about as of ${currentDate}
+- For players on loan: use their CURRENT loan destination as the club
+- If unsure about a player's club, skip them and pick someone else
+- Keep estimated values conservative and realistic for a real transfer discussion
+
+Return ONLY this JSON:
+{
+  "formation": "4-2-3-1",
+  "concept": "1-2 sentences describing this XI's identity and why it represents exceptional value",
+  "slots": [
+    {
+      "slotId": "GK",
+      "position": "GK",
+      "archetypeLabel": "Sweeper-Keeper",
+      "candidates": [
+        {
+          "playerName": "Full Name",
+          "age": 26,
+          "currentClub": "Club Name",
+          "estimatedValue": "€8M",
+          "scoutScore": 78
+        }
+      ]
+    }
+  ]
+}
+
+Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Use unique slot ids for repeated positions, e.g. CB-1 and CB-2, CM-1 and CM-2.
+There must be exactly 11 slots and exactly 2 candidates per slot.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 2200,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'object') as UndervaluedXICandidatePool
 }
 
 // ── V3: Transfer Scenario Simulator ──────────────────────────────────────────

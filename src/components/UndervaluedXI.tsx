@@ -29,9 +29,14 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       {/* Name + score */}
       <div className="flex items-start justify-between gap-2">
         <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
-        <span className={`text-xs font-bold flex-shrink-0 ${scoreColor(player.scoutScore)}`}>
-          SE {player.scoutScore}
-        </span>
+        <div className="flex-shrink-0 text-right">
+          <div className="text-slate-400 dark:text-slate-500 text-[9px] font-medium uppercase tracking-wider">
+            Scout Score
+          </div>
+          <span className={`text-sm font-bold ${scoreColor(player.scoutScore)}`}>
+            {player.scoutScore}
+          </span>
+        </div>
       </div>
 
       {/* Age + nationality */}

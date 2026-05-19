@@ -83,13 +83,13 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
         <p className="text-slate-400 dark:text-slate-500 text-xs mt-0.5 leading-relaxed">{player.reason}</p>
       </div>
 
-      {/* ScoutEdge Score */}
+      {/* Scout score */}
       {player.scoutScore != null && (
         <div className="flex-shrink-0 text-right">
           <span className={`text-base font-bold leading-none ${seScoreColor(player.scoutScore)}`}>
             {player.scoutScore}
           </span>
-          <div className="text-slate-400 dark:text-slate-600 text-[9px] uppercase tracking-wider mt-0.5">SE</div>
+          <div className="text-slate-400 dark:text-slate-600 text-[9px] uppercase tracking-wider mt-0.5">Scout Score</div>
         </div>
       )}
     </div>
