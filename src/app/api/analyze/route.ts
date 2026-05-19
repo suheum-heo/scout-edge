@@ -30,11 +30,6 @@ const TM_TO_AF_TEAM_ID_OVERRIDES: Record<string, number> = {
   'al nassr': 2939,
   'al nassr fc': 2939,
 }
-
-const TEAM_MANAGER_NAME_OVERRIDES: Record<string, string> = {
-  'al nassr': 'Jorge Jesus',
-  'al nassr fc': 'Jorge Jesus',
-}
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
 import { getSquad, getCoach, searchTeams as afSearchTeams, resolveCoachByTeamName, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
@@ -70,11 +65,6 @@ function stripClubSuffixes(value: string): string {
 function getAFOverrideTeamId(teamName: string): number | null {
   const normalizedName = normalizeTeamLookupName(teamName)
   return TM_TO_AF_TEAM_ID_OVERRIDES[normalizedName] ?? TM_TO_AF_TEAM_ID_OVERRIDES[stripClubSuffixes(normalizedName)] ?? null
-}
-
-function getManagerNameOverride(teamName: string): string | null {
-  const normalizedName = normalizeTeamLookupName(teamName)
-  return TEAM_MANAGER_NAME_OVERRIDES[normalizedName] ?? TEAM_MANAGER_NAME_OVERRIDES[stripClubSuffixes(normalizedName)] ?? null
 }
 
 function hasSecondaryTeamMarker(value: string): boolean {
@@ -206,20 +196,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (!coach) {
-        const overrideName = getManagerNameOverride(teamName)
-        if (overrideName) {
-          coach = {
-            id: 0,
-            name: overrideName,
-            firstname: overrideName.split(' ').slice(0, -1).join(' '),
-            lastname: overrideName.split(' ').pop() || '',
-            nationality: '',
-            photo: '',
-            team: { id: preferredAfTeamId || 0, name: teamName, logo: '' },
-          }
-        }
-      }
     } else if (teamSource === 'fotmob') {
       // FotMob ID — direct squad fetch, no re-search needed
       console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
@@ -326,10 +302,15 @@ export async function POST(request: NextRequest) {
     // Resolve manager: manual override > auto-detect from live coach data > Claude fallback
     let manager = managerId ? getManagerById(managerId) : undefined
     const coachName = coach?.name
+    const coachProfile = coachName ? getManagerByName(coachName) : undefined
 
-    if (!manager && coachName) {
-      manager = getManagerByName(coachName)
+    if (!manager && coachProfile) {
+      manager = coachProfile
     }
+
+    const managerNameHint = coachName && (teamSource !== 'tm' || !!coachProfile)
+      ? coachName
+      : undefined
 
     // Format player stats — use the formatter matching the data source
     const squad = tmFormattedSquad
@@ -376,25 +357,29 @@ export async function POST(request: NextRequest) {
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
 
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
-    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, coachName, unavailablePlayers)
+    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, managerNameHint, unavailablePlayers)
+    const inferredManagerName = analysis.managerName?.trim() || null
+    const resolvedManager = manager
+      ?? (inferredManagerName ? getManagerByName(inferredManagerName) : undefined)
+    const resolvedManagerName = resolvedManager?.name ?? inferredManagerName ?? managerNameHint ?? null
 
     return NextResponse.json({
       analysis,
       squad: squadPlayers,
       nationalTeamCountry,
-      manager: manager
+      manager: resolvedManager
         ? {
-            id: manager.id,
-            name: manager.name,
+            id: resolvedManager.id,
+            name: resolvedManager.name,
             currentClub: teamName,
-            formations: manager.formations,
-            style: manager.style,
-            tacticalSummary: manager.tacticalSummary,
-            keyPrinciples: manager.keyPrinciples,
+            formations: resolvedManager.formations,
+            style: resolvedManager.style,
+            tacticalSummary: resolvedManager.tacticalSummary,
+            keyPrinciples: resolvedManager.keyPrinciples,
           }
         : {
             id: null,
-            name: coachName || null,
+            name: resolvedManagerName,
             currentClub: teamName,
             formations: [],
             style: null,
@@ -402,7 +387,7 @@ export async function POST(request: NextRequest) {
             keyPrinciples: [],
           },
       squadSize: squad.length,
-      managerFromDB: !!manager,
+      managerFromDB: !!resolvedManager,
     })
   } catch (error) {
     console.error('Analysis error:', error)
