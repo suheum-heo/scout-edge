@@ -256,11 +256,20 @@ export default function BuildPage() {
                 <span className="text-slate-900 dark:text-white font-bold text-lg">{result.managerName}</span>
                 <span className="text-slate-400 dark:text-slate-500 text-sm">{result.formation}</span>
               </div>
-              <span className="bg-violet-500/15 border border-violet-500/30 text-violet-400 text-xs font-bold px-2.5 py-1 rounded-full">
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
+                result.budgetStatus === 'over'
+                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-400'
+                  : 'bg-violet-500/15 border-violet-500/30 text-violet-400'
+              }`}>
                 {result.totalEstimatedCost}
               </span>
             </div>
             <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">{result.identity}</p>
+            {result.budgetStatus === 'over' && result.budgetOverrun && (
+              <p className="text-amber-500 text-xs mt-3">
+                This XI still overruns the selected budget by {result.budgetOverrun} after live Transfermarkt pricing.
+              </p>
+            )}
           </div>
 
           {/* Player grid */}

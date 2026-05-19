@@ -1230,6 +1230,247 @@ export interface ManagerXIResult {
   players: IdealPlayer[]     // exactly 11
   identity: string           // 2-3 sentences: what makes this XI's identity — the tactical DNA
   totalEstimatedCost: string // e.g. "≈€620M"
+  budgetStatus?: 'within' | 'over'
+  budgetOverrun?: string
+}
+
+export interface ManagerXISlotCandidate {
+  playerName: string
+  age: number
+  currentClub: string
+  estimatedFee: string
+  systemFitScore: number
+}
+
+export interface ManagerXISlot {
+  slotId: string
+  position: string
+  archetypeLabel: string
+  candidates: ManagerXISlotCandidate[]
+}
+
+export interface ManagerXICandidatePool {
+  formation: string
+  managerName: string
+  identity: string
+  slots: ManagerXISlot[]
+}
+
+interface ManagerXIStructureSlot {
+  slotId: string
+  position: string
+  archetypeLabel: string
+}
+
+interface ManagerXIStructure {
+  formation: string
+  managerName: string
+  identity: string
+  slots: ManagerXIStructureSlot[]
+}
+
+interface ManagerXICandidateBatch {
+  slots: Array<{
+    slotId: string
+    candidates: ManagerXISlotCandidate[]
+  }>
+}
+
+function buildManagerXIContext(manager: ManagerProfile | null, managerName?: string) {
+  const resolvedName = manager?.name || managerName || 'the manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+
+  const managerSection = manager
+    ? `**System**: ${manager.formations.join(' / ')}
+**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
+**Summary**: ${manager.tacticalSummary}
+**Key Principles**: ${manager.keyPrinciples.join('; ')}
+**Positional Requirements**:
+${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
+    : `Use your deep knowledge of ${resolvedName}'s tactical system — their preferred formations, pressing intensity, defensive line, build-up style, positional requirements for each role, and what they demand from players at every position. Be specific to their known system.`
+
+  return { resolvedName, currentDate, managerSection }
+}
+
+async function generateManagerXIStructure(
+  resolvedName: string,
+  currentDate: string,
+  managerSection: string,
+  budget: string,
+  extraBudgetInstructions?: string
+): Promise<ManagerXIStructure> {
+  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Design the STRUCTURE of the ideal starting XI for ${resolvedName}'s system within the stated budget.
+
+## Manager: ${resolvedName}
+${managerSection}
+
+## Budget: ${budget}
+${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructions}` : ''}
+
+## Your Task:
+1. Choose one formation that perfectly suits ${resolvedName}'s system
+2. Return exactly 11 slots for that formation
+3. For each slot, give the exact position code and archetype label that best describes the role
+4. Use unique slot ids for repeated positions, e.g. CB-1 and CB-2
+
+Return ONLY this JSON:
+{
+  "formation": "4-3-3",
+  "managerName": "${resolvedName}",
+  "identity": "2-3 sentences on the tactical DNA of this XI",
+  "slots": [
+    {
+      "slotId": "GK",
+      "position": "GK",
+      "archetypeLabel": "Sweeper-Keeper"
+    }
+  ]
+}
+
+Position values: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+There must be exactly 11 slots.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 900,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+}
+
+async function generateManagerXICandidateBatch(
+  resolvedName: string,
+  currentDate: string,
+  managerSection: string,
+  budget: string,
+  slots: ManagerXIStructureSlot[],
+  extraBudgetInstructions?: string
+): Promise<ManagerXICandidateBatch> {
+  const slotList = slots
+    .map((slot) => `- ${slot.slotId}: ${slot.position} | ${slot.archetypeLabel}`)
+    .join('\n')
+
+  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Fill these specific XI slots for ${resolvedName}'s system.
+
+## Manager: ${resolvedName}
+${managerSection}
+
+## Budget: ${budget}
+${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructions}` : ''}
+
+## Slots To Fill:
+${slotList}
+
+## Rules:
+1. For EACH slot, return exactly 2 candidates:
+   - one best-fit option
+   - one cheaper fallback option
+2. Every player must be ACTIVELY playing professional football right now
+3. Be highly confident about current club
+4. Keep fees realistic for the stated budget
+5. Use only standard Latin characters in names
+
+Return ONLY plain text lines in this exact format, with no bullets, no numbering, no markdown, and no extra commentary:
+slotId|playerName|age|currentClub|estimatedFee|systemFitScore
+
+Example:
+GK|Bart Verbruggen|23|Brighton & Hove Albion|€40M|93`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 700,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+  const cleaned = sanitizeHomoglyphs(raw)
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/```/g, '')
+
+  const parsedSlots = new Map<string, ManagerXISlotCandidate[]>()
+  for (const line of cleaned.split('\n').map((entry) => entry.trim()).filter(Boolean)) {
+    const parts = line.split('|').map((entry) => entry.trim())
+    if (parts.length < 6) continue
+
+    const [slotId, playerName, ageText, currentClub, estimatedFee, fitScoreText] = parts
+    if (!slotId || !playerName) continue
+
+    const age = Number.parseInt(ageText || '', 10)
+    const systemFitScore = Number.parseInt(fitScoreText || '', 10)
+    const existing = parsedSlots.get(slotId) || []
+
+    existing.push({
+      playerName,
+      age: Number.isFinite(age) ? age : 24,
+      currentClub,
+      estimatedFee,
+      systemFitScore: Number.isFinite(systemFitScore) ? systemFitScore : 75,
+    })
+
+    parsedSlots.set(slotId, existing)
+  }
+
+  return {
+    slots: slots.map((slot) => ({
+      slotId: slot.slotId,
+      candidates: (parsedSlots.get(slot.slotId) || []).slice(0, 2),
+    })),
+  }
+}
+
+export async function generateManagerXICandidatePool(
+  budget: string,
+  manager: ManagerProfile | null,
+  managerName?: string,
+  extraBudgetInstructions?: string
+): Promise<ManagerXICandidatePool> {
+  const { resolvedName, currentDate, managerSection } = buildManagerXIContext(manager, managerName)
+  const structure = await generateManagerXIStructure(
+    resolvedName,
+    currentDate,
+    managerSection,
+    budget,
+    extraBudgetInstructions
+  )
+
+  const batchResults = await Promise.all(
+    [
+      structure.slots.slice(0, 6),
+      structure.slots.slice(6),
+    ]
+      .filter((batch) => batch.length > 0)
+      .map((batch) =>
+      generateManagerXICandidateBatch(
+        resolvedName,
+        currentDate,
+        managerSection,
+        budget,
+        batch,
+        extraBudgetInstructions
+      )
+    )
+  )
+
+  const candidatesBySlot = new Map<string, ManagerXISlotCandidate[]>()
+  for (const batch of batchResults) {
+    for (const slot of batch.slots || []) {
+      candidatesBySlot.set(slot.slotId, slot.candidates || [])
+    }
+  }
+
+  return {
+    formation: structure.formation,
+    managerName: structure.managerName,
+    identity: structure.identity,
+    slots: structure.slots.map((slot) => ({
+      slotId: slot.slotId,
+      position: slot.position,
+      archetypeLabel: slot.archetypeLabel,
+      candidates: candidatesBySlot.get(slot.slotId) || [],
+    })),
+  }
 }
 
 export async function buildManagerXI(
