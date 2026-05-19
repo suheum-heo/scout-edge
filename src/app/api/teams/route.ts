@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeCountryDisplayName } from '@/lib/country-names'
 import { searchFDTeams } from '@/lib/football-data'
 import { searchLocalTeams } from '@/lib/teams-db'
 import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
           team: {
             id: c.id as unknown as number,
             name: c.name,
-            country: c.country,
+            country: normalizeCountryDisplayName(c.country),
             logo: nationalTeamFlag(c.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${c.id}.png`,
             source: 'tm' as const,
           },

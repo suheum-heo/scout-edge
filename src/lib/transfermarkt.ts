@@ -4,6 +4,7 @@
  */
 
 import { getClubLookupKeys, normalizeClubDisplayName } from '@/lib/club-names'
+import { normalizeCountryDisplayName } from '@/lib/country-names'
 
 const TM_BASE = process.env.TRANSFERMARKT_API_URL || 'http://localhost:8000'
 const TM_SITE_BASE = 'https://www.transfermarkt.com'
@@ -530,7 +531,10 @@ export async function searchClubs(query: string): Promise<TMClubSearchResult[]> 
       const data = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded}`)
       for (const result of data.results || []) {
         if (!merged.has(result.id)) {
-          merged.set(result.id, result)
+          merged.set(result.id, {
+            ...result,
+            country: normalizeCountryDisplayName(result.country),
+          })
         }
       }
     } catch {

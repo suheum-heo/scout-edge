@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { normalizeCountryDisplayName } from './country-names'
 import { buildFullName, namesMatch } from './person-names'
 
 const BASE_URL = 'https://v3.football.api-sports.io'
@@ -212,7 +213,7 @@ function buildTeamSearchQueries(query: string): string[] {
 }
 
 function normalizeCountry(s: string) {
-  return s.replace(/-/g, ' ')
+  return normalizeCountryDisplayName(s)
 }
 
 function scoreTeamMatch(name: string, q: string): number {
@@ -315,8 +316,14 @@ export async function getTeam(teamId: number): Promise<APITeam | null> {
   try {
     const res = await client.get('/teams', { params: { id: teamId } })
     const team = res.data?.response?.[0] || null
-    if (team) setCache(cacheKey, team, TTL.TEAMS)
-    return team
+    if (!team) return null
+
+    const normalizedTeam: APITeam = {
+      ...team,
+      team: { ...team.team, country: normalizeCountry(team.team.country) },
+    }
+    setCache(cacheKey, normalizedTeam, TTL.TEAMS)
+    return normalizedTeam
   } catch {
     return null
   }

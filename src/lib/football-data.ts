@@ -8,6 +8,7 @@
  */
 
 import axios from 'axios'
+import { normalizeCountryDisplayName } from '@/lib/country-names'
 import { normalizePersonName } from '@/lib/person-names'
 
 const BASE_URL = 'https://api.football-data.org/v4'
@@ -165,7 +166,7 @@ export async function searchFDTeams(query: string): Promise<Array<{
       team: {
         id: t.id,
         name: t.name,
-        country: t.area?.name || '',
+        country: normalizeCountryDisplayName(t.area?.name || ''),
         logo: t.crest || `https://crests.football-data.org/${t.id}.png`,
       },
       venue: { name: '', city: '' },
