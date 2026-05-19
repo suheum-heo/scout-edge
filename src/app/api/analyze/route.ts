@@ -31,7 +31,7 @@ const TM_TO_AF_TEAM_ID_OVERRIDES: Record<string, number> = {
   'al nassr fc': 2939,
 }
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
-import { getSquad, getCoach, searchTeams as afSearchTeams, resolveCoachByTeamName, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
+import { getSquad, getCoach, searchTeams as afSearchTeams, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
   searchTeams as fotmobSearchTeams,
   getSquadAndCoach as fotmobGetSquadAndCoach,
@@ -128,6 +128,11 @@ function selectBestAFTeam(matches: AFSearchTeamResult[][], query: string): AFSea
   })[0] ?? null
 }
 
+function getVerifiedAFTeam(teamName: string, bestAfTeam: AFSearchTeamResult | null): AFSearchTeamResult | null {
+  if (!bestAfTeam) return null
+  return scoreAFTeamResult(bestAfTeam, teamName) >= 95 ? bestAfTeam : null
+}
+
 function getCoachDisplayName(coach: APICoach | null): string | null {
   if (!coach) return null
 
@@ -157,7 +162,8 @@ export async function POST(request: NextRequest) {
     let usedFotmob = false
 
     if (teamSource === 'tm') {
-      // Squad from TM, coach from API Football with FotMob fallback for clubs outside the core local DB.
+      // Squad from TM, coach from exact verified IDs only.
+      // Do not fall back to fuzzy provider name-matching here — that's how clubs get crossed.
       console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
       const afSearchVariants = buildAFSearchVariants(teamName)
       const preferredFmId = typeof fotmobId === 'number' ? fotmobId : null
@@ -166,6 +172,7 @@ export async function POST(request: NextRequest) {
         Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
       ])
       const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
+      const verifiedAfTeam = getVerifiedAFTeam(teamName, bestAfTeam)
       if (tmPlayers.length) {
         tmFormattedSquad = tmPlayers.map((p) => ({
           playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
@@ -173,11 +180,16 @@ export async function POST(request: NextRequest) {
           goals: 0, assists: 0, currentTeam: teamName,
         }))
       }
-      const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? bestAfTeam?.team.id ?? null
+      const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
       if (preferredAfTeamId && !coach) {
         try {
           coach = await getCoach(preferredAfTeamId)
         } catch { /* coach stays null */ }
+      }
+      if (!preferredAfTeamId && bestAfTeam) {
+        console.log(
+          `[analyze] Rejecting fuzzy API Football team match for ${teamName}: ${bestAfTeam.team.name}`
+        )
       }
 
       if (!coach) {
@@ -198,22 +210,6 @@ export async function POST(request: NextRequest) {
 
         if (preferredFmId) {
           await tryFotmobTeam(preferredFmId)
-        }
-
-        if (!coach) {
-          const fmTeams = await fotmobSearchTeams(teamName).catch(() => [])
-          const resolvedFmId = fmTeams[0]?.team.id ?? null
-          if (resolvedFmId) {
-            await tryFotmobTeam(resolvedFmId)
-          }
-        }
-      }
-
-      if (!coach) {
-        try {
-          coach = await resolveCoachByTeamName(teamName)
-        } catch (e) {
-          console.error('[analyze] TM-path direct AF coach fallback failed:', e)
         }
       }
 
