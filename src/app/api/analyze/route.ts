@@ -43,6 +43,7 @@ import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import type { SquadPlayer } from '@/lib/role-profiles'
+import { buildFullName } from '@/lib/person-names'
 
 type AFSearchTeamResult = Awaited<ReturnType<typeof afSearchTeams>>[number]
 
@@ -127,6 +128,15 @@ function selectBestAFTeam(matches: AFSearchTeamResult[][], query: string): AFSea
   })[0] ?? null
 }
 
+function getCoachDisplayName(coach: APICoach | null): string | null {
+  if (!coach) return null
+
+  const fullName = buildFullName(coach.firstname, coach.lastname, coach.name)
+  const displayName = fullName || coach.name?.trim() || ''
+
+  return displayName || null
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -150,10 +160,10 @@ export async function POST(request: NextRequest) {
       // Squad from TM, coach from API Football with FotMob fallback for clubs outside the core local DB.
       console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
       const afSearchVariants = buildAFSearchVariants(teamName)
-      const [tmPlayers, afTeamMatches, fmTeams] = await Promise.all([
+      const preferredFmId = typeof fotmobId === 'number' ? fotmobId : null
+      const [tmPlayers, afTeamMatches] = await Promise.all([
         getClubSquad(String(teamId)).catch(() => []),
         Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
-        fotmobSearchTeams(teamName).catch(() => []),
       ])
       const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
       if (tmPlayers.length) {
@@ -171,10 +181,9 @@ export async function POST(request: NextRequest) {
       }
 
       if (!coach) {
-        const resolvedFmId = fmTeams[0]?.team.id ?? null
-        if (resolvedFmId) {
+        const tryFotmobTeam = async (fmTeamId: number) => {
           try {
-            const fmResult = await fotmobGetSquadAndCoach(resolvedFmId)
+            const fmResult = await fotmobGetSquadAndCoach(fmTeamId)
             if (fmResult.coach) {
               coach = fmResult.coach as unknown as APICoach
             }
@@ -184,6 +193,18 @@ export async function POST(request: NextRequest) {
             }
           } catch (e) {
             console.error('[analyze] TM-path FotMob fallback failed:', e)
+          }
+        }
+
+        if (preferredFmId) {
+          await tryFotmobTeam(preferredFmId)
+        }
+
+        if (!coach) {
+          const fmTeams = await fotmobSearchTeams(teamName).catch(() => [])
+          const resolvedFmId = fmTeams[0]?.team.id ?? null
+          if (resolvedFmId) {
+            await tryFotmobTeam(resolvedFmId)
           }
         }
       }
@@ -299,18 +320,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Resolve manager: manual override > auto-detect from live coach data > Claude fallback
+    // Resolve manager: manual override > live provider coach data.
+    // Claude may still infer a manager name for tactical reasoning, but that must never be
+    // promoted into the factual manager card shown to the user.
     let manager = managerId ? getManagerById(managerId) : undefined
-    const coachName = coach?.name
-    const coachProfile = coachName ? getManagerByName(coachName) : undefined
+    const providerManagerName = getCoachDisplayName(coach)
+    const providerManagerProfile = providerManagerName ? getManagerByName(providerManagerName) : undefined
 
-    if (!manager && coachProfile) {
-      manager = coachProfile
+    if (!manager && providerManagerProfile) {
+      manager = providerManagerProfile
     }
 
-    const managerNameHint = coachName && (teamSource !== 'tm' || !!coachProfile)
-      ? coachName
-      : undefined
+    const managerNameHint = providerManagerName ?? manager?.name ?? undefined
 
     // Format player stats — use the formatter matching the data source
     const squad = tmFormattedSquad
@@ -357,11 +378,27 @@ export async function POST(request: NextRequest) {
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
 
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
-    const analysis = await analyzeSquadGaps(manager || null, availableSquad, teamName, managerNameHint, unavailablePlayers)
+    const allowManagerInference = Boolean(manager || providerManagerName)
+    const analysis = await analyzeSquadGaps(
+      manager || null,
+      availableSquad,
+      teamName,
+      managerNameHint,
+      unavailablePlayers,
+      allowManagerInference,
+    )
     const inferredManagerName = analysis.managerName?.trim() || null
-    const resolvedManager = manager
-      ?? (inferredManagerName ? getManagerByName(inferredManagerName) : undefined)
-    const resolvedManagerName = resolvedManager?.name ?? inferredManagerName ?? managerNameHint ?? null
+    const resolvedManager = manager ?? providerManagerProfile
+    const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const managerSource = managerId
+      ? 'override'
+      : factualManagerName
+      ? 'provider'
+      : 'unverified'
+
+    console.log(
+      `[analyze] managerResolution team=${teamName} source=${teamSource ?? 'fd'} provider=${providerManagerName ?? 'none'} inferred=${inferredManagerName ?? 'none'} factual=${factualManagerName ?? 'none'} managerSource=${managerSource}`
+    )
 
     return NextResponse.json({
       analysis,
@@ -376,15 +413,19 @@ export async function POST(request: NextRequest) {
             style: resolvedManager.style,
             tacticalSummary: resolvedManager.tacticalSummary,
             keyPrinciples: resolvedManager.keyPrinciples,
+            source: managerSource,
+            verified: true,
           }
         : {
             id: null,
-            name: resolvedManagerName,
+            name: factualManagerName,
             currentClub: teamName,
             formations: [],
             style: null,
             tacticalSummary: null,
             keyPrinciples: [],
+            source: managerSource,
+            verified: false,
           },
       squadSize: squad.length,
       managerFromDB: !!resolvedManager,

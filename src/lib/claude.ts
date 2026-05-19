@@ -260,7 +260,8 @@ export async function analyzeSquadGaps(
   squadPlayers: (MinimalSquadPlayer | null)[],
   teamName: string,
   managerName?: string,
-  unavailablePlayers?: { name: string; position: string }[]
+  unavailablePlayers?: { name: string; position: string }[],
+  allowManagerInference = true,
 ): Promise<SquadAnalysisResult> {
   const resolvedName = manager?.name || managerName || 'Unknown Manager'
 
@@ -309,10 +310,19 @@ ${manager.positionalRequirements
       `**${req.position} (${req.profileLabel})**: ${req.tacticalDescription}\nMust Have: ${req.mustHave.join(', ')}\nAvoid If: ${req.avoidIf.join(', ')}`
   )
   .join('\n\n')}`
-    : `## Manager: ${resolvedName === 'Unknown Manager' ? teamName + ' Head Coach' : resolvedName}
-${resolvedName === 'Unknown Manager'
-  ? `Identify who currently manages ${teamName} as of ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} and use your knowledge of their tactical system for this analysis.`
-  : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
+    : `## Manager: ${
+      resolvedName === 'Unknown Manager'
+        ? allowManagerInference
+          ? teamName + ' Head Coach'
+          : 'Manager unavailable'
+        : resolvedName
+    }
+${
+  resolvedName === 'Unknown Manager'
+    ? allowManagerInference
+      ? `Identify who currently manages ${teamName} as of ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} and use your knowledge of their tactical system for this analysis.`
+      : `Live coach data is unavailable from our providers for ${teamName}. Do NOT guess or identify a current manager. Instead, analyze the squad generically and focus on structural weaknesses, squad balance, age risk, and role coverage that would matter across most modern top-level systems.`
+    : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
 }`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -340,7 +350,7 @@ Before flagging a sided-role gap such as left-back, right-back, left wing-back, 
 
 Respond in this exact JSON format:
 {
-  "managerName": "Full Name of the current manager",
+  "managerName": "Full Name of the current manager, or 'Manager unavailable' if live coach data is unavailable",
   "overallAssessment": "2-3 sentence overview of how well this squad suits the manager",
   "tacticalFitScore": 7,
   "squadStrengths": ["strength 1", "strength 2", "strength 3"],
@@ -378,11 +388,13 @@ Be specific and reference actual players from the squad. Urgency levels: critica
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const analysis = extractJSON(text, 'object') as Omit<SquadAnalysisResult, 'teamName'>
 
-  // When resolvedName is 'Unknown Manager', Claude inferred the actual name — use it
+  // When resolvedName is 'Unknown Manager', Claude inferred the actual name unless inference was disabled.
   const finalManagerName =
     resolvedName !== 'Unknown Manager'
       ? resolvedName
-      : (analysis as { managerName?: string }).managerName || 'Unknown Manager'
+      : allowManagerInference
+      ? (analysis as { managerName?: string }).managerName || 'Unknown Manager'
+      : 'Manager unavailable'
 
   return {
     ...analysis,

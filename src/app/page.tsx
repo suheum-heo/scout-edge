@@ -34,6 +34,8 @@ interface ManagerResult {
   style: Record<string, string> | null
   tacticalSummary: string | null
   keyPrinciples: string[]
+  source?: 'override' | 'provider' | 'unverified'
+  verified?: boolean
 }
 
 function makeAvailabilityKey(ids?: Iterable<string>): string {
@@ -522,10 +524,15 @@ export default function HomePage() {
                     {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
                   <div>
-                    <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? 'Unknown Manager'}</h2>
+                    <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? 'Manager unavailable'}</h2>
                     <p className="text-slate-600 text-xs">{managerResult.currentClub}</p>
                   </div>
                 </div>
+                {managerResult.verified === false && (
+                  <p className="text-amber-500 text-xs mt-2 ml-11">
+                    Live manager data is unavailable for this club right now. Use the manager override if needed.
+                  </p>
+                )}
                 {managerResult.formations.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-2 ml-11">
                     {managerResult.formations.map((f) => (

@@ -111,6 +111,12 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 994,  fotmobId: 1925,  name: 'Göztepe',               country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/994.png',  aliases: ['goztepe'] },
   { id: 1002, fotmobId: 6265,  name: 'Sivasspor',              country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/1002.png', aliases: ['sivas'] },
   { id: 3563, fotmobId: 1926,  name: 'Adana Demirspor',        country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/3563.png', aliases: ['adana', 'demirspor'] },
+  // ── Saudi Pro League (TM IDs, with stable FotMob IDs for live squad/coach) ─
+  { id: '1114',  fotmobId: 2529,   name: 'Al-Hilal SFC',    country: 'Saudi Arabia', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/1114.png',  aliases: ['al hilal', 'al-hilal', 'hilal'] },
+  { id: '18544', fotmobId: 101918, name: 'Al-Nassr FC',     country: 'Saudi Arabia', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/18544.png', aliases: ['al nassr', 'al-nassr', 'nassr'] },
+  { id: '8023',  fotmobId: 2528,   name: 'Al-Ittihad Club', country: 'Saudi Arabia', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/8023.png',  aliases: ['al ittihad', 'al-ittihad', 'ittihad', 'ittihad jeddah'] },
+  { id: '18487', fotmobId: 9096,   name: 'Al-Ahli SFC',     country: 'Saudi Arabia', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/18487.png', aliases: ['al ahli', 'al-ahli', 'ahli', 'al ahli saudi', 'al ahli jeddah'] },
+  { id: '9840',  fotmobId: 101916, name: 'Al-Shabab FC',    country: 'Saudi Arabia', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/9840.png',  aliases: ['al shabab', 'al-shabab', 'shabab'] },
   // ── MLS (API Football IDs, source: 'af') ───────────────────────────────────
   { id: 1616, fotmobId: 867280, name: 'Los Angeles FC',         country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1616.png', aliases: ['lafc', 'la fc', 'black and gold'] },
   { id: 1605, fotmobId: 6637,  name: 'LA Galaxy',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1605.png', aliases: ['galaxy', 'la galaxy', 'los angeles galaxy', 'lag'] },
