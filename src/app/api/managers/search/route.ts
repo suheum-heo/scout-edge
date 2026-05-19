@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { searchCoachesByName } from '@/lib/api-football'
 import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { normalizeClubDisplayName } from '@/lib/club-names'
+import { buildFullName, namesMatch } from '@/lib/person-names'
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim()
@@ -14,16 +15,13 @@ export async function GET(request: NextRequest) {
   // 1. Search API Football first so we can use live club data for DB matches too
   const apiCoaches = await searchCoachesByName(q)
 
-  // Build a name → live club map from API Football results
-  const liveClubByName = new Map<string, string>()
-  for (const c of apiCoaches) {
-    if (c.team?.name) {
-      const fullName = c.firstname && c.lastname && !c.firstname.includes('.')
-        ? `${c.firstname} ${c.lastname}` : c.name
-      const currentClub = normalizeClubDisplayName(c.team.name)
-      liveClubByName.set(fullName.toLowerCase(), currentClub)
-      liveClubByName.set(c.name.toLowerCase(), currentClub)
-    }
+  const getLiveClubForManager = (managerName: string): string | null => {
+    const match = apiCoaches.find((coach) =>
+      namesMatch(buildFullName(coach.firstname, coach.lastname, coach.name), managerName) ||
+      namesMatch(coach.name, managerName)
+    )
+
+    return match?.team?.name ? normalizeClubDisplayName(match.team.name) : null
   }
 
   // 2. Search our local DB — use live club from API Football when available
@@ -34,7 +32,7 @@ export async function GET(request: NextRequest) {
       id: m.id,
       profileId: m.id,
       name: m.name,
-      currentClub: normalizeClubDisplayName(liveClubByName.get(m.name.toLowerCase()) ?? m.currentClub),
+      currentClub: normalizeClubDisplayName(getLiveClubForManager(m.name) ?? m.currentClub),
       formations: m.formations,
       hasProfile: true,
     }))
@@ -48,10 +46,7 @@ export async function GET(request: NextRequest) {
   const apiResults = Array.from(seen.values())
     .map((c) => {
       // Reconstruct full name from firstname+lastname (API sometimes abbreviates: "T. Frank")
-      const fullName =
-        c.firstname && c.lastname && !c.firstname.includes('.')
-          ? `${c.firstname} ${c.lastname}`
-          : c.name
+      const fullName = buildFullName(c.firstname, c.lastname, c.name)
 
       const profile = getManagerByName(fullName) || getManagerByName(c.name)
 

@@ -13,9 +13,11 @@ import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 7000
+const TM_ENRICHMENT_CONCURRENCY = 6
 
 interface CandidateEvaluation {
   player: UndervaluedPlayer
+  selectionCost: number
 }
 
 interface EnrichedSlot {
@@ -30,6 +32,13 @@ interface SelectionSummary {
   total: number
   score: number
   withinBudget: boolean
+}
+
+interface MaterializedSlotCandidate {
+  slotId: string
+  position: string
+  archetypeLabel: string
+  player: UndervaluedPlayer
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -93,7 +102,7 @@ function formatCompactEuros(value: number): string {
 }
 
 function calculateTotalEstimatedCost(players: UndervaluedPlayer[]): number {
-  return players.reduce((sum, player) => sum + candidateCost({ player }), 0)
+  return players.reduce((sum, player) => sum + playerCost(player), 0)
 }
 
 function buildBudgetInstructions(budget: string, cap: number): string {
@@ -131,7 +140,7 @@ function buildBudgetInstructions(budget: string, cap: number): string {
     `Treat ${budget} as a hard ceiling, not a vibe.`,
     `Your XI must come in at or below ${formatCompactEuros(cap)} in total estimated cost.`,
     `The average starter can only cost about ${formatCompactEuros(averagePerStarter)}.`,
-    'For every slot, provide one best-fit option, one balanced option, and one cheaper safety option.',
+    'For every slot, provide one best-fit option and one cheaper safety option.',
     'The pool must be diverse enough that a code-based selector can build a full XI under budget.',
     'Keep estimated values conservative and realistic for a real transfer discussion.',
     'Before you answer, do the arithmetic and sanity-check that the pool genuinely contains a legal under-budget XI.',
@@ -163,8 +172,16 @@ function playerKey(player: UndervaluedPlayer): string {
   return `${normalizeKey(player.playerName)}|${normalizeKey(player.currentClub)}`
 }
 
+function searchCacheKey(player: UndervaluedPlayer): string {
+  return `${normalizeKey(player.playerName)}|${player.age ?? 'na'}|${normalizeKey(player.currentClub)}`
+}
+
+function playerCost(player: UndervaluedPlayer): number {
+  return parseEstimatedValue(player.estimatedValue) ?? 999_000_000
+}
+
 function candidateCost(candidate: CandidateEvaluation): number {
-  return parseEstimatedValue(candidate.player.estimatedValue) ?? 999_000_000
+  return candidate.selectionCost
 }
 
 function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
@@ -195,19 +212,15 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
   })
 }
 
-async function findSearchResult(player: UndervaluedPlayer): Promise<TMPlayerSearchResult | null> {
-  const attempts = [
-    { age: player.age, club: player.currentClub },
-    { age: player.age },
-    undefined,
-  ] as const
-
-  for (const hints of attempts) {
-    const result = await withTimeout(searchPlayer(player.playerName, hints), TM_SEARCH_TIMEOUT_MS, null)
-    if (result) return result
-  }
-
-  return null
+function materializeSlotEntries(slots: UndervaluedXISlot[]): MaterializedSlotCandidate[] {
+  return slots.flatMap((slot) =>
+    materializeCandidates(slot).map((player) => ({
+      slotId: slot.slotId,
+      position: slot.position,
+      archetypeLabel: slot.archetypeLabel,
+      player,
+    }))
+  )
 }
 
 function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSearchResult): UndervaluedPlayer {
@@ -223,18 +236,75 @@ function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSear
   }
 }
 
-async function enrichSelectedPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
-  const searchResult = await findSearchResult(player)
-  if (!searchResult) {
-    return {
-      ...player,
-      tmVerified: false,
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex
+      if (currentIndex >= items.length) return
+      nextIndex += 1
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex)
     }
   }
 
+  const workerCount = Math.min(limit, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
+
+async function findSearchResult(
+  player: UndervaluedPlayer,
+  searchCache: Map<string, Promise<TMPlayerSearchResult | null>>
+): Promise<TMPlayerSearchResult | null> {
+  const cacheKey = searchCacheKey(player)
+  const cached = searchCache.get(cacheKey)
+  if (cached) return cached
+
+  const lookup = (async () => {
+    const attempts = [
+      { age: player.age, club: player.currentClub },
+      { age: player.age },
+      undefined,
+    ] as const
+
+    for (const hints of attempts) {
+      try {
+        const result = await withTimeout(searchPlayer(player.playerName, hints), TM_SEARCH_TIMEOUT_MS, null)
+        if (result) return result
+      } catch {
+        continue
+      }
+    }
+
+    return null
+  })()
+
+  searchCache.set(cacheKey, lookup)
+  return lookup
+}
+
+function buildCandidateEvaluation(
+  player: UndervaluedPlayer,
+  searchResult: TMPlayerSearchResult | null
+): CandidateEvaluation {
+  const enrichedPlayer = searchResult
+    ? mergeSearchResult(player, searchResult)
+    : {
+        ...player,
+        tmVerified: false,
+      }
+
   return {
-    ...mergeSearchResult(player, searchResult),
-    contractUntil: 'Unknown',
+    player: enrichedPlayer,
+    selectionCost: playerCost(enrichedPlayer),
   }
 }
 
@@ -246,16 +316,39 @@ function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
   return `${player.archetypeLabel} profile ${valueContext} for a ${player.age}-year-old. Built as a value-first fit for this system rather than a prestige signing.`
 }
 
-async function enrichSlot(slot: UndervaluedXISlot): Promise<EnrichedSlot> {
-  const materialized = materializeCandidates(slot).map((player) => ({ player }))
-  const deduped = dedupeCandidates(materialized)
+async function enrichSlots(slots: UndervaluedXISlot[]): Promise<EnrichedSlot[]> {
+  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+  const materializedEntries = materializeSlotEntries(slots)
+  const evaluatedEntries = await mapWithConcurrency(
+    materializedEntries,
+    TM_ENRICHMENT_CONCURRENCY,
+    async (entry) => ({
+      slotId: entry.slotId,
+      candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
+    })
+  )
 
-  return {
-    slotId: slot.slotId,
-    position: slot.position,
-    archetypeLabel: slot.archetypeLabel,
-    candidates: deduped.length > 0 ? deduped : materialized,
+  const candidatesBySlot = new Map<string, CandidateEvaluation[]>()
+  for (const entry of evaluatedEntries) {
+    const existing = candidatesBySlot.get(entry.slotId)
+    if (existing) {
+      existing.push(entry.candidate)
+    } else {
+      candidatesBySlot.set(entry.slotId, [entry.candidate])
+    }
   }
+
+  return slots.map((slot) => {
+    const candidates = candidatesBySlot.get(slot.slotId) ?? []
+    const deduped = dedupeCandidates(candidates)
+
+    return {
+      slotId: slot.slotId,
+      position: slot.position,
+      archetypeLabel: slot.archetypeLabel,
+      candidates: deduped.length > 0 ? deduped : candidates,
+    }
+  })
 }
 
 function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): SelectionSummary {
@@ -356,22 +449,25 @@ export async function POST(request: NextRequest) {
       budgetInstructions
     )
 
-    const enrichedSlots = await Promise.all(pool.slots.map(enrichSlot))
+    const enrichedSlots = await enrichSlots(pool.slots)
     const selection = selectPlayersForSlots(enrichedSlots, cap)
 
     if (selection.chosen.length !== enrichedSlots.length) {
       return NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
     }
 
-    const selectedPlayers = await Promise.all(
-      selection.chosen.map(async (candidate) => {
-        const enriched = await enrichSelectedPlayer(candidate.player)
-        return {
-          ...enriched,
-          whyUndervalued: buildWhyUndervaluedSummary(enriched),
-        }
-      })
-    )
+    const selectedPlayers = selection.chosen.map((candidate) => {
+      const finalizedPlayer = {
+        ...candidate.player,
+        contractUntil: 'Unknown',
+      }
+
+      return {
+        ...finalizedPlayer,
+        whyUndervalued: buildWhyUndervaluedSummary(finalizedPlayer),
+      }
+    })
+
     const result = withComputedBudget(
       {
         formation: pool.formation,

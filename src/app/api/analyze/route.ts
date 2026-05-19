@@ -25,8 +25,18 @@ const FIFA_NATIONS = new Set([
 function isNationalTeam(name: string): boolean {
   return FIFA_NATIONS.has(name.toLowerCase().trim())
 }
+
+const TM_TO_AF_TEAM_ID_OVERRIDES: Record<string, number> = {
+  'al nassr': 2939,
+  'al nassr fc': 2939,
+}
+
+const TEAM_MANAGER_NAME_OVERRIDES: Record<string, string> = {
+  'al nassr': 'Jorge Jesus',
+  'al nassr fc': 'Jorge Jesus',
+}
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
-import { getSquad, getCoach, searchTeams as afSearchTeams, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
+import { getSquad, getCoach, searchTeams as afSearchTeams, resolveCoachByTeamName, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
 import {
   searchTeams as fotmobSearchTeams,
   getSquadAndCoach as fotmobGetSquadAndCoach,
@@ -38,6 +48,94 @@ import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import type { SquadPlayer } from '@/lib/role-profiles'
+
+type AFSearchTeamResult = Awaited<ReturnType<typeof afSearchTeams>>[number]
+
+function normalizeTeamLookupName(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ø/g, 'o')
+    .replace(/Ø/g, 'O')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function stripClubSuffixes(value: string): string {
+  return normalizeTeamLookupName(value).replace(/\b(fc|cf|sc|afc|ac)\b/g, ' ').trim().replace(/\s+/g, ' ')
+}
+
+function getAFOverrideTeamId(teamName: string): number | null {
+  const normalizedName = normalizeTeamLookupName(teamName)
+  return TM_TO_AF_TEAM_ID_OVERRIDES[normalizedName] ?? TM_TO_AF_TEAM_ID_OVERRIDES[stripClubSuffixes(normalizedName)] ?? null
+}
+
+function getManagerNameOverride(teamName: string): string | null {
+  const normalizedName = normalizeTeamLookupName(teamName)
+  return TEAM_MANAGER_NAME_OVERRIDES[normalizedName] ?? TEAM_MANAGER_NAME_OVERRIDES[stripClubSuffixes(normalizedName)] ?? null
+}
+
+function hasSecondaryTeamMarker(value: string): boolean {
+  return /\b(w|women|u\d{2}|ii|b|reserves)\b/.test(value)
+}
+
+function buildAFSearchVariants(teamName: string): string[] {
+  const spacedName = teamName.replace(/-/g, ' ').replace(/\s+/g, ' ').trim()
+  const strippedName = spacedName.replace(/\b(fc|cf|sc|afc|ac)\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  const lastWord = strippedName.split(' ').filter(Boolean).at(-1) || ''
+
+  return Array.from(new Set([
+    teamName.trim(),
+    spacedName,
+    strippedName,
+    lastWord.length >= 5 ? lastWord : '',
+  ].filter(Boolean)))
+}
+
+function scoreAFTeamResult(team: AFSearchTeamResult, query: string): number {
+  const normalizedName = normalizeTeamLookupName(team.team.name)
+  const normalizedQuery = normalizeTeamLookupName(query)
+  const strippedName = stripClubSuffixes(normalizedName)
+  const strippedQuery = stripClubSuffixes(normalizedQuery)
+
+  let score = 0
+  if (strippedName === strippedQuery) score = 100
+  else if (normalizedName === normalizedQuery) score = 95
+  else if (strippedName.startsWith(strippedQuery) || strippedQuery.startsWith(strippedName)) score = 85
+  else if (normalizedName.includes(strippedQuery) || strippedQuery.includes(normalizedName)) score = 70
+
+  if (hasSecondaryTeamMarker(normalizedName) && !hasSecondaryTeamMarker(normalizedQuery)) {
+    score -= 40
+  }
+
+  return score
+}
+
+function selectBestAFTeam(matches: AFSearchTeamResult[][], query: string): AFSearchTeamResult | null {
+  const byId = new Map<number, AFSearchTeamResult>()
+
+  for (const group of matches) {
+    for (const team of group) {
+      if (!byId.has(team.team.id)) {
+        byId.set(team.team.id, team)
+      }
+    }
+  }
+
+  const allMatches = Array.from(byId.values())
+  const primaryMatches = allMatches.filter((team) => !hasSecondaryTeamMarker(normalizeTeamLookupName(team.team.name)))
+  const sortable = primaryMatches.length > 0 && !hasSecondaryTeamMarker(normalizeTeamLookupName(query))
+    ? primaryMatches
+    : allMatches
+
+  return sortable.sort((left, right) => {
+    const scoreDiff = scoreAFTeamResult(right, query) - scoreAFTeamResult(left, query)
+    if (scoreDiff !== 0) return scoreDiff
+    return left.team.name.length - right.team.name.length
+  })[0] ?? null
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,14 +157,15 @@ export async function POST(request: NextRequest) {
     let usedFotmob = false
 
     if (teamSource === 'tm') {
-      // Squad from TM, coach from API Football (search by name — works for clubs AND national teams)
+      // Squad from TM, coach from API Football with FotMob fallback for clubs outside the core local DB.
       console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
-      // Normalize special chars for AF search (ø→o, ü→u etc.)
-      const afSearchName = teamName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ø/g, 'o').replace(/Ø/g, 'O')
-      const [tmPlayers, afTeams] = await Promise.all([
+      const afSearchVariants = buildAFSearchVariants(teamName)
+      const [tmPlayers, afTeamMatches, fmTeams] = await Promise.all([
         getClubSquad(String(teamId)).catch(() => []),
-        afSearchTeams(afSearchName).catch(() => []),
+        Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
+        fotmobSearchTeams(teamName).catch(() => []),
       ])
+      const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
       if (tmPlayers.length) {
         tmFormattedSquad = tmPlayers.map((p) => ({
           playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
@@ -74,10 +173,52 @@ export async function POST(request: NextRequest) {
           goals: 0, assists: 0, currentTeam: teamName,
         }))
       }
-      if (afTeams.length && !coach) {
+      const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? bestAfTeam?.team.id ?? null
+      if (preferredAfTeamId && !coach) {
         try {
-          coach = await getCoach(afTeams[0].team.id)
+          coach = await getCoach(preferredAfTeamId)
         } catch { /* coach stays null */ }
+      }
+
+      if (!coach) {
+        const resolvedFmId = fmTeams[0]?.team.id ?? null
+        if (resolvedFmId) {
+          try {
+            const fmResult = await fotmobGetSquadAndCoach(resolvedFmId)
+            if (fmResult.coach) {
+              coach = fmResult.coach as unknown as APICoach
+            }
+            if (!tmFormattedSquad && fmResult.squad.length) {
+              fotmobSquad = fmResult.squad
+              usedFotmob = true
+            }
+          } catch (e) {
+            console.error('[analyze] TM-path FotMob fallback failed:', e)
+          }
+        }
+      }
+
+      if (!coach) {
+        try {
+          coach = await resolveCoachByTeamName(teamName)
+        } catch (e) {
+          console.error('[analyze] TM-path direct AF coach fallback failed:', e)
+        }
+      }
+
+      if (!coach) {
+        const overrideName = getManagerNameOverride(teamName)
+        if (overrideName) {
+          coach = {
+            id: 0,
+            name: overrideName,
+            firstname: overrideName.split(' ').slice(0, -1).join(' '),
+            lastname: overrideName.split(' ').pop() || '',
+            nationality: '',
+            photo: '',
+            team: { id: preferredAfTeamId || 0, name: teamName, logo: '' },
+          }
+        }
       }
     } else if (teamSource === 'fotmob') {
       // FotMob ID — direct squad fetch, no re-search needed

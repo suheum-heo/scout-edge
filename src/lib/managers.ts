@@ -1,3 +1,5 @@
+import { namesMatch, personNameTokens } from './person-names'
+
 export interface PositionalRequirement {
   position: string
   positionCode: string // API Football position code: Goalkeeper, Defender, Midfielder, Attacker
@@ -664,7 +666,7 @@ const managers: ManagerProfile[] = [
     id: 'roberto-de-zerbi',
     name: 'Roberto De Zerbi',
     nationality: 'Italian',
-    currentClub: 'Free Agent',
+    currentClub: 'Tottenham Hotspur',
     formations: ['4-3-3', '4-2-3-1'],
     style: {
       pressing: 'gegenpressing',
@@ -2499,27 +2501,17 @@ const managers: ManagerProfile[] = [
 ]
 
 export function getManagerByName(name: string): ManagerProfile | undefined {
-  const lower = name.toLowerCase().trim()
-
-  // 1. Exact full-name match
-  const exact = managers.find((m) => m.name.toLowerCase() === lower)
-  if (exact) return exact
-
-  // 2. Normalised match — strip diacritics for names like "Jürgen" vs "Jurgen"
-  const normalize = (s: string) =>
-    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const normLower = normalize(lower)
-  const normMatch = managers.find((m) => normalize(m.name) === normLower)
-  if (normMatch) return normMatch
+  const directMatch = managers.find((m) => namesMatch(m.name, name))
+  if (directMatch) return directMatch
 
   // 3. Exact last-name-only match (API sometimes returns just the surname)
   //    Requires the last name to be at least 4 chars and an exact word match —
   //    NOT a substring — to prevent "Rosenior" matching "Rose" or "Frank" matching "T. Frank"
-  const parts = lower.split(/\s+/)
-  const lastWord = parts[parts.length - 1]
-  if (lastWord.length >= 4 && !lastWord.includes('.')) {
+  const parts = personNameTokens(name)
+  const lastWord = parts[parts.length - 1] || ''
+  if (lastWord.length >= 4) {
     const lastNameMatch = managers.find((m) => {
-      const dbLastName = m.name.split(' ').pop()?.toLowerCase() || ''
+      const dbLastName = personNameTokens(m.name).at(-1) || ''
       return dbLastName === lastWord
     })
     if (lastNameMatch) return lastNameMatch

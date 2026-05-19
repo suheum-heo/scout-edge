@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { buildFullName, namesMatch } from './person-names'
 
 const BASE_URL = 'https://v3.football.api-sports.io'
 
@@ -146,7 +147,68 @@ async function getExtraLeagueTeams(): Promise<APITeam[]> {
 }
 
 function normalizeTeamName(s: string) {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function stripClubSuffixes(name: string) {
+  return name.replace(/\b(fc|cf|sc|afc|ac)\b/g, ' ').trim().replace(/\s+/g, ' ')
+}
+
+function hasAuxiliaryTeamMarker(name: string) {
+  return /\b(w|women|u\d{2}|ii|b|reserves)\b/.test(name)
+}
+
+function scoreSearchResultName(name: string, query: string): number {
+  const normalizedName = normalizeTeamName(name)
+  const normalizedQuery = normalizeTeamName(query)
+  let score = scoreTeamMatch(normalizedName, normalizedQuery)
+
+  const strippedName = stripClubSuffixes(normalizedName)
+  const strippedQuery = stripClubSuffixes(normalizedQuery)
+
+  if (strippedName === strippedQuery) {
+    score = Math.max(score, 95)
+  } else if (strippedName.startsWith(strippedQuery) || strippedQuery.startsWith(strippedName)) {
+    score = Math.max(score, 85)
+  }
+
+  if (hasAuxiliaryTeamMarker(normalizedName) && !hasAuxiliaryTeamMarker(normalizedQuery)) {
+    score -= 40
+  }
+
+  return score
+}
+
+function rankTeamResults(results: APITeam[], query: string): APITeam[] {
+  const primaryResults = results.filter((team) => !hasAuxiliaryTeamMarker(normalizeTeamName(team.team.name)))
+  const sortable = primaryResults.length > 0 && !hasAuxiliaryTeamMarker(normalizeTeamName(query))
+    ? primaryResults
+    : results
+
+  return [...sortable].sort((left, right) => {
+    const scoreDiff = scoreSearchResultName(right.team.name, query) - scoreSearchResultName(left.team.name, query)
+    if (scoreDiff !== 0) return scoreDiff
+    return left.team.name.length - right.team.name.length
+  })
+}
+
+function buildTeamSearchQueries(query: string): string[] {
+  const normalizedSpacing = query.replace(/-/g, ' ').replace(/\s+/g, ' ').trim()
+  const withoutSuffixes = normalizedSpacing.replace(/\b(fc|cf|sc|afc|ac)\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  const lastWord = withoutSuffixes.split(' ').filter(Boolean).at(-1) || ''
+
+  return Array.from(new Set([
+    query.trim(),
+    normalizedSpacing,
+    withoutSuffixes,
+    lastWord.length >= 5 ? lastWord : '',
+  ].filter(Boolean)))
 }
 
 function normalizeCountry(s: string) {
@@ -208,11 +270,35 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
   if (cached) return cached
 
   try {
-    const res = await client.get('/teams', { params: { search: query } })
-    const results: APITeam[] = (res.data?.response || []).map((t: APITeam) => ({
-      ...t,
-      team: { ...t.team, country: normalizeCountry(t.team.country) },
-    }))
+    const seenTeamIds = new Set<number>()
+    const mergedResults: APITeam[] = []
+
+    for (const searchQuery of buildTeamSearchQueries(query)) {
+      const res = await client.get('/teams', { params: { search: searchQuery } })
+      const batch: APITeam[] = (res.data?.response || [])
+        .map((t: APITeam) => ({
+          ...t,
+          team: { ...t.team, country: normalizeCountry(t.team.country) },
+        }))
+        .filter((team: APITeam) => {
+          if (seenTeamIds.has(team.team.id)) return false
+          seenTeamIds.add(team.team.id)
+          return true
+        })
+
+      mergedResults.push(...batch)
+
+      const rankedSoFar = rankTeamResults(mergedResults, query)
+      const bestMatch = rankedSoFar[0]
+      const bestScore = bestMatch ? scoreSearchResultName(bestMatch.team.name, query) : -Infinity
+      const bestIsAuxiliary = bestMatch ? hasAuxiliaryTeamMarker(normalizeTeamName(bestMatch.team.name)) : false
+
+      if (bestMatch && bestScore >= 90 && !bestIsAuxiliary) {
+        break
+      }
+    }
+
+    const results = rankTeamResults(mergedResults, query)
     setCache(cacheKey, results, TTL.TEAMS)
     return results
   } catch {
@@ -451,19 +537,22 @@ export async function getCoachCurrentTeam(coachName: string): Promise<string | n
   if (cached !== null) return cached || null // '' means not found, non-empty means club name
 
   try {
-    const res = await client.get('/coachs', { params: { search: lastName } })
-    const coaches: APICoach[] = res.data?.response || []
+    const searchQueries = Array.from(new Set([coachName.trim(), lastName].filter(Boolean)))
+    const coachGroups = await Promise.all(searchQueries.map((query) => searchCoachesByName(query)))
+    const coaches = coachGroups.flat()
 
     if (!coaches.length) {
       setCache(cacheKey, '', TTL.COACHES)
       return null
     }
 
-    // Prefer exact full-name match, then last-name match, then first result
-    const lowerTarget = coachName.toLowerCase()
+    const fullNameMatch = (coach: APICoach) =>
+      namesMatch(buildFullName(coach.firstname, coach.lastname, coach.name), coachName) ||
+      namesMatch(coach.name, coachName)
+
     const match =
-      coaches.find((c) => c.name.toLowerCase() === lowerTarget) ||
-      coaches.find((c) => c.name.toLowerCase().includes(lastName.toLowerCase())) ||
+      coaches.find(fullNameMatch) ||
+      coaches.find((c) => namesMatch(c.name, lastName)) ||
       coaches[0]
 
     const teamName = match?.team?.name || ''
@@ -472,6 +561,38 @@ export async function getCoachCurrentTeam(coachName: string): Promise<string | n
   } catch {
     return null
   }
+}
+
+export async function resolveCoachByTeamName(teamName: string): Promise<APICoach | null> {
+  const seenTeamIds = new Set<number>()
+  const mergedResults: APITeam[] = []
+
+  for (const searchQuery of buildTeamSearchQueries(teamName)) {
+    try {
+      const res = await client.get('/teams', { params: { search: searchQuery } })
+      const batch: APITeam[] = (res.data?.response || [])
+        .map((t: APITeam) => ({
+          ...t,
+          team: { ...t.team, country: normalizeCountry(t.team.country) },
+        }))
+        .filter((team: APITeam) => {
+          if (seenTeamIds.has(team.team.id)) return false
+          seenTeamIds.add(team.team.id)
+          return true
+        })
+
+      mergedResults.push(...batch)
+
+      const rankedSoFar = rankTeamResults(mergedResults, teamName)
+      if (rankedSoFar[0]) break
+    } catch {
+      continue
+    }
+  }
+
+  const bestTeam = rankTeamResults(mergedResults, teamName)[0]
+  if (!bestTeam) return null
+  return getCoach(bestTeam.team.id)
 }
 
 // Format player stats for display
