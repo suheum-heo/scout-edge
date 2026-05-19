@@ -5,54 +5,72 @@ export const maxDuration = 60
 import { getManagerById } from '@/lib/managers'
 import { generateUndervaluedXI, UndervaluedPlayer } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
-import { searchPlayer, getPlayerData, formatMarketValue } from '@/lib/transfermarkt'
+import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_TIMEOUT_MS = 12000
+const TM_SEARCH_TIMEOUT_MS = 10000
+const TM_PROFILE_TIMEOUT_MS = 10000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
+function isUsableTMClubName(clubName?: string | null): clubName is string {
+  if (!clubName) return false
+  const clubLow = clubName.toLowerCase()
+  return !clubLow.includes('retired') &&
+    !clubLow.includes('without club') &&
+    clubLow !== '-'
+}
+
+async function findSearchResult(player: UndervaluedPlayer): Promise<TMPlayerSearchResult | null> {
+  const attempts = [
+    { age: player.age, club: player.currentClub },
+    { age: player.age },
+    undefined,
+  ] as const
+
+  for (const hints of attempts) {
+    const result = await withTimeout(searchPlayer(player.playerName, hints), TM_SEARCH_TIMEOUT_MS, null)
+    if (result) return result
+  }
+
+  return null
+}
+
+function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSearchResult): UndervaluedPlayer {
+  const searchClub = searchResult.club?.name
+  return {
+    ...player,
+    playerName: searchResult.name || player.playerName,
+    currentClub: isUsableTMClubName(searchClub) ? searchClub : player.currentClub,
+    age: searchResult.age ?? player.age,
+    nationality: searchResult.nationalities?.[0] || player.nationality,
+    estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
+    tmVerified: isUsableTMClubName(searchClub),
+  }
+}
+
 async function enrichPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
-  return withTimeout(
-    (async () => {
-      const searchResult = await searchPlayer(player.playerName, {
-        age: player.age,
-        club: player.currentClub,
-      })
-      if (!searchResult) return player
+  const searchResult = await findSearchResult(player)
+  if (!searchResult) return player
 
-      const searchClub = searchResult.club?.name
-      const searchClubLow = searchClub?.toLowerCase() ?? ''
-      const searchClubValid = !!searchClub &&
-        !searchClubLow.includes('retired') &&
-        !searchClubLow.includes('without club') &&
-        searchClubLow !== '-'
+  const verifiedFromSearch = mergeSearchResult(player, searchResult)
 
-      const tmData = await getPlayerData(searchResult.id)
-      if (!tmData) {
-        return searchClubValid
-          ? { ...player, currentClub: searchClub!, tmVerified: true }
-          : player
-      }
+  const tmData = await withTimeout(getPlayerData(searchResult.id), TM_PROFILE_TIMEOUT_MS, null)
+  if (!tmData) {
+    return verifiedFromSearch
+  }
 
-      const clubLow = tmData.currentClub?.toLowerCase() ?? ''
-      const isRetiredOrUnknown = !tmData.currentClub ||
-        clubLow.includes('retired') || clubLow.includes('without club') || clubLow === '-'
-
-      return {
-        ...player,
-        currentClub: isRetiredOrUnknown ? player.currentClub : tmData.currentClub,
-        age: tmData.age ?? player.age,
-        nationality: tmData.nationality || player.nationality,
-        contractUntil: tmData.contractYear || player.contractUntil,
-        estimatedValue: tmData.marketValue ? formatMarketValue(tmData.marketValue) : player.estimatedValue,
-        tmVerified: !isRetiredOrUnknown,
-      }
-    })(),
-    TM_TIMEOUT_MS,
-    player
-  )
+  return {
+    ...verifiedFromSearch,
+    playerName: tmData.name || verifiedFromSearch.playerName,
+    currentClub: isUsableTMClubName(tmData.currentClub) ? tmData.currentClub : verifiedFromSearch.currentClub,
+    age: tmData.age ?? verifiedFromSearch.age,
+    nationality: tmData.nationality || verifiedFromSearch.nationality,
+    contractUntil: tmData.contractYear || verifiedFromSearch.contractUntil,
+    estimatedValue: tmData.marketValue ? formatMarketValue(tmData.marketValue) : verifiedFromSearch.estimatedValue,
+    tmVerified: isUsableTMClubName(tmData.currentClub) || verifiedFromSearch.tmVerified === true,
+  }
 }
 
 export async function POST(request: NextRequest) {
