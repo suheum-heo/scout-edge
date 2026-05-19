@@ -6,7 +6,7 @@ export const maxDuration = 60
 import { getManagerById } from '@/lib/managers'
 import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
-import { searchPlayer, getPlayerData, formatMarketValue } from '@/lib/transfermarkt'
+import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 
 function budgetRange(budget: string): { min: number; max: number } | null {
@@ -17,57 +17,69 @@ function budgetRange(budget: string): { min: number; max: number } | null {
   return null // Loan / Free agent — no price filter
 }
 
-const TM_TIMEOUT_PER_PLAYER_MS = 15000
+const TM_SEARCH_TIMEOUT_MS = 10000
+const TM_PROFILE_TIMEOUT_MS = 10000
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
-// Enrich a single target — has its own timeout so one slow lookup never blocks others
+function isUsableTMClubName(clubName?: string | null): clubName is string {
+  if (!clubName) return false
+  const clubLow = clubName.toLowerCase()
+  return !clubLow.includes('retired') &&
+    !clubLow.includes('without club') &&
+    clubLow !== '-'
+}
+
+async function findSearchResult(target: TransferTarget): Promise<TMPlayerSearchResult | null> {
+  const attempts = [
+    { age: target.age, club: target.currentClub },
+    { age: target.age },
+    undefined,
+  ] as const
+
+  for (const hints of attempts) {
+    const result = await withTimeout(searchPlayer(target.playerName, hints), TM_SEARCH_TIMEOUT_MS, null)
+    if (result) return result
+  }
+
+  return null
+}
+
+function mergeSearchResult(target: TransferTarget, searchResult: TMPlayerSearchResult): TransferTarget {
+  const searchClub = searchResult.club?.name
+  return {
+    ...target,
+    currentClub: isUsableTMClubName(searchClub) ? searchClub : target.currentClub,
+    age: searchResult.age ?? target.age,
+    nationality: searchResult.nationalities?.[0] || target.nationality,
+    estimatedFee: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : target.estimatedFee,
+    tmVerified: isUsableTMClubName(searchClub),
+  }
+}
+
+// Enrich a single target. TM search is enough to verify the club; profile fetch only improves detail.
 async function enrichOne(target: TransferTarget): Promise<TransferTarget> {
-  return withTimeout(
-    (async () => {
-      const searchResult = await searchPlayer(target.playerName, {
-        age: target.age,
-        club: target.currentClub,
-      })
-      if (!searchResult) return target
+  const searchResult = await findSearchResult(target)
+  if (!searchResult) return target
 
-      // The search result already has the club — use it as a verified baseline
-      // even if the full profile fetch below times out
-      const searchClub = searchResult.club?.name
-      const searchClubLow = searchClub?.toLowerCase() ?? ''
-      const searchClubValid = !!searchClub &&
-        !searchClubLow.includes('retired') &&
-        !searchClubLow.includes('without club') &&
-        searchClubLow !== '-'
+  const verifiedFromSearch = mergeSearchResult(target, searchResult)
 
-      const tmData = await getPlayerData(searchResult.id)
+  const tmData = await withTimeout(getPlayerData(searchResult.id), TM_PROFILE_TIMEOUT_MS, null)
+  if (!tmData) {
+    return verifiedFromSearch
+  }
 
-      if (!tmData) {
-        // Profile fetch failed — but we can still verify the club from search
-        return searchClubValid
-          ? { ...target, currentClub: searchClub!, tmVerified: true }
-          : target
-      }
-
-      // Don't overwrite with a club that indicates retirement or no-club status
-      const clubLow = tmData.currentClub?.toLowerCase() ?? ''
-      const isRetiredOrUnknown = !tmData.currentClub ||
-        clubLow.includes('retired') || clubLow.includes('without club') || clubLow === '-'
-      return {
-        ...target,
-        currentClub: isRetiredOrUnknown ? target.currentClub : tmData.currentClub,
-        age: tmData.age ?? target.age,
-        nationality: tmData.nationality || target.nationality,
-        contractUntil: tmData.contractYear,
-        estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : target.estimatedFee,
-        tmVerified: !isRetiredOrUnknown,
-      }
-    })(),
-    TM_TIMEOUT_PER_PLAYER_MS,
-    target // fallback: keep Claude's data only for this specific player
-  )
+  return {
+    ...verifiedFromSearch,
+    currentClub: isUsableTMClubName(tmData.currentClub) ? tmData.currentClub : verifiedFromSearch.currentClub,
+    age: tmData.age ?? verifiedFromSearch.age,
+    nationality: tmData.nationality || verifiedFromSearch.nationality,
+    contractUntil: tmData.contractYear,
+    estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : verifiedFromSearch.estimatedFee,
+    tmVerified: isUsableTMClubName(tmData.currentClub) || verifiedFromSearch.tmVerified === true,
+  }
 }
 
 // Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
