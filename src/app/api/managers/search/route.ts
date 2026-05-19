@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { searchCoachesByName } from '@/lib/api-football'
 import { getAllManagers, getManagerByName } from '@/lib/managers'
+import { normalizeClubDisplayName } from '@/lib/club-names'
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim()
@@ -19,8 +20,9 @@ export async function GET(request: NextRequest) {
     if (c.team?.name) {
       const fullName = c.firstname && c.lastname && !c.firstname.includes('.')
         ? `${c.firstname} ${c.lastname}` : c.name
-      liveClubByName.set(fullName.toLowerCase(), c.team.name)
-      liveClubByName.set(c.name.toLowerCase(), c.team.name)
+      const currentClub = normalizeClubDisplayName(c.team.name)
+      liveClubByName.set(fullName.toLowerCase(), currentClub)
+      liveClubByName.set(c.name.toLowerCase(), currentClub)
     }
   }
 
@@ -32,7 +34,7 @@ export async function GET(request: NextRequest) {
       id: m.id,
       profileId: m.id,
       name: m.name,
-      currentClub: liveClubByName.get(m.name.toLowerCase()) ?? m.currentClub,
+      currentClub: normalizeClubDisplayName(liveClubByName.get(m.name.toLowerCase()) ?? m.currentClub),
       formations: m.formations,
       hasProfile: true,
     }))
@@ -57,7 +59,7 @@ export async function GET(request: NextRequest) {
         id: profile?.id ?? `af-${c.id}`,
         profileId: profile?.id ?? null,
         name: profile?.name ?? fullName,
-        currentClub: c.team?.name ?? 'Unknown',
+        currentClub: normalizeClubDisplayName(c.team?.name ?? 'Unknown'),
         formations: profile?.formations ?? [],
         hasProfile: !!profile,
       }

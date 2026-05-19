@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAllManagers } from '@/lib/managers'
 import { getCoachCurrentTeam } from '@/lib/api-football'
+import { normalizeClubDisplayName } from '@/lib/club-names'
 
 // Server-side cache for the enriched manager list — refreshed once per day
 let managersCache: { data: object[]; expiresAt: number } | null = null
@@ -20,7 +21,7 @@ export async function GET() {
       return {
         id: m.id,
         name: m.name,
-        currentClub: liveClub || m.currentClub, // fall back to hardcoded if API misses
+        currentClub: normalizeClubDisplayName(liveClub || m.currentClub), // fall back to hardcoded if API misses
         nationality: m.nationality,
         formations: m.formations,
       }

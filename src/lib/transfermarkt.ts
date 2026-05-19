@@ -3,6 +3,8 @@
  * Provides live player data: current club, contract expiry, market value, stats
  */
 
+import { getClubLookupKeys, normalizeClubDisplayName } from '@/lib/club-names'
+
 const TM_BASE = process.env.TRANSFERMARKT_API_URL || 'http://localhost:8000'
 
 // Simple in-memory cache (6-hour TTL)
@@ -121,6 +123,36 @@ function stripDiacritics(str: string): string {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+function clubMatchScore(left?: string, right?: string): number {
+  if (!left || !right) return 0
+
+  const leftKeys = getClubLookupKeys(left)
+  const rightKeys = getClubLookupKeys(right)
+
+  if (!leftKeys.exact || !rightKeys.exact) return 0
+
+  if (leftKeys.exact === rightKeys.exact || (leftKeys.simplified && leftKeys.simplified === rightKeys.simplified)) {
+    return 6
+  }
+
+  if (
+    leftKeys.exact.includes(rightKeys.exact) ||
+    rightKeys.exact.includes(leftKeys.exact) ||
+    (leftKeys.simplified && rightKeys.simplified && (
+      leftKeys.simplified.includes(rightKeys.simplified) ||
+      rightKeys.simplified.includes(leftKeys.simplified)
+    ))
+  ) {
+    return 4
+  }
+
+  const leftLead = (leftKeys.simplified || leftKeys.exact).split(' ')[0]
+  const rightLead = (rightKeys.simplified || rightKeys.exact).split(' ')[0]
+  if (leftLead && rightLead && leftLead === rightLead) return 2
+
+  return 0
+}
+
 /**
  * Search players by name, return top result.
  * Fallback chain: original name → diacritic-stripped → last name only (≥5 chars).
@@ -163,9 +195,7 @@ export async function searchPlayer(
 
     // Club name match
     if (hints?.club && p.club?.name) {
-      const clubQ = hints.club.toLowerCase()
-      const clubP = p.club.name.toLowerCase()
-      if (clubP.includes(clubQ.split(' ')[0]) || clubQ.includes(clubP.split(' ')[0])) score += 6
+      score += clubMatchScore(hints.club, p.club.name)
     }
 
     return { p, score }
@@ -182,7 +212,13 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
   try {
     const encoded = encodeURIComponent(name)
     const data = await tmFetch<{ results: TMPlayerSearchResult[] }>(`/players/search/${encoded}`)
-    return data.results.slice(0, 8)
+    return data.results.slice(0, 8).map((player) => ({
+      ...player,
+      club: {
+        ...player.club,
+        name: normalizeClubDisplayName(player.club?.name),
+      },
+    }))
   } catch {
     return []
   }
@@ -218,7 +254,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       age: profile.age,
       nationality: profile.citizenship[0] || 'Unknown',
       position: profile.position.main || 'Unknown',
-      currentClub: profile.club.name,
+      currentClub: normalizeClubDisplayName(profile.club.name),
       currentClubId: profile.club.id,
       contractExpires: profile.club.contractExpires,
       contractYear: contractYear(profile.club.contractExpires),
