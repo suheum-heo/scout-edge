@@ -215,6 +215,8 @@ function buildTMClubSearchQueries(query: string): string[] {
   const stripped = stripDiacritics(query)
   const spaced = query.replace(/[/-]+/g, ' ').replace(/\s+/g, ' ').trim()
   const strippedSpaced = stripDiacritics(spaced)
+  const withoutSuffixes = spaced.replace(/\b(fc|cf|sc|afc|ac)\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  const strippedWithoutSuffixes = stripDiacritics(withoutSuffixes)
   const hyphenated = spaced.replace(/\s+/g, '-')
   const strippedHyphenated = strippedSpaced.replace(/\s+/g, '-')
 
@@ -223,6 +225,8 @@ function buildTMClubSearchQueries(query: string): string[] {
     stripped.trim(),
     spaced,
     strippedSpaced,
+    withoutSuffixes,
+    strippedWithoutSuffixes,
     hyphenated,
     strippedHyphenated,
   ].filter(Boolean)))
