@@ -6,10 +6,12 @@
 import { getClubLookupKeys, normalizeClubDisplayName } from '@/lib/club-names'
 
 const TM_BASE = process.env.TRANSFERMARKT_API_URL || 'http://localhost:8000'
+const TM_SITE_BASE = 'https://www.transfermarkt.com'
 
 // Simple in-memory cache (6-hour TTL)
 const cache = new Map<string, { data: unknown; expires: number }>()
 const TTL = 6 * 60 * 60 * 1000
+const TM_SITE_TTL = 60 * 60 * 1000
 
 async function tmFetch<T>(path: string): Promise<T> {
   const cached = cache.get(path)
@@ -22,6 +24,31 @@ async function tmFetch<T>(path: string): Promise<T> {
     if (!res.ok) throw new Error(`TM API ${res.status}: ${path}`)
     const data = await res.json() as T
     cache.set(path, { data, expires: Date.now() + TTL })
+    return data
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function tmSiteFetch<T>(path: string): Promise<T> {
+  const cacheKey = `site:${path}`
+  const cached = cache.get(cacheKey)
+  if (cached && cached.expires > Date.now()) return cached.data as T
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(`${TM_SITE_BASE}${path}`, {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json,text/plain,*/*',
+        'user-agent': 'Mozilla/5.0',
+      },
+    })
+    if (!res.ok) throw new Error(`TM site ${res.status}: ${path}`)
+    const data = await res.json() as T
+    cache.set(cacheKey, { data, expires: Date.now() + TM_SITE_TTL })
     return data
   } finally {
     clearTimeout(timer)
@@ -74,6 +101,18 @@ export interface TMClubPlayer {
   marketValueFormatted: string
 }
 
+export interface TMClubStaffMember {
+  id: string
+  name: string
+  position: string
+  age: number | null
+  appointed: string | null
+  contractUntil: string | null
+  countryIcon: string | null
+  profileImage: string | null
+  profileUrl: string | null
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 export function formatMarketValue(value: number | null): string {
@@ -114,6 +153,55 @@ function aggregateStats(stats: Array<{
     }),
     { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
   )
+}
+
+function getCurrentTMSeasonId(now = new Date()): number {
+  const year = now.getUTCFullYear()
+  const month = now.getUTCMonth()
+  return month >= 6 ? year : year - 1
+}
+
+function normalizeTMDate(value: string | null | undefined): string | null {
+  if (!value || value === '-') return null
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!match) return null
+  return `${match[3]}-${match[2]}-${match[1]}`
+}
+
+function scoreStaffRole(position: string): number {
+  const normalized = position
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim()
+
+  if (normalized === 'manager') return 100
+  if (normalized === 'head coach') return 95
+  if (normalized === 'head trainer') return 90
+  if (normalized === 'coach') return 70
+
+  if (
+    normalized.includes('assistant') ||
+    normalized.includes('goalkeeping') ||
+    normalized.includes('goal keeper') ||
+    normalized.includes('fitness') ||
+    normalized.includes('technical') ||
+    normalized.includes('analyst') ||
+    normalized.includes('medical') ||
+    normalized.includes('physio') ||
+    normalized.includes('nutrition') ||
+    normalized.includes('director') ||
+    normalized.includes('executive') ||
+    normalized.includes('president') ||
+    normalized.includes('scout') ||
+    normalized.includes('academy') ||
+    normalized.includes('translator') ||
+    normalized.includes('coordinator')
+  ) {
+    return -25
+  }
+
+  return -10
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────
@@ -298,6 +386,65 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
   } catch {
     return []
   }
+}
+
+/**
+ * Fetch a club's current staff list directly from Transfermarkt's site endpoint.
+ */
+export async function getClubStaff(
+  tmClubId: string,
+  seasonId = getCurrentTMSeasonId()
+): Promise<TMClubStaffMember[]> {
+  try {
+    const path = `/ceapi/staff/team/${encodeURIComponent(tmClubId)}/?saison_id=${seasonId}`
+    const data = await tmSiteFetch<{
+      staff: Array<{
+        id: string
+        age: number | null
+        appointed: string | null
+        contractUntil: string | null
+        countryIcon: string | null
+        name: string
+        position: string
+        profileImage: string | null
+        profileUrl: string | null
+      }>
+    }>(path)
+
+    return (data.staff || []).map((member) => ({
+      id: member.id,
+      age: member.age,
+      appointed: normalizeTMDate(member.appointed),
+      contractUntil: normalizeTMDate(member.contractUntil),
+      countryIcon: member.countryIcon,
+      name: member.name,
+      position: member.position,
+      profileImage: member.profileImage,
+      profileUrl: member.profileUrl
+        ? `${TM_SITE_BASE}${member.profileUrl}`
+        : null,
+    }))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Fetch the most likely current first-team manager for a club.
+ */
+export async function getClubManager(
+  tmClubId: string,
+  seasonId = getCurrentTMSeasonId()
+): Promise<TMClubStaffMember | null> {
+  const staff = await getClubStaff(tmClubId, seasonId)
+  if (!staff.length) return null
+
+  const ranked = staff
+    .map((member) => ({ member, score: scoreStaffRole(member.position) }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score)
+
+  return ranked[0]?.member ?? null
 }
 
 /**

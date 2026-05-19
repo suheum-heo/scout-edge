@@ -38,7 +38,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
-import { getClubSquad, searchClub } from '@/lib/transfermarkt'
+import { getClubManager, getClubSquad, searchClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
@@ -142,6 +142,27 @@ function getCoachDisplayName(coach: APICoach | null): string | null {
   return displayName || null
 }
 
+function tmManagerToCoach(manager: Awaited<ReturnType<typeof getClubManager>>, teamId: number | string, teamName: string): APICoach | null {
+  if (!manager) return null
+
+  const numericTeamId = typeof teamId === 'number' ? teamId : Number(teamId) || 0
+  const numericManagerId = Number(manager.id) || 0
+
+  return {
+    id: numericManagerId,
+    name: manager.name,
+    firstname: '',
+    lastname: '',
+    nationality: '',
+    photo: manager.profileImage ?? '',
+    team: {
+      id: numericTeamId,
+      name: teamName,
+      logo: '',
+    },
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -162,13 +183,14 @@ export async function POST(request: NextRequest) {
     let usedFotmob = false
 
     if (teamSource === 'tm') {
-      // Squad from TM, coach from exact verified IDs only.
+      // Squad + manager from TM first, then exact verified IDs only.
       // Do not fall back to fuzzy provider name-matching here — that's how clubs get crossed.
       console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
       const afSearchVariants = buildAFSearchVariants(teamName)
       const preferredFmId = typeof fotmobId === 'number' ? fotmobId : null
-      const [tmPlayers, afTeamMatches] = await Promise.all([
+      const [tmPlayers, tmManager, afTeamMatches] = await Promise.all([
         getClubSquad(String(teamId)).catch(() => []),
+        getClubManager(String(teamId)).catch(() => null),
         Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
       ])
       const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
@@ -180,6 +202,8 @@ export async function POST(request: NextRequest) {
           goals: 0, assists: 0, currentTeam: teamName,
         }))
       }
+      coach = tmManagerToCoach(tmManager, teamId, teamName)
+
       const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
       if (preferredAfTeamId && !coach) {
         try {
@@ -386,6 +410,7 @@ export async function POST(request: NextRequest) {
     const inferredManagerName = analysis.managerName?.trim() || null
     const resolvedManager = manager ?? providerManagerProfile
     const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const factualManagerVerified = Boolean(factualManagerName)
     const managerSource = managerId
       ? 'override'
       : factualManagerName
@@ -410,7 +435,7 @@ export async function POST(request: NextRequest) {
             tacticalSummary: resolvedManager.tacticalSummary,
             keyPrinciples: resolvedManager.keyPrinciples,
             source: managerSource,
-            verified: true,
+            verified: factualManagerVerified,
           }
         : {
             id: null,
@@ -421,7 +446,7 @@ export async function POST(request: NextRequest) {
             tacticalSummary: null,
             keyPrinciples: [],
             source: managerSource,
-            verified: false,
+            verified: factualManagerVerified,
           },
       squadSize: squad.length,
       managerFromDB: !!resolvedManager,
