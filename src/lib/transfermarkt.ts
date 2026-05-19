@@ -211,6 +211,46 @@ function stripDiacritics(str: string): string {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+function buildTMClubSearchQueries(query: string): string[] {
+  const stripped = stripDiacritics(query)
+  const spaced = query.replace(/[/-]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const strippedSpaced = stripDiacritics(spaced)
+  const hyphenated = spaced.replace(/\s+/g, '-')
+  const strippedHyphenated = strippedSpaced.replace(/\s+/g, '-')
+
+  return Array.from(new Set([
+    query.trim(),
+    stripped.trim(),
+    spaced,
+    strippedSpaced,
+    hyphenated,
+    strippedHyphenated,
+  ].filter(Boolean)))
+}
+
+function scoreClubSearchResultName(name: string, query: string): number {
+  const resultKeys = getClubLookupKeys(name)
+  const queryKeys = getClubLookupKeys(query)
+
+  if (!resultKeys.exact || !queryKeys.exact) return 0
+  if (resultKeys.exact === queryKeys.exact) return 100
+  if (resultKeys.simplified && queryKeys.simplified && resultKeys.simplified === queryKeys.simplified) return 95
+  if (resultKeys.exact.startsWith(queryKeys.exact) || queryKeys.exact.startsWith(resultKeys.exact)) return 85
+  if (
+    resultKeys.simplified &&
+    queryKeys.simplified &&
+    (resultKeys.simplified.startsWith(queryKeys.simplified) || queryKeys.simplified.startsWith(resultKeys.simplified))
+  ) return 80
+  if (resultKeys.exact.includes(queryKeys.exact) || queryKeys.exact.includes(resultKeys.exact)) return 70
+  if (
+    resultKeys.simplified &&
+    queryKeys.simplified &&
+    (resultKeys.simplified.includes(queryKeys.simplified) || queryKeys.simplified.includes(resultKeys.simplified))
+  ) return 65
+
+  return 0
+}
+
 function clubMatchScore(left?: string, right?: string): number {
   if (!left || !right) return 0
 
@@ -452,12 +492,16 @@ export async function getClubManager(
  */
 export async function searchClub(name: string): Promise<string | null> {
   try {
-    const encoded = encodeURIComponent(name)
-    const data = await tmFetch<{ results: Array<{ id: string; name: string; country: string }> }>(`/clubs/search/${encoded}`)
-    if (!data.results.length) return null
-    const q = name.toLowerCase()
-    const exact = data.results.find((c) => c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase()))
-    return exact?.id || data.results[0].id
+    const results = await searchClubs(name)
+    if (!results.length) return null
+
+    const ranked = [...results].sort((left, right) => {
+      const scoreDiff = scoreClubSearchResultName(right.name, name) - scoreClubSearchResultName(left.name, name)
+      if (scoreDiff !== 0) return scoreDiff
+      return left.name.length - right.name.length
+    })
+
+    return ranked[0]?.id || null
   } catch {
     return null
   }
@@ -474,18 +518,21 @@ export interface TMClubSearchResult {
  * TM's search API works better with hyphens than spaces, so we try both.
  */
 export async function searchClubs(query: string): Promise<TMClubSearchResult[]> {
-  try {
-    const encoded = encodeURIComponent(query)
-    const data = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded}`)
-    if (data.results?.length) return data.results
+  const merged = new Map<string, TMClubSearchResult>()
 
-    // TM search doesn't handle spaces in names well — try hyphenated form
-    const hyphenated = query.trim().replace(/\s+/g, '-')
-    if (hyphenated === query) return []
-    const encoded2 = encodeURIComponent(hyphenated)
-    const data2 = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded2}`)
-    return data2.results || []
-  } catch {
-    return []
+  for (const candidate of buildTMClubSearchQueries(query)) {
+    try {
+      const encoded = encodeURIComponent(candidate)
+      const data = await tmFetch<{ results: TMClubSearchResult[] }>(`/clubs/search/${encoded}`)
+      for (const result of data.results || []) {
+        if (!merged.has(result.id)) {
+          merged.set(result.id, result)
+        }
+      }
+    } catch {
+      continue
+    }
   }
+
+  return Array.from(merged.values())
 }

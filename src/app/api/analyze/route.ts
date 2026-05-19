@@ -163,6 +163,27 @@ function tmManagerToCoach(manager: Awaited<ReturnType<typeof getClubManager>>, t
   }
 }
 
+function formatTMFallbackSquad(
+  teamName: string,
+  tmPlayers: Awaited<ReturnType<typeof getClubSquad>>
+) {
+  if (!tmPlayers.length) return null
+
+  return tmPlayers.map((p) => ({
+    playerId: p.id,
+    name: p.name,
+    position: p.position,
+    age: p.age ?? 0,
+    nationality: p.nationality,
+    appearances: 0,
+    minutes: 0,
+    rating: '0',
+    goals: 0,
+    assists: 0,
+    currentTeam: teamName,
+  }))
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -195,13 +216,7 @@ export async function POST(request: NextRequest) {
       ])
       const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
       const verifiedAfTeam = getVerifiedAFTeam(teamName, bestAfTeam)
-      if (tmPlayers.length) {
-        tmFormattedSquad = tmPlayers.map((p) => ({
-          playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
-          nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
-          goals: 0, assists: 0, currentTeam: teamName,
-        }))
-      }
+      tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
       coach = tmManagerToCoach(tmManager, teamId, teamName)
 
       const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
@@ -237,6 +252,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (!tmFormattedSquad && preferredAfTeamId) {
+        try {
+          squadRaw = await getSquad(preferredAfTeamId)
+        } catch {
+          // stay empty
+        }
+      }
+
     } else if (teamSource === 'fotmob') {
       // FotMob ID — direct squad fetch, no re-search needed
       console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
@@ -249,6 +272,18 @@ export async function POST(request: NextRequest) {
         }
       } catch (e) {
         console.error('[analyze] FotMob direct fetch failed:', e)
+      }
+
+      if (!fotmobSquad.length) {
+        try {
+          const tmId = await searchClub(teamName)
+          if (tmId) {
+            const tmPlayers = await getClubSquad(tmId)
+            tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+          }
+        } catch {
+          // stay empty
+        }
       }
     } else if (teamSource === 'af') {
       // Run AF coach + FotMob (if we have its ID) + TM club search in parallel
@@ -270,13 +305,7 @@ export async function POST(request: NextRequest) {
         usedFotmob = true
       } else if (tmId) {
         const tmPlayers = await getClubSquad(tmId).catch(() => [])
-        if (tmPlayers.length) {
-          tmFormattedSquad = tmPlayers.map((p) => ({
-            playerId: p.id, name: p.name, position: p.position, age: p.age ?? 0,
-            nationality: p.nationality, appearances: 0, minutes: 0, rating: '0',
-            goals: 0, assists: 0, currentTeam: teamName,
-          }))
-        }
+        tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
       }
 
       // Last resort: API Football squad (stale but better than nothing)
@@ -321,11 +350,22 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Fall back to FD squad (no stats) if FotMob enrichment failed
+      // Fall back to FD squad (no stats), then TM squad, if FotMob enrichment failed.
       if (!usedFotmob) {
         squadRaw = fdData.players
         if (!squadRaw.length) {
-          console.log(`[analyze] FD squad empty for ${teamName}, no fallback available`)
+          try {
+            const tmId = await searchClub(teamName)
+            if (tmId) {
+              const tmPlayers = await getClubSquad(tmId).catch(() => [])
+              tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+            }
+          } catch {
+            // stay empty
+          }
+        }
+        if (!squadRaw.length && !tmFormattedSquad?.length) {
+          console.log(`[analyze] FD squad empty for ${teamName}, FD/FotMob/TM fallback all missed`)
         }
       }
     }
@@ -335,7 +375,7 @@ export async function POST(request: NextRequest) {
     // All other sources 404 when empty since we expect real data from FD/FotMob/AF/TM.
     if (!hasSquadData && teamSource !== 'tm') {
       return NextResponse.json(
-        { error: `Could not fetch squad data for ${teamName}. The club may not be covered by our data providers yet.` },
+        { error: `Could not fetch live squad data for ${teamName} right now. Our squad providers all missed on this request.` },
         { status: 404 }
       )
     }
