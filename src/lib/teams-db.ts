@@ -53,6 +53,7 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 92,   fotmobId: 8560,  name: 'Real Sociedad',          country: 'Spain',   aliases: ['sociedad', 'la real', 'txuri urdin'] },
   { id: 77,   fotmobId: 8315,  name: 'Athletic Club',          country: 'Spain',   aliases: ['athletic bilbao', 'bilbao', 'lions'] },
   { id: 82,   fotmobId: 8305,  name: 'Getafe CF',              country: 'Spain',   aliases: ['getafe'] },
+  { id: 285,                     name: 'Elche CF',               country: 'Spain',   aliases: ['elche', 'franjiverdes'] },
   // ── Serie A ────────────────────────────────────────────────────────────────
   { id: 98,   fotmobId: 8564,  name: 'AC Milan',               country: 'Italy',   aliases: ['milan', 'rossoneri', 'acm'] },
   { id: 108,  fotmobId: 8636,  name: 'Inter Milan',            country: 'Italy',   aliases: ['inter', 'internazionale', 'nerazzurri', 'fc internazionale'] },

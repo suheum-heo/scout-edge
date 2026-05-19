@@ -18,8 +18,30 @@ export function buildFullName(
   lastName?: string | null,
   fallback?: string | null
 ): string {
-  const fullName = `${firstName?.trim() || ''} ${lastName?.trim() || ''}`.trim()
-  return fullName || fallback?.trim() || ''
+  const first = firstName?.trim() || ''
+  const last = lastName?.trim() || ''
+  const fallbackName = fallback?.trim() || ''
+  const fullName = `${first} ${last}`.trim()
+
+  if (!fullName) return fallbackName
+  if (!fallbackName) return fullName
+
+  const fullNorm = normalizePersonName(fullName)
+  const fallbackNorm = normalizePersonName(fallbackName)
+  const firstNorm = normalizePersonName(first)
+  const lastNorm = normalizePersonName(last)
+
+  if (
+    fullNorm === fallbackNorm ||
+    firstNorm === fallbackNorm ||
+    lastNorm === fallbackNorm ||
+    (firstNorm && `${firstNorm} ${fallbackNorm}` === fullNorm) ||
+    (lastNorm && `${fallbackNorm} ${lastNorm}` === fullNorm)
+  ) {
+    return fallbackName
+  }
+
+  return fullName
 }
 
 export function namesMatch(left?: string | null, right?: string | null): boolean {

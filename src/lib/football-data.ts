@@ -8,6 +8,7 @@
  */
 
 import axios from 'axios'
+import { normalizePersonName } from '@/lib/person-names'
 
 const BASE_URL = 'https://api.football-data.org/v4'
 
@@ -74,6 +75,32 @@ const PLAYER_NAME_OVERRIDES: Record<string, string> = {
 
 function normalizePlayerName(name: string): string {
   return PLAYER_NAME_OVERRIDES[name.toLowerCase()] || name
+}
+
+function resolveCoachNameParts(
+  name: string,
+  firstName?: string | null,
+  lastName?: string | null
+): { displayName: string; firstName: string; lastName: string } {
+  const displayName = name.trim()
+  const providedFirst = firstName?.trim() || ''
+  const providedLast = lastName?.trim() || ''
+  const displayNorm = normalizePersonName(displayName)
+  const firstNorm = normalizePersonName(providedFirst)
+  const lastNorm = normalizePersonName(providedLast)
+
+  const safeFirst = firstNorm && firstNorm !== displayNorm ? providedFirst : ''
+  const safeLast = lastNorm && lastNorm !== displayNorm ? providedLast : ''
+
+  const parts = displayName.split(' ').filter(Boolean)
+  const fallbackFirst = parts.slice(0, -1).join(' ')
+  const fallbackLast = parts.at(-1) || ''
+
+  return {
+    displayName,
+    firstName: safeFirst || (safeLast ? '' : fallbackFirst),
+    lastName: safeLast || fallbackLast,
+  }
 }
 
 /**
@@ -316,17 +343,16 @@ export async function getTeamData(
     // Map coach — prefer firstName+lastName to avoid abbreviated "S. Parker" style names
     let coach: APICoach | null = null
     if (data.coach?.name) {
-      const firstName = data.coach.firstName || ''
-      const lastName = data.coach.lastName || ''
-      const fullName =
-        firstName && lastName
-          ? `${firstName} ${lastName}`
-          : data.coach.name
+      const coachName = resolveCoachNameParts(
+        data.coach.name,
+        data.coach.firstName,
+        data.coach.lastName
+      )
       coach = {
         id: data.coach.id || 0,
-        name: fullName,
-        firstname: firstName || data.coach.name.split(' ').slice(0, -1).join(' '),
-        lastname: lastName || data.coach.name.split(' ').pop() || '',
+        name: coachName.displayName,
+        firstname: coachName.firstName,
+        lastname: coachName.lastName,
         nationality: data.coach.nationality || '',
         photo: '',
         team: { id: teamId, name: teamName, logo: teamLogoUrl(teamId) },
