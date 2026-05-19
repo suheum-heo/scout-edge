@@ -12,11 +12,10 @@ import {
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_SEARCH_TIMEOUT_MS = 5000
+const TM_SEARCH_TIMEOUT_MS = 7000
 
 interface CandidateEvaluation {
   player: UndervaluedPlayer
-  tmId?: string
 }
 
 interface EnrichedSlot {
@@ -224,24 +223,18 @@ function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSear
   }
 }
 
-async function enrichCandidateFast(player: UndervaluedPlayer): Promise<CandidateEvaluation> {
+async function enrichSelectedPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
   const searchResult = await findSearchResult(player)
-  if (!searchResult) return { player }
-
-  return {
-    player: {
-      ...mergeSearchResult(player, searchResult),
-      contractUntil: 'Unknown',
-    },
-    tmId: searchResult.id,
+  if (!searchResult) {
+    return {
+      ...player,
+      tmVerified: false,
+    }
   }
-}
 
-function finalizeSelectedPlayer(candidate: CandidateEvaluation): UndervaluedPlayer {
   return {
-    ...candidate.player,
+    ...mergeSearchResult(player, searchResult),
     contractUntil: 'Unknown',
-    whyUndervalued: buildWhyUndervaluedSummary(candidate.player),
   }
 }
 
@@ -254,14 +247,14 @@ function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
 }
 
 async function enrichSlot(slot: UndervaluedXISlot): Promise<EnrichedSlot> {
-  const enriched = await Promise.all(materializeCandidates(slot).map(enrichCandidateFast))
-  const deduped = dedupeCandidates(enriched)
+  const materialized = materializeCandidates(slot).map((player) => ({ player }))
+  const deduped = dedupeCandidates(materialized)
 
   return {
     slotId: slot.slotId,
     position: slot.position,
     archetypeLabel: slot.archetypeLabel,
-    candidates: deduped.length > 0 ? deduped : enriched,
+    candidates: deduped.length > 0 ? deduped : materialized,
   }
 }
 
@@ -370,7 +363,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
     }
 
-    const selectedPlayers = selection.chosen.map(finalizeSelectedPlayer)
+    const selectedPlayers = await Promise.all(
+      selection.chosen.map(async (candidate) => {
+        const enriched = await enrichSelectedPlayer(candidate.player)
+        return {
+          ...enriched,
+          whyUndervalued: buildWhyUndervaluedSummary(enriched),
+        }
+      })
+    )
     const result = withComputedBudget(
       {
         formation: pool.formation,
