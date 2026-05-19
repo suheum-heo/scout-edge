@@ -176,8 +176,18 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
                   <span className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
                     {result.totalEstimatedCost}
                   </span>
+                  {result.budgetStatus === 'over' && result.budgetOverrun && (
+                    <span className="bg-red-500/10 border border-red-500/25 text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Over by {result.budgetOverrun}
+                    </span>
+                  )}
                 </div>
                 <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{result.concept}</p>
+                {result.budgetStatus === 'over' && (
+                  <p className="text-red-500 dark:text-red-400 text-xs mt-2">
+                    Live Transfermarkt values still put this XI above your selected budget bracket. Regenerate or choose a higher bracket.
+                  </p>
+                )}
               </div>
             </div>
           </div>

@@ -766,13 +766,16 @@ export interface UndervaluedXIResult {
   players: UndervaluedPlayer[]  // exactly 11
   concept: string            // 1-2 sentence overview of this XI's identity
   totalEstimatedCost: string // e.g. "≈€87M"
+  budgetStatus?: 'within' | 'over'
+  budgetOverrun?: string
 }
 
 export async function generateUndervaluedXI(
   budget: string,
   manager: ManagerProfile | null,
   managerName?: string,
-  teamName?: string
+  teamName?: string,
+  extraBudgetInstructions?: string
 ): Promise<UndervaluedXIResult> {
   const resolvedName = manager?.name || managerName || 'a modern pressing manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -797,6 +800,7 @@ ${teamName ? `\n## Buying Club: ${teamName}` : ''}
 4. Total estimated transfer cost (fees + free agents) must fit within ${budget}
 5. Spread across leagues — don't pick 11 players from the same league
 6. Use only standard Latin characters in names. Be confident about current clubs.
+${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructions}` : ''}
 
 ## ACCURACY RULES (critical):
 - Only recommend currently ACTIVE professional players
