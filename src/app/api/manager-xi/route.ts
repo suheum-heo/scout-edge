@@ -15,6 +15,7 @@ import {
   ManagerXISlot,
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 7000
@@ -881,6 +882,10 @@ async function buildBudgetAwareManagerXI(
   managerId?: string
 ): Promise<ManagerXIResult> {
   const manager = managerId ? (getManagerById(managerId) || null) : null
+  const liveManagerName = manager?.name || managerName || null
+  const liveManagerSnapshot = liveManagerName
+    ? await getLiveManagerSnapshot(liveManagerName, { maxMatches: 10 }).catch(() => null)
+    : null
   const cap = getBudgetCap(budget)
   const verificationInstructions = buildVerificationInstructions()
   const baseInstructions = cap !== null
@@ -893,7 +898,22 @@ async function buildBudgetAwareManagerXI(
   const instructionPasses = [baseInstructions, retryInstructions].filter((value): value is string => Boolean(value))
 
   if (instructionPasses.length === 0) {
-    const pool = await generateManagerXICandidatePool(budget, manager, managerName)
+    const pool = await generateManagerXICandidatePool(
+      budget,
+      manager,
+      managerName,
+      undefined,
+      liveManagerSnapshot
+        ? {
+            preferredFormation: liveManagerSnapshot.primaryFormation,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            currentClub: liveManagerSnapshot.currentClub,
+            currentStatus: liveManagerSnapshot.status,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
+    )
     const resolved = await resolveCandidatePool(pool, budget, manager)
     if (!resolved) throw new Error('Failed to build a valid XI from the candidate pool.')
     return resolved
@@ -902,7 +922,22 @@ async function buildBudgetAwareManagerXI(
   let lastResolved: ManagerXIResult | null = null
 
   for (const instructions of instructionPasses) {
-    const pool = await generateManagerXICandidatePool(budget, manager, managerName, instructions)
+    const pool = await generateManagerXICandidatePool(
+      budget,
+      manager,
+      managerName,
+      instructions,
+      liveManagerSnapshot
+        ? {
+            preferredFormation: liveManagerSnapshot.primaryFormation,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            currentClub: liveManagerSnapshot.currentClub,
+            currentStatus: liveManagerSnapshot.status,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
+    )
     const resolved = await resolveCandidatePool(pool, budget, manager)
     if (!resolved) continue
     lastResolved = resolved

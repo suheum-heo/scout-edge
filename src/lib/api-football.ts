@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { normalizeCountryDisplayName } from './country-names'
 import { buildFullName, namesMatch } from './person-names'
+import { searchManager } from './transfermarkt'
 
 const BASE_URL = 'https://v3.football.api-sports.io'
 
@@ -32,7 +33,9 @@ const TTL = {
   TEAMS: 24 * 60 * 60 * 1000,       // 24 hours
   SQUAD: 24 * 60 * 60 * 1000,       // 24 hours
   PLAYERS: 12 * 60 * 60 * 1000,     // 12 hours
-  COACHES: 24 * 60 * 60 * 1000,     // 24 hours
+  COACHES: 6 * 60 * 60 * 1000,      // 6 hours
+  FORMATIONS: 6 * 60 * 60 * 1000,   // 6 hours
+  LINEUPS: 30 * 24 * 60 * 60 * 1000, // historical lineups are stable
 }
 
 export interface APITeam {
@@ -87,6 +90,48 @@ export interface APICoach {
   nationality: string
   photo: string
   team: { id: number; name: string; logo: string }
+  career?: Array<{
+    team: { id: number; name: string; logo: string }
+    start?: string
+    end?: string | null
+  }>
+}
+
+export interface TeamFormationUsage {
+  formation: string
+  count: number
+}
+
+export interface RecentTeamFormations {
+  primaryFormation: string | null
+  formations: TeamFormationUsage[]
+  sampleSize: number
+  season: number | null
+}
+
+export interface CoachLiveContext {
+  status: 'active' | 'free_agent' | 'unknown'
+  currentClub: string | null
+  currentTeamId: number | null
+  currentStart: string | null
+  referenceClub: string | null
+  referenceTeamId: number | null
+  referenceStart: string | null
+}
+
+export interface ManagerLiveSnapshot {
+  name: string
+  status: 'active' | 'free_agent' | 'unknown'
+  currentClub: string | null
+  teamId: number | null
+  referenceClub: string | null
+  referenceTeamId: number | null
+  tenureStart: string | null
+  primaryFormation: string | null
+  recentFormations: string[]
+  formationCounts: TeamFormationUsage[]
+  sampleSize: number
+  season: number | null
 }
 
 // Top leagues we support
@@ -214,6 +259,129 @@ function buildTeamSearchQueries(query: string): string[] {
 
 function normalizeCountry(s: string) {
   return normalizeCountryDisplayName(s)
+}
+
+function normalizeFormation(value?: string | null): string | null {
+  const formation = (value || '').trim()
+  return formation ? formation : null
+}
+
+function isFinishedFixture(status?: string | null) {
+  return ['FT', 'AET', 'PEN', 'AWD', 'WO'].includes((status || '').toUpperCase())
+}
+
+function compareIsoDateDesc(left?: string | null, right?: string | null) {
+  return String(right || '').localeCompare(String(left || ''))
+}
+
+function buildFullCoachName(coach: APICoach) {
+  return buildFullName(coach.firstname, coach.lastname, coach.name)
+}
+
+function resolveCoachSearchMatch(coaches: APICoach[], coachName: string): APICoach | null {
+  if (!coaches.length) return null
+
+  const lastName = coachName.trim().split(' ').filter(Boolean).at(-1) || ''
+  const fullNameMatch = (coach: APICoach) =>
+    namesMatch(buildFullCoachName(coach), coachName) ||
+    namesMatch(coach.name, coachName)
+
+  return (
+    coaches.find(fullNameMatch) ||
+    coaches.find((coach) => lastName && namesMatch(coach.name, lastName)) ||
+    coaches[0] ||
+    null
+  )
+}
+
+function mapCoachTenure(entry: { team: { id: number; name: string; logo: string }; start?: string; end?: string | null }) {
+  return {
+    teamId: entry.team.id,
+    teamName: entry.team.name,
+    start: entry.start || null,
+    end: entry.end || null,
+  }
+}
+
+export function getCoachLiveContext(coach: APICoach): CoachLiveContext {
+  const career = coach.career || []
+  const ranked = career
+    .filter((entry) => entry.team?.id)
+    .sort((left, right) => compareIsoDateDesc(left.start, right.start))
+
+  const active = ranked.find((entry) => !entry.end)
+  const latest = ranked[0] ? mapCoachTenure(ranked[0]) : null
+
+  if (active) {
+    const current = mapCoachTenure(active)
+    return {
+      status: 'active',
+      currentClub: current.teamName,
+      currentTeamId: current.teamId,
+      currentStart: current.start,
+      referenceClub: current.teamName,
+      referenceTeamId: current.teamId,
+      referenceStart: current.start,
+    }
+  }
+
+  if (latest) {
+    return {
+      status: 'free_agent',
+      currentClub: null,
+      currentTeamId: null,
+      currentStart: null,
+      referenceClub: latest.teamName,
+      referenceTeamId: latest.teamId,
+      referenceStart: latest.start,
+    }
+  }
+
+  if (coach.team?.id) {
+    return {
+      status: 'active',
+      currentClub: coach.team.name,
+      currentTeamId: coach.team.id,
+      currentStart: null,
+      referenceClub: coach.team.name,
+      referenceTeamId: coach.team.id,
+      referenceStart: null,
+    }
+  }
+
+  return {
+    status: 'unknown',
+    currentClub: null,
+    currentTeamId: null,
+    currentStart: null,
+    referenceClub: null,
+    referenceTeamId: null,
+    referenceStart: null,
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return []
+
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+
+  async function worker() {
+    while (true) {
+      const currentIndex = nextIndex
+      if (currentIndex >= items.length) return
+      nextIndex += 1
+      results[currentIndex] = await mapper(items[currentIndex], currentIndex)
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length)
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
 }
 
 function scoreTeamMatch(name: string, q: string): number {
@@ -535,34 +703,216 @@ export async function searchCoachesByName(query: string): Promise<APICoach[]> {
   }
 }
 
+export async function getLiveCoachByName(coachName: string): Promise<APICoach | null> {
+  const cacheKey = `coach:live:${coachName.toLowerCase()}`
+  const cached = getCached<APICoach | ''>(cacheKey)
+  if (cached !== null) return cached || null
+
+  try {
+    const nameParts = coachName.trim().split(' ').filter(Boolean)
+    const lastName = nameParts.at(-1) || ''
+    const searchQueries = Array.from(new Set([coachName.trim(), lastName].filter(Boolean)))
+    const coachGroups = await Promise.all(searchQueries.map((query) => searchCoachesByName(query)))
+    const coaches = coachGroups.flat()
+    const match = resolveCoachSearchMatch(coaches, coachName)
+
+    setCache(cacheKey, match || '', TTL.COACHES)
+    return match
+  } catch {
+    return null
+  }
+}
+
+export async function getRecentTeamFormations(
+  teamId: number,
+  options?: { maxMatches?: number; since?: string | null }
+): Promise<RecentTeamFormations> {
+  const maxMatches = Math.max(1, Math.min(options?.maxMatches ?? 10, 20))
+  const since = options?.since || null
+  const cacheKey = `formations:${teamId}:${maxMatches}:${since || 'none'}`
+  const cached = getCached<RecentTeamFormations>(cacheKey)
+  if (cached) return cached
+
+  const seasonsToTry = [CURRENT_SEASON, CURRENT_SEASON - 1, CURRENT_SEASON - 2, CURRENT_SEASON - 3]
+
+  for (const season of seasonsToTry) {
+    try {
+      const fixturesRes = await client.get('/fixtures', { params: { team: teamId, season } })
+      const fixtureRows = (fixturesRes.data?.response || []) as Array<{
+        fixture?: { id?: number; date?: string; status?: { short?: string } }
+      }>
+
+      const recentFixtures = fixtureRows
+        .filter((row) => row.fixture?.id && isFinishedFixture(row.fixture?.status?.short))
+        .filter((row) => !since || String(row.fixture?.date || '') >= since)
+        .sort((left, right) => compareIsoDateDesc(left.fixture?.date, right.fixture?.date))
+        .slice(0, maxMatches)
+
+      if (!recentFixtures.length) continue
+
+      const lineupResponses = await mapWithConcurrency(
+        recentFixtures,
+        4,
+        async (row) => {
+          const fixtureId = row.fixture?.id
+          if (!fixtureId) return null
+
+          const lineupCacheKey = `fixture:lineups:${fixtureId}`
+          const cachedLineups = getCached<Array<{ team?: { id?: number }; formation?: string }> | null>(lineupCacheKey)
+          if (cachedLineups !== null) return cachedLineups
+
+          try {
+            const lineupRes = await client.get('/fixtures/lineups', { params: { fixture: fixtureId } })
+            const lineups = (lineupRes.data?.response || []) as Array<{ team?: { id?: number }; formation?: string }>
+            setCache(lineupCacheKey, lineups, TTL.LINEUPS)
+            return lineups
+          } catch {
+            setCache(lineupCacheKey, null, TTL.LINEUPS)
+            return null
+          }
+        }
+      )
+
+      const counts = new Map<string, { count: number; latestDate: string }>()
+      for (let index = 0; index < recentFixtures.length; index += 1) {
+        const row = recentFixtures[index]
+        const fixtureDate = row.fixture?.date || ''
+        const lineups = lineupResponses[index] || []
+        const teamLineup = lineups.find((lineup) => lineup?.team?.id === teamId)
+        const formation = normalizeFormation(teamLineup?.formation)
+        if (!formation) continue
+
+        const existing = counts.get(formation)
+        if (!existing) {
+          counts.set(formation, { count: 1, latestDate: fixtureDate })
+          continue
+        }
+
+        counts.set(formation, {
+          count: existing.count + 1,
+          latestDate: existing.latestDate > fixtureDate ? existing.latestDate : fixtureDate,
+        })
+      }
+
+      const formations = Array.from(counts.entries())
+        .map(([formation, meta]) => ({
+          formation,
+          count: meta.count,
+          latestDate: meta.latestDate,
+        }))
+        .sort((left, right) => {
+          if (right.count !== left.count) return right.count - left.count
+          return compareIsoDateDesc(left.latestDate, right.latestDate)
+        })
+
+      const result: RecentTeamFormations = {
+        primaryFormation: formations[0]?.formation || null,
+        formations: formations.map(({ formation, count }) => ({ formation, count })),
+        sampleSize: formations.reduce((sum, item) => sum + item.count, 0),
+        season,
+      }
+
+      setCache(cacheKey, result, TTL.FORMATIONS)
+      return result
+    } catch {
+      continue
+    }
+  }
+
+  const empty: RecentTeamFormations = {
+    primaryFormation: null,
+    formations: [],
+    sampleSize: 0,
+    season: null,
+  }
+  setCache(cacheKey, empty, TTL.FORMATIONS)
+  return empty
+}
+
+export async function getLiveManagerSnapshot(
+  coachName: string,
+  options?: { maxMatches?: number }
+): Promise<ManagerLiveSnapshot | null> {
+  const [coach, tmManager] = await Promise.all([
+    getLiveCoachByName(coachName),
+    searchManager(coachName).catch(() => null),
+  ])
+
+  const afLiveContext = coach ? getCoachLiveContext(coach) : null
+  const tmCurrentClub = tmManager?.currentClub || null
+
+  const liveContext: CoachLiveContext | null = tmManager
+    ? tmCurrentClub
+      ? {
+          status: 'active',
+          currentClub: tmCurrentClub,
+          currentTeamId: null,
+          currentStart: null,
+          referenceClub: tmCurrentClub,
+          referenceTeamId: null,
+          referenceStart: null,
+        }
+      : {
+          status: 'free_agent',
+          currentClub: null,
+          currentTeamId: null,
+          currentStart: null,
+          referenceClub: afLiveContext?.referenceClub || null,
+          referenceTeamId: afLiveContext?.referenceTeamId || null,
+          referenceStart: afLiveContext?.referenceStart || null,
+        }
+    : afLiveContext
+
+  if (!liveContext) return null
+
+  let referenceTeamId = liveContext.referenceTeamId
+  if (!referenceTeamId && liveContext.referenceClub) {
+    try {
+      const teamMatches = await searchTeams(liveContext.referenceClub)
+      referenceTeamId = teamMatches[0]?.team.id || null
+    } catch {
+      referenceTeamId = null
+    }
+  }
+
+  let currentTeamId = liveContext.currentTeamId
+  if (!currentTeamId && liveContext.currentClub && liveContext.currentClub === liveContext.referenceClub) {
+    currentTeamId = referenceTeamId
+  }
+
+  const formations = referenceTeamId
+    ? await getRecentTeamFormations(referenceTeamId, {
+        maxMatches: options?.maxMatches ?? 10,
+        since: liveContext.referenceStart,
+      })
+    : { primaryFormation: null, formations: [], sampleSize: 0, season: null }
+
+  return {
+    name: tmManager?.name || (coach ? buildFullCoachName(coach) || coach.name : coachName),
+    status: liveContext.status,
+    currentClub: liveContext.currentClub,
+    teamId: currentTeamId || null,
+    referenceClub: liveContext.referenceClub,
+    referenceTeamId: referenceTeamId || null,
+    tenureStart: liveContext.referenceStart,
+    primaryFormation: formations.primaryFormation,
+    recentFormations: formations.formations.map((item) => item.formation),
+    formationCounts: formations.formations,
+    sampleSize: formations.sampleSize,
+    season: formations.season,
+  }
+}
+
 // Search for a coach by name, return their current team name (live from API)
 export async function getCoachCurrentTeam(coachName: string): Promise<string | null> {
-  const nameParts = coachName.trim().split(' ')
-  const lastName = nameParts[nameParts.length - 1]
   const cacheKey = `coach:search:${coachName.toLowerCase()}`
   const cached = getCached<string>(cacheKey)
   if (cached !== null) return cached || null // '' means not found, non-empty means club name
 
   try {
-    const searchQueries = Array.from(new Set([coachName.trim(), lastName].filter(Boolean)))
-    const coachGroups = await Promise.all(searchQueries.map((query) => searchCoachesByName(query)))
-    const coaches = coachGroups.flat()
-
-    if (!coaches.length) {
-      setCache(cacheKey, '', TTL.COACHES)
-      return null
-    }
-
-    const fullNameMatch = (coach: APICoach) =>
-      namesMatch(buildFullName(coach.firstname, coach.lastname, coach.name), coachName) ||
-      namesMatch(coach.name, coachName)
-
-    const match =
-      coaches.find(fullNameMatch) ||
-      coaches.find((c) => namesMatch(c.name, lastName)) ||
-      coaches[0]
-
-    const teamName = match?.team?.name || ''
+    const match = await getLiveCoachByName(coachName)
+    const liveContext = match ? getCoachLiveContext(match) : null
+    const teamName = liveContext?.currentClub || ''
     setCache(cacheKey, teamName, TTL.COACHES)
     return teamName || null
   } catch {

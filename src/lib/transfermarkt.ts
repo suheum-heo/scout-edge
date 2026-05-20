@@ -56,6 +56,31 @@ async function tmSiteFetch<T>(path: string): Promise<T> {
   }
 }
 
+async function tmSiteFetchText(path: string): Promise<string> {
+  const cacheKey = `site:text:${path}`
+  const cached = cache.get(cacheKey)
+  if (cached && cached.expires > Date.now()) return cached.data as string
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(`${TM_SITE_BASE}${path}`, {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: {
+        accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'user-agent': 'Mozilla/5.0',
+      },
+    })
+    if (!res.ok) throw new Error(`TM site ${res.status}: ${path}`)
+    const data = await res.text()
+    cache.set(cacheKey, { data, expires: Date.now() + TM_SITE_TTL })
+    return data
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export interface TMPlayerSearchResult {
@@ -114,6 +139,16 @@ export interface TMClubStaffMember {
   profileUrl: string | null
 }
 
+export interface TMManagerSearchResult {
+  id: string
+  name: string
+  currentClub: string | null
+  currentClubId: string | null
+  age: number | null
+  functionTitle: string | null
+  contractUntil: string | null
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 export function formatMarketValue(value: number | null): string {
@@ -167,6 +202,32 @@ function normalizeTMDate(value: string | null | undefined): string | null {
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
   if (!match) return null
   return `${match[3]}-${match[2]}-${match[1]}`
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .trim()
+}
+
+function normalizeManagerClub(value: string | null | undefined): string | null {
+  const clubName = decodeHtml(value || '')
+  if (!clubName) return null
+
+  const normalized = clubName.toLowerCase()
+  if (
+    normalized === 'without club' ||
+    normalized === 'retired' ||
+    normalized === '-' ||
+    normalized === 'vereinslos'
+  ) {
+    return null
+  }
+
+  return normalizeClubDisplayName(clubName)
 }
 
 function scoreStaffRole(position: string): number {
@@ -282,6 +343,21 @@ function clubMatchScore(left?: string, right?: string): number {
   const leftLead = (leftKeys.simplified || leftKeys.exact).split(' ')[0]
   const rightLead = (rightKeys.simplified || rightKeys.exact).split(' ')[0]
   if (leftLead && rightLead && leftLead === rightLead) return 2
+
+  return 0
+}
+
+function managerNameScore(resultName: string, query: string): number {
+  const normalizedResult = stripDiacritics(resultName).toLowerCase().trim()
+  const normalizedQuery = stripDiacritics(query).toLowerCase().trim()
+
+  if (normalizedResult === normalizedQuery) return 100
+  if (normalizedResult.startsWith(normalizedQuery) || normalizedQuery.startsWith(normalizedResult)) return 85
+  if (normalizedResult.includes(normalizedQuery) || normalizedQuery.includes(normalizedResult)) return 70
+
+  const resultLast = normalizedResult.split(' ').filter(Boolean).at(-1) || ''
+  const queryLast = normalizedQuery.split(' ').filter(Boolean).at(-1) || ''
+  if (resultLast && queryLast && resultLast === queryLast) return 60
 
   return 0
 }
@@ -490,6 +566,59 @@ export async function getClubManager(
     .sort((left, right) => right.score - left.score)
 
   return ranked[0]?.member ?? null
+}
+
+export async function searchManagers(query: string): Promise<TMManagerSearchResult[]> {
+  try {
+    const encoded = encodeURIComponent(query.trim())
+    const html = await tmSiteFetchText(`/schnellsuche/ergebnis/schnellsuche?query=${encoded}`)
+    const coachGrid = html.match(/<div id="coach-grid"[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/i)?.[1] || ''
+    if (!coachGrid) return []
+
+    const results = Array.from(
+      coachGrid.matchAll(
+        /<a title="([^"]+)" id="(\d+)" href="\/[^"]+\/profil\/trainer\/\d+">[^<]+<\/a><\/td><\/tr><tr><td>(?:<a title="([^"]+)" href="([^"]+)">[^<]*<\/a>|([^<]+))<\/td><\/tr><\/table><\/td><td class="zentriert">[\s\S]*?<\/td><td class="zentriert">([^<]*)<\/td><td class="zentriert">[\s\S]*?<\/td><td class="rechts">([^<]*)<\/td><td class="rechts">([^<]*)<\/td>/gi
+      )
+    )
+
+    return results.map((match) => {
+      const clubName = match[3] || match[5] || null
+      const clubHref = match[4] || ''
+      const clubId = clubHref.match(/\/verein\/(\d+)/)?.[1] || null
+      const contractUntil = normalizeTMDate(match[8] || null)
+
+      return {
+        id: match[2],
+        name: decodeHtml(match[1]),
+        currentClub: normalizeManagerClub(clubName),
+        currentClubId: clubId,
+        age: Number.parseInt(match[6] || '', 10) || null,
+        functionTitle: decodeHtml(match[7] || '') || null,
+        contractUntil,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+export async function searchManager(name: string): Promise<TMManagerSearchResult | null> {
+  try {
+    const results = await searchManagers(name)
+    if (!results.length) return null
+
+    const ranked = [...results].sort((left, right) => {
+      const scoreDiff = managerNameScore(right.name, name) - managerNameScore(left.name, name)
+      if (scoreDiff !== 0) return scoreDiff
+      if (left.currentClub && !right.currentClub) return -1
+      if (!left.currentClub && right.currentClub) return 1
+      return left.name.length - right.name.length
+    })
+
+    return ranked[0] || null
+  } catch {
+    return null
+  }
 }
 
 /**

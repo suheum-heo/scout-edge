@@ -23,6 +23,7 @@ interface Team {
 interface Manager {
   id: string
   name: string
+  currentClub: string
   formations: string[]
 }
 
@@ -448,7 +449,7 @@ export default function HomePage() {
                 >
                   <span className={`text-sm ${selectedManagerOverride ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                     {selectedManagerOverride
-                      ? `${selectedManagerOverride.name} · ${selectedManagerOverride.formations[0]}`
+                      ? `${selectedManagerOverride.name} · ${selectedManagerOverride.currentClub}`
                       : 'Select a manager to override auto-detection'}
                   </span>
                   <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${managerDropdownOpen ? 'rotate-180' : ''}`} />
@@ -477,7 +478,7 @@ export default function HomePage() {
                         }`}
                       >
                         <span className="font-medium">{m.name}</span>
-                        <span className="text-slate-400 dark:text-slate-600 ml-2 text-xs">{m.formations[0]}</span>
+                        <span className="text-slate-400 dark:text-slate-600 ml-2 text-xs">{m.currentClub}</span>
                       </button>
                     ))}
                   </div>

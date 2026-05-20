@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { searchCoachesByName } from '@/lib/api-football'
+import { APICoach, getCoachLiveContext, searchCoachesByName } from '@/lib/api-football'
 import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { normalizeClubDisplayName } from '@/lib/club-names'
 import { buildFullName, namesMatch } from '@/lib/person-names'
+import { searchManagers, TMManagerSearchResult } from '@/lib/transfermarkt'
+
+function formatCoachCurrentClub(
+  coach: APICoach | null | undefined,
+  tmManager: TMManagerSearchResult | null | undefined
+): string {
+  if (tmManager) return tmManager.currentClub || 'Free Agent'
+  if (!coach) return 'Unknown'
+
+  const liveContext = getCoachLiveContext(coach)
+  if (liveContext.status === 'free_agent') return 'Free Agent'
+  return normalizeClubDisplayName(liveContext.currentClub || 'Unknown')
+}
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim()
@@ -13,7 +26,13 @@ export async function GET(request: NextRequest) {
   const lower = q.toLowerCase()
 
   // 1. Search API Football first so we can use live club data for DB matches too
-  const apiCoaches = await searchCoachesByName(q)
+  const [apiCoaches, tmManagers] = await Promise.all([
+    searchCoachesByName(q),
+    searchManagers(q).catch(() => []),
+  ])
+
+  const findTMManager = (managerName: string): TMManagerSearchResult | null =>
+    tmManagers.find((manager) => namesMatch(manager.name, managerName)) || null
 
   const getLiveClubForManager = (managerName: string): string | null => {
     const match = apiCoaches.find((coach) =>
@@ -21,7 +40,7 @@ export async function GET(request: NextRequest) {
       namesMatch(coach.name, managerName)
     )
 
-    return match?.team?.name ? normalizeClubDisplayName(match.team.name) : null
+    return formatCoachCurrentClub(match, findTMManager(managerName))
   }
 
   // 2. Search our local DB — use live club from API Football when available
@@ -32,8 +51,8 @@ export async function GET(request: NextRequest) {
       id: m.id,
       profileId: m.id,
       name: m.name,
-      currentClub: normalizeClubDisplayName(getLiveClubForManager(m.name) ?? m.currentClub),
-      formations: m.formations,
+      currentClub: normalizeClubDisplayName(getLiveClubForManager(m.name) ?? 'Unknown'),
+      formations: [],
       hasProfile: true,
     }))
 
@@ -54,8 +73,8 @@ export async function GET(request: NextRequest) {
         id: profile?.id ?? `af-${c.id}`,
         profileId: profile?.id ?? null,
         name: profile?.name ?? fullName,
-        currentClub: normalizeClubDisplayName(c.team?.name ?? 'Unknown'),
-        formations: profile?.formations ?? [],
+        currentClub: formatCoachCurrentClub(c, findTMManager(profile?.name ?? fullName)),
+        formations: [],
         hasProfile: !!profile,
       }
     })

@@ -31,7 +31,13 @@ const TM_TO_AF_TEAM_ID_OVERRIDES: Record<string, number> = {
   'al nassr fc': 2939,
 }
 import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
-import { getSquad, getCoach, searchTeams as afSearchTeams, formatPlayerStats as afFormatPlayerStats } from '@/lib/api-football'
+import {
+  getSquad,
+  getCoach,
+  getLiveManagerSnapshot,
+  searchTeams as afSearchTeams,
+  formatPlayerStats as afFormatPlayerStats,
+} from '@/lib/api-football'
 import {
   searchTeams as fotmobSearchTeams,
   getSquadAndCoach as fotmobGetSquadAndCoach,
@@ -478,6 +484,9 @@ export async function POST(request: NextRequest) {
     const inferredManagerName = analysis.managerName?.trim() || null
     const resolvedManager = manager ?? providerManagerProfile
     const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 10 }).catch(() => null)
+      : null
     const factualManagerVerified = Boolean(factualManagerName)
     const managerSource = managerId
       ? 'override'
@@ -498,7 +507,7 @@ export async function POST(request: NextRequest) {
             id: resolvedManager.id,
             name: resolvedManager.name,
             currentClub: teamName,
-            formations: resolvedManager.formations,
+            formations: liveManagerSnapshot?.recentFormations || [],
             style: resolvedManager.style,
             tacticalSummary: resolvedManager.tacticalSummary,
             keyPrinciples: resolvedManager.keyPrinciples,
@@ -509,7 +518,7 @@ export async function POST(request: NextRequest) {
             id: null,
             name: factualManagerName,
             currentClub: teamName,
-            formations: [],
+            formations: liveManagerSnapshot?.recentFormations || [],
             style: null,
             tacticalSummary: null,
             keyPrinciples: [],
