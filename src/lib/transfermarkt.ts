@@ -347,6 +347,35 @@ function clubMatchScore(left?: string, right?: string): number {
   return 0
 }
 
+function managerClubScore(resultClub?: string | null, queryClub?: string | null): number {
+  if (!resultClub || !queryClub) return 0
+
+  const resultKeys = getClubLookupKeys(resultClub)
+  const queryKeys = getClubLookupKeys(queryClub)
+
+  if (!resultKeys.exact || !queryKeys.exact) return 0
+  if (resultKeys.exact === queryKeys.exact) return 100
+  if (resultKeys.simplified && queryKeys.simplified && resultKeys.simplified === queryKeys.simplified) return 95
+  if (
+    resultKeys.exact.startsWith(queryKeys.exact) ||
+    queryKeys.exact.startsWith(resultKeys.exact) ||
+    (resultKeys.simplified && queryKeys.simplified && (
+      resultKeys.simplified.startsWith(queryKeys.simplified) ||
+      queryKeys.simplified.startsWith(resultKeys.simplified)
+    ))
+  ) return 80
+  if (
+    resultKeys.exact.includes(queryKeys.exact) ||
+    queryKeys.exact.includes(resultKeys.exact) ||
+    (resultKeys.simplified && queryKeys.simplified && (
+      resultKeys.simplified.includes(queryKeys.simplified) ||
+      queryKeys.simplified.includes(resultKeys.simplified)
+    ))
+  ) return 65
+
+  return 0
+}
+
 function managerNameScore(resultName: string, query: string): number {
   const normalizedResult = stripDiacritics(resultName).toLowerCase().trim()
   const normalizedQuery = stripDiacritics(query).toLowerCase().trim()
@@ -626,6 +655,30 @@ export async function searchManager(name: string): Promise<TMManagerSearchResult
     }
 
     return best
+  } catch {
+    return null
+  }
+}
+
+export async function searchManagerByClub(clubName: string): Promise<TMManagerSearchResult | null> {
+  try {
+    const results = await searchManagers(clubName)
+    if (!results.length) return null
+
+    const ranked = results
+      .map((result) => ({
+        result,
+        roleScore: scoreStaffRole(result.functionTitle || ''),
+        clubScore: managerClubScore(result.currentClub, clubName),
+      }))
+      .filter((entry) => entry.roleScore > 0 && entry.clubScore > 0)
+      .sort((left, right) => {
+        if (right.clubScore !== left.clubScore) return right.clubScore - left.clubScore
+        if (right.roleScore !== left.roleScore) return right.roleScore - left.roleScore
+        return left.result.name.length - right.result.name.length
+      })
+
+    return ranked[0]?.result || null
   } catch {
     return null
   }

@@ -44,7 +44,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
-import { getClubManager, getClubSquad, searchClub } from '@/lib/transfermarkt'
+import { getClubManager, getClubSquad, searchClub, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
@@ -185,6 +185,38 @@ async function resolveTMManagerCoach(
   }
 }
 
+async function resolveLiveManagerCoach(
+  teamId: number | string,
+  teamName: string,
+  tmClubId?: string | null
+): Promise<APICoach | null> {
+  const tmCoach = await resolveTMManagerCoach(teamId, teamName, tmClubId)
+  if (tmCoach) return tmCoach
+
+  try {
+    const tmManager = await searchManagerByClub(teamName)
+    return tmManagerToCoach(
+      tmManager
+        ? {
+            id: tmManager.id,
+            name: tmManager.name,
+            position: tmManager.functionTitle || 'Manager',
+            age: tmManager.age,
+            appointed: null,
+            contractUntil: tmManager.contractUntil,
+            countryIcon: null,
+            profileImage: null,
+            profileUrl: null,
+          }
+        : null,
+      teamId,
+      teamName
+    )
+  } catch {
+    return null
+  }
+}
+
 function formatTMFallbackSquad(
   teamName: string,
   tmPlayers: Awaited<ReturnType<typeof getClubSquad>>
@@ -274,6 +306,10 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (!coach) {
+        coach = await resolveLiveManagerCoach(teamId, teamName, String(teamId))
+      }
+
       if (!tmFormattedSquad && preferredAfTeamId) {
         try {
           squadRaw = await getSquad(preferredAfTeamId)
@@ -297,7 +333,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (!coach) {
-        coach = await resolveTMManagerCoach(teamId, teamName)
+        coach = await resolveLiveManagerCoach(teamId, teamName)
       }
 
       if (!fotmobSquad.length) {
@@ -325,8 +361,8 @@ export async function POST(request: NextRequest) {
       // FotMob coach is live — prefer it over potentially stale AF data
       coach = (fmResult?.coach as unknown as APICoach | null) ?? afCoach
 
-      if (!coach && tmId) {
-        coach = await resolveTMManagerCoach(teamId, teamName, tmId)
+      if (!coach) {
+        coach = await resolveLiveManagerCoach(teamId, teamName, tmId)
       }
 
       // Squad: FotMob (has stats) > TM > AF
@@ -363,7 +399,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (!coach) {
-        coach = await resolveTMManagerCoach(teamId, teamName)
+        coach = await resolveLiveManagerCoach(teamId, teamName)
       }
 
       // fotmobId wasn't in local DB — try FotMob search by name
