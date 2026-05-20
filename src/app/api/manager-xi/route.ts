@@ -13,8 +13,8 @@ import {
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_SEARCH_TIMEOUT_MS = 5000
-const TM_ENRICHMENT_CONCURRENCY = 6
+const TM_SEARCH_TIMEOUT_MS = 7000
+const TM_ENRICHMENT_CONCURRENCY = 4
 
 interface CandidateEvaluation {
   player: IdealPlayer
@@ -251,6 +251,23 @@ async function findSearchResult(
   return lookup
 }
 
+async function warmTransfermarktSearch(
+  slots: ManagerXISlot[],
+  searchCache: Map<string, Promise<TMPlayerSearchResult | null>>
+): Promise<void> {
+  for (const slot of slots) {
+    const firstCandidate = materializeCandidates(slot)[0]
+    if (!firstCandidate) continue
+
+    try {
+      await findSearchResult(firstCandidate, searchCache)
+    } catch {
+      // If the warmup miss fails, we still continue into the normal search path.
+    }
+    return
+  }
+}
+
 function buildCandidateEvaluation(player: IdealPlayer, searchResult: TMPlayerSearchResult | null): CandidateEvaluation {
   const enrichedPlayer = searchResult
     ? mergeSearchResult(player, searchResult)
@@ -307,6 +324,7 @@ function buildLocalSlots(slots: ManagerXISlot[]): EnrichedSlot[] {
 
 async function enrichSlots(slots: ManagerXISlot[]): Promise<EnrichedSlot[]> {
   const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+  await warmTransfermarktSearch(slots, searchCache)
   const evaluatedSlots = await mapWithConcurrency(
     slots,
     TM_ENRICHMENT_CONCURRENCY,
