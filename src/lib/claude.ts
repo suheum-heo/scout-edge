@@ -1276,12 +1276,19 @@ interface ManagerXICandidateBatch {
   }>
 }
 
+function getPrimaryFormation(manager: ManagerProfile | null): string | null {
+  return manager?.formations?.[0] || null
+}
+
 function buildManagerXIContext(manager: ManagerProfile | null, managerName?: string) {
   const resolvedName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const primaryFormation = getPrimaryFormation(manager)
+  const alternateFormations = manager?.formations?.slice(1) || []
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')}
+    ? `**Primary Shape**: ${primaryFormation || manager.formations.join(' / ')}
+${alternateFormations.length ? `**Secondary Shapes**: ${alternateFormations.join(' / ')}\n` : ''}**System Notes**: ${manager.formations.join(' / ')}
 **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
 **Summary**: ${manager.tacticalSummary}
 **Key Principles**: ${manager.keyPrinciples.join('; ')}
@@ -1289,7 +1296,7 @@ function buildManagerXIContext(manager: ManagerProfile | null, managerName?: str
 ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
     : `Use your deep knowledge of ${resolvedName}'s tactical system — their preferred formations, pressing intensity, defensive line, build-up style, positional requirements for each role, and what they demand from players at every position. Be specific to their known system.`
 
-  return { resolvedName, currentDate, managerSection }
+  return { resolvedName, currentDate, managerSection, primaryFormation }
 }
 
 async function generateManagerXIStructure(
@@ -1297,7 +1304,8 @@ async function generateManagerXIStructure(
   currentDate: string,
   managerSection: string,
   budget: string,
-  extraBudgetInstructions?: string
+  extraBudgetInstructions?: string,
+  lockedFormation?: string | null
 ): Promise<ManagerXIStructure> {
   const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Design the STRUCTURE of the ideal starting XI for ${resolvedName}'s system within the stated budget.
 
@@ -1306,16 +1314,17 @@ ${managerSection}
 
 ## Budget: ${budget}
 ${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructions}` : ''}
+${lockedFormation ? `\n## FORMATION RULE:\nUse exactly ${lockedFormation} as the base formation. Do not switch to another formation family or invent a different primary shape.` : ''}
 
 ## Your Task:
-1. Choose one formation that perfectly suits ${resolvedName}'s system
+1. ${lockedFormation ? `Use ${lockedFormation} as the formation` : `Choose one formation that perfectly suits ${resolvedName}'s system`}
 2. Return exactly 11 slots for that formation
 3. For each slot, give the exact position code and archetype label that best describes the role
 4. Use unique slot ids for repeated positions, e.g. CB-1 and CB-2
 
 Return ONLY this JSON:
 {
-  "formation": "4-3-3",
+  "formation": "${lockedFormation || '4-3-3'}",
   "managerName": "${resolvedName}",
   "identity": "2-3 sentences on the tactical DNA of this XI",
   "slots": [
@@ -1429,13 +1438,14 @@ export async function generateManagerXICandidatePool(
   managerName?: string,
   extraBudgetInstructions?: string
 ): Promise<ManagerXICandidatePool> {
-  const { resolvedName, currentDate, managerSection } = buildManagerXIContext(manager, managerName)
+  const { resolvedName, currentDate, managerSection, primaryFormation } = buildManagerXIContext(manager, managerName)
   const structure = await generateManagerXIStructure(
     resolvedName,
     currentDate,
     managerSection,
     budget,
-    extraBudgetInstructions
+    extraBudgetInstructions,
+    primaryFormation
   )
 
   const batchResults = await Promise.all(
@@ -1483,9 +1493,11 @@ export async function buildManagerXI(
 ): Promise<ManagerXIResult> {
   const resolvedName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+  const primaryFormation = getPrimaryFormation(manager)
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')}
+    ? `**Primary Shape**: ${primaryFormation || manager.formations.join(' / ')}
+${manager.formations.slice(1).length ? `**Secondary Shapes**: ${manager.formations.slice(1).join(' / ')}\n` : ''}**System Notes**: ${manager.formations.join(' / ')}
 **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
 **Summary**: ${manager.tacticalSummary}
 **Key Principles**: ${manager.keyPrinciples.join('; ')}
@@ -1499,9 +1511,10 @@ ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel})
 ${managerSection}
 
 ## Budget: ${budget}
+${primaryFormation ? `\n## FORMATION RULE:\nUse exactly ${primaryFormation} as the base formation for this XI. Do not switch to a different primary shape.` : ''}
 
 ## Rules:
-1. Pick exactly 11 players in a formation that fits ${resolvedName}'s system perfectly
+1. Pick exactly 11 players in ${primaryFormation || 'a formation that fits'} ${primaryFormation ? `for ${resolvedName}'s system` : `that fits ${resolvedName}'s system perfectly`}
 2. Every player must be ACTIVELY playing professional football right now
 3. These are the IDEAL PROFILE players — the ones who most perfectly embody what ${resolvedName} wants at each position. Not necessarily the most famous, but the most tactically aligned.
 4. Budget constrains the realistic pool: if budget is €100M, you can't fill 11 positions with €50M players each — be realistic about fees. If budget is "Unlimited", pick the absolute best profile players money can buy.
@@ -1515,7 +1528,7 @@ ${managerSection}
 
 Return ONLY this JSON:
 {
-  "formation": "4-3-3",
+  "formation": "${primaryFormation || '4-3-3'}",
   "managerName": "${resolvedName}",
   "identity": "2-3 sentences: the tactical DNA of this XI — what makes it uniquely suited to this manager's system and philosophy",
   "totalEstimatedCost": "≈€XM",
