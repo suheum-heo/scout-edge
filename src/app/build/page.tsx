@@ -28,9 +28,14 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
 
       <div className="flex items-start justify-between gap-2">
         <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
-        <span className={`text-base font-bold flex-shrink-0 ${fitColor(player.systemFitScore)}`}>
-          {player.systemFitScore}
-        </span>
+        <div className="flex flex-col items-end flex-shrink-0 leading-none">
+          <span className="text-[9px] uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 mb-1">
+            Scout Score
+          </span>
+          <span className={`text-base font-bold ${fitColor(player.systemFitScore)}`}>
+            {player.systemFitScore}
+          </span>
+        </div>
       </div>
 
       <div className="text-slate-400 dark:text-slate-500 text-xs">{player.age} · {player.nationality}</div>

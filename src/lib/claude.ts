@@ -1371,6 +1371,7 @@ ${slotList}
 3. Be highly confident about current club
 4. Keep fees realistic for the stated budget
 5. Use only standard Latin characters in names
+6. Think like a shortlist scout, not the final selector. Prioritize true role fit, live current-club accuracy, and budget variety across the two names because a server-side selector will verify prices and make the final XI.
 
 Return ONLY plain text lines in this exact format, with no bullets, no numbering, no markdown, and no extra commentary:
 slotId|playerName|age|currentClub|estimatedFee|systemFitScore

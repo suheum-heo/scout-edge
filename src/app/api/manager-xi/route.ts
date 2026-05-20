@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const maxDuration = 60
 
-import { getManagerById } from '@/lib/managers'
+import {
+  getManagerById,
+  type ManagerProfile,
+  type PositionalRequirement,
+} from '@/lib/managers'
 import {
   generateManagerXICandidatePool,
   IdealPlayer,
@@ -20,6 +24,7 @@ interface CandidateEvaluation {
   player: IdealPlayer
   searchResult: TMPlayerSearchResult | null
   selectionCost: number
+  selectionScore: number
 }
 
 interface EnrichedSlot {
@@ -33,6 +38,17 @@ interface SelectionSummary {
   score: number
   withinBudget: boolean
 }
+
+type SlotFamily =
+  | 'goalkeeper'
+  | 'center-back'
+  | 'fullback'
+  | 'wing-back'
+  | 'holding-midfielder'
+  | 'central-midfielder'
+  | 'attacking-midfielder'
+  | 'winger'
+  | 'striker'
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
@@ -97,6 +113,19 @@ function formatCompactEuros(value: number): string {
   if (value >= 1_000_000) return `€${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
   if (value >= 1_000) return `€${Math.round(value / 1_000)}K`
   return `€${Math.round(value)}`
+}
+
+function normalizeText(value?: string | null): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9#]+/g, ' ')
+    .trim()
+}
+
+function includesAny(text: string, phrases: string[]): boolean {
+  return phrases.some((phrase) => text.includes(phrase))
 }
 
 function buildBudgetInstructions(budget: string, cap: number): string {
@@ -165,6 +194,319 @@ function candidateCost(candidate: CandidateEvaluation): number {
   return candidate.selectionCost
 }
 
+function getSlotFamily(slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>): SlotFamily {
+  switch (slot.position) {
+    case 'GK':
+      return 'goalkeeper'
+    case 'CB':
+      return 'center-back'
+    case 'LB':
+    case 'RB':
+      return 'fullback'
+    case 'WB':
+      return 'wing-back'
+    case 'CDM':
+      return 'holding-midfielder'
+    case 'CAM':
+      return 'attacking-midfielder'
+    case 'LW':
+    case 'RW':
+      return 'winger'
+    case 'ST':
+    case 'CF':
+      return 'striker'
+    case 'CM':
+    default:
+      return 'central-midfielder'
+  }
+}
+
+function scoreRequirementForSlot(
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  requirement: PositionalRequirement
+): number {
+  const family = getSlotFamily(slot)
+  const requirementText = normalizeText(`${requirement.position} ${requirement.profileLabel}`)
+  const archetypeTokens = normalizeText(slot.archetypeLabel)
+    .split(' ')
+    .filter((token) => token.length > 3)
+  const requirementTokens = requirementText.split(' ')
+
+  let score = 0
+
+  switch (family) {
+    case 'goalkeeper':
+      if (includesAny(requirementText, ['goalkeeper', 'keeper'])) score += 20
+      break
+    case 'center-back':
+      if (includesAny(requirementText, ['center back', 'centre back', 'ball playing cb', 'central defender'])) score += 20
+      else if (includesAny(requirementText, ['fullback', 'wing back'])) score += 4
+      break
+    case 'fullback':
+      if (includesAny(requirementText, ['fullback', 'left back', 'right back'])) score += 20
+      else if (includesAny(requirementText, ['wing back'])) score += 14
+      break
+    case 'wing-back':
+      if (includesAny(requirementText, ['wing back', 'fullback', 'full back'])) score += 20
+      break
+    case 'holding-midfielder':
+      if (includesAny(requirementText, ['defensive midfielder', 'pivot', '#6', 'holding midfielder'])) score += 20
+      else if (includesAny(requirementText, ['central midfielder'])) score += 10
+      break
+    case 'central-midfielder':
+      if (includesAny(requirementText, ['central midfielder', 'box to box', '#8', 'controller'])) score += 20
+      else if (includesAny(requirementText, ['attacking midfielder', 'defensive midfielder'])) score += 10
+      break
+    case 'attacking-midfielder':
+      if (includesAny(requirementText, ['attacking midfielder', '#10', 'playmaker', 'creator'])) score += 20
+      else if (includesAny(requirementText, ['central midfielder', 'winger'])) score += 9
+      break
+    case 'winger':
+      if (includesAny(requirementText, ['winger', 'wide forward', 'inverted winger'])) score += 20
+      else if (includesAny(requirementText, ['striker', 'attacking midfielder'])) score += 8
+      break
+    case 'striker':
+      if (includesAny(requirementText, ['striker', 'forward', 'centre forward', 'center forward', 'false 9'])) score += 20
+      else if (includesAny(requirementText, ['winger', 'attacking midfielder'])) score += 7
+      break
+  }
+
+  score += archetypeTokens.filter((token) => requirementTokens.includes(token)).length * 2
+  return score
+}
+
+function findBestRequirement(
+  manager: ManagerProfile | null,
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>
+): PositionalRequirement | null {
+  if (!manager?.positionalRequirements?.length) return null
+
+  const ranked = manager.positionalRequirements
+    .map((requirement) => ({
+      requirement,
+      score: scoreRequirementForSlot(slot, requirement),
+    }))
+    .sort((left, right) => right.score - left.score)
+
+  return ranked[0] && ranked[0].score > 0 ? ranked[0].requirement : null
+}
+
+function scorePositionCompatibility(
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  tmPosition?: string | null
+): number {
+  const family = getSlotFamily(slot)
+  const positionText = normalizeText(tmPosition)
+
+  if (!positionText) return 0
+
+  switch (family) {
+    case 'goalkeeper':
+      return includesAny(positionText, ['goalkeeper', 'keeper']) ? 18 : 0
+    case 'center-back':
+      if (includesAny(positionText, ['centre back', 'center back', 'central defender'])) return 18
+      if (positionText.includes('defender')) return 10
+      if (includesAny(positionText, ['left back', 'right back', 'wing back'])) return 6
+      return 0
+    case 'fullback':
+      if (slot.position === 'LB' && includesAny(positionText, ['left back', 'left wing back'])) return 18
+      if (slot.position === 'RB' && includesAny(positionText, ['right back', 'right wing back'])) return 18
+      if (includesAny(positionText, ['full back', 'wing back', 'left back', 'right back'])) return 12
+      if (positionText.includes('defender')) return 6
+      return 0
+    case 'wing-back':
+      if (includesAny(positionText, ['wing back', 'left wing back', 'right wing back'])) return 18
+      if (includesAny(positionText, ['left back', 'right back', 'full back'])) return 10
+      if (positionText.includes('winger')) return 4
+      return 0
+    case 'holding-midfielder':
+      if (includesAny(positionText, ['defensive midfield', 'defensive midfielder'])) return 18
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 14
+      if (positionText.includes('midfield')) return 10
+      return 0
+    case 'central-midfielder':
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 18
+      if (includesAny(positionText, ['defensive midfield', 'attacking midfield'])) return 12
+      if (positionText.includes('midfield')) return 9
+      return 0
+    case 'attacking-midfielder':
+      if (includesAny(positionText, ['attacking midfield', 'attacking midfielder'])) return 18
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 12
+      if (includesAny(positionText, ['winger', 'forward', 'second striker'])) return 8
+      return 0
+    case 'winger':
+      if (slot.position === 'LW' && includesAny(positionText, ['left wing', 'left winger'])) return 18
+      if (slot.position === 'RW' && includesAny(positionText, ['right wing', 'right winger'])) return 18
+      if (includesAny(positionText, ['winger', 'wing', 'wide forward'])) return 14
+      if (includesAny(positionText, ['forward', 'attacking midfield'])) return 8
+      return 0
+    case 'striker':
+      if (includesAny(positionText, ['striker', 'centre forward', 'center forward', 'second striker'])) return 18
+      if (positionText.includes('forward')) return 12
+      if (positionText.includes('winger')) return 4
+      return 0
+  }
+}
+
+function scoreArchetypeAlignment(
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  tmPosition?: string | null
+): number {
+  const archetype = normalizeText(slot.archetypeLabel)
+  const positionText = normalizeText(tmPosition)
+
+  if (!archetype || !positionText) return 0
+
+  let score = 0
+
+  if (includesAny(archetype, ['keeper']) && includesAny(positionText, ['goalkeeper', 'keeper'])) score += 6
+  if (includesAny(archetype, ['wing back']) && includesAny(positionText, ['wing back'])) score += 8
+  if (includesAny(archetype, ['fullback', 'full back']) && includesAny(positionText, ['left back', 'right back', 'full back', 'wing back'])) score += 6
+  if (includesAny(archetype, ['center back', 'centre back', 'cb']) && includesAny(positionText, ['centre back', 'center back'])) score += 6
+  if (includesAny(archetype, ['pivot', '#6', 'holding']) && includesAny(positionText, ['defensive midfield', 'defensive midfielder'])) score += 6
+  if (includesAny(archetype, ['#8', 'engine', 'controller']) && includesAny(positionText, ['central midfield', 'central midfielder'])) score += 5
+  if (includesAny(archetype, ['#10', 'creator', 'playmaker']) && includesAny(positionText, ['attacking midfield', 'attacking midfielder'])) score += 6
+  if (includesAny(archetype, ['winger', 'wide forward']) && includesAny(positionText, ['winger', 'wing', 'forward'])) score += 6
+  if (includesAny(archetype, ['striker', 'forward', 'false 9']) && includesAny(positionText, ['striker', 'forward'])) score += 6
+
+  return Math.min(score, 10)
+}
+
+function scoreAgeFit(
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  age: number | null | undefined,
+  manager: ManagerProfile | null
+): number {
+  if (!age || !Number.isFinite(age)) return 4
+
+  const family = getSlotFamily(slot)
+  let score = 0
+
+  switch (family) {
+    case 'goalkeeper':
+      score = age >= 24 && age <= 31 ? 10 : age >= 21 && age <= 34 ? 6 : 2
+      break
+    case 'center-back':
+      score = age >= 22 && age <= 29 ? 10 : age >= 30 && age <= 32 ? 6 : age >= 20 && age <= 33 ? 4 : 2
+      break
+    case 'fullback':
+    case 'wing-back':
+    case 'winger':
+      score = age >= 21 && age <= 27 ? 10 : age >= 28 && age <= 30 ? 6 : age >= 19 && age <= 31 ? 3 : 0
+      break
+    case 'holding-midfielder':
+    case 'central-midfielder':
+    case 'attacking-midfielder':
+      score = age >= 22 && age <= 28 ? 10 : age >= 29 && age <= 31 ? 6 : age >= 20 && age <= 32 ? 4 : 1
+      break
+    case 'striker':
+      score = age >= 22 && age <= 29 ? 10 : age >= 30 && age <= 32 ? 6 : age >= 20 && age <= 33 ? 4 : 1
+      break
+  }
+
+  if (manager?.style.pressing === 'gegenpressing' || manager?.style.pressing === 'high') {
+    if (age >= 30 && includesAny(family, ['fullback', 'wing-back', 'winger', 'holding-midfielder', 'central-midfielder', 'striker'])) {
+      score -= 2
+    }
+  }
+
+  if (manager?.style.defensiveLine === 'high' || manager?.style.defensiveLine === 'very_high') {
+    if (family === 'center-back' && age >= 30) score -= 2
+  }
+
+  return score
+}
+
+function slotBudgetMultiplier(position: string): number {
+  switch (position) {
+    case 'GK':
+      return 0.75
+    case 'LB':
+    case 'RB':
+      return 0.85
+    case 'WB':
+      return 0.9
+    case 'CB':
+      return 1
+    case 'CDM':
+      return 1.05
+    case 'CAM':
+      return 1.1
+    case 'LW':
+    case 'RW':
+      return 1.15
+    case 'ST':
+    case 'CF':
+      return 1.2
+    case 'CM':
+    default:
+      return 1
+  }
+}
+
+function scoreBudgetFit(
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  cost: number,
+  cap: number | null
+): number {
+  if (cap === null || !Number.isFinite(cost)) return 0
+  if (cost <= 0) return 10
+
+  const target = Math.max(1, (cap / 11) * slotBudgetMultiplier(slot.position))
+  const ratio = cost / target
+
+  if (ratio <= 0.75) return 12
+  if (ratio <= 1) return 9
+  if (ratio <= 1.2) return 6
+  if (ratio <= 1.5) return 2
+  if (ratio <= 1.8) return -2
+  return -8
+}
+
+function clampScore(value: number): number {
+  return Math.max(1, Math.min(99, Math.round(value)))
+}
+
+function lowercaseFirst(value: string): string {
+  return value ? value.charAt(0).toLowerCase() + value.slice(1) : value
+}
+
+function joinWithAnd(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] || ''
+  return `${parts[0]} and ${parts[1]}`
+}
+
+function buildWhyIdeal(
+  player: IdealPlayer,
+  slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
+  managerName: string,
+  requirement: PositionalRequirement | null,
+  searchResult: TMPlayerSearchResult | null,
+  cap: number | null
+): string {
+  const roleLabel = searchResult?.position
+    ? searchResult.position.toLowerCase()
+    : `${slot.position.toLowerCase()} profile`
+  const intro = player.tmVerified
+    ? `${player.playerName} gives this XI a verified ${roleLabel} for the ${slot.archetypeLabel.toLowerCase()} brief.`
+    : `${player.playerName} projects as a strong ${roleLabel} option for the ${slot.archetypeLabel.toLowerCase()} brief.`
+
+  const mustHaves = requirement?.mustHave
+    .slice(0, 2)
+    .map((trait) => lowercaseFirst(trait))
+    .filter(Boolean) || []
+
+  const budgetLine = cap !== null && player.estimatedFee && player.estimatedFee !== 'Unknown'
+    ? ` ${player.estimatedFee} keeps this role workable inside the ${formatCompactEuros(cap)} build.`
+    : ''
+
+  const detail = mustHaves.length
+    ? `${managerName}'s setup asks for ${joinWithAnd(mustHaves)}.${budgetLine}`
+    : `He rated best once tactical fit, live price, and squad-building balance were scored together.${budgetLine}`
+
+  return `${intro} ${detail}`.trim()
+}
+
 function materializeCandidates(slot: ManagerXISlot): IdealPlayer[] {
   return slot.candidates
     .filter((candidate) => Boolean(candidate.playerName?.trim()))
@@ -177,7 +519,7 @@ function materializeCandidates(slot: ManagerXISlot): IdealPlayer[] {
       currentClub: candidate.currentClub || '',
       estimatedFee: candidate.estimatedFee || 'Unknown',
       contractUntil: 'Unknown',
-      whyIdeal: `Selected as the ${slot.archetypeLabel.toLowerCase()} fit for this ${slot.position} role in the manager's system.`,
+      whyIdeal: `Shortlisted as a possible ${slot.archetypeLabel.toLowerCase()} option for this ${slot.position} role.`,
       systemFitScore: candidate.systemFitScore,
       tmVerified: false,
     }))
@@ -268,7 +610,14 @@ async function warmTransfermarktSearch(
   }
 }
 
-function buildCandidateEvaluation(player: IdealPlayer, searchResult: TMPlayerSearchResult | null): CandidateEvaluation {
+function buildCandidateEvaluation(
+  slot: ManagerXISlot,
+  player: IdealPlayer,
+  searchResult: TMPlayerSearchResult | null,
+  manager: ManagerProfile | null,
+  managerName: string,
+  cap: number | null
+): CandidateEvaluation {
   const enrichedPlayer = searchResult
     ? mergeSearchResult(player, searchResult)
     : {
@@ -276,10 +625,35 @@ function buildCandidateEvaluation(player: IdealPlayer, searchResult: TMPlayerSea
         tmVerified: false,
       }
 
+  const requirement = findBestRequirement(manager, slot)
+  const positionScore = scorePositionCompatibility(slot, searchResult?.position)
+  const archetypeScore = scoreArchetypeAlignment(slot, searchResult?.position)
+  const ageScore = scoreAgeFit(slot, enrichedPlayer.age, manager)
+  const budgetScore = scoreBudgetFit(slot, playerCost(enrichedPlayer), cap)
+  const verificationScore = searchResult
+    ? (enrichedPlayer.tmVerified ? 6 : 2)
+    : cap === null
+      ? -2
+      : -6
+  const selectionScore = clampScore(
+    (Math.max(0, Math.min(100, player.systemFitScore)) * 0.55) +
+      positionScore +
+      archetypeScore +
+      ageScore +
+      budgetScore +
+      verificationScore
+  )
+  const scoredPlayer = {
+    ...enrichedPlayer,
+    whyIdeal: buildWhyIdeal(enrichedPlayer, slot, managerName, requirement, searchResult, cap),
+    systemFitScore: selectionScore,
+  }
+
   return {
-    player: enrichedPlayer,
+    player: scoredPlayer,
     searchResult,
-    selectionCost: playerCost(enrichedPlayer),
+    selectionCost: playerCost(scoredPlayer),
+    selectionScore,
   }
 }
 
@@ -298,31 +672,27 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
     const existingCost = candidateCost(existing)
 
     if (
-      candidate.player.systemFitScore > existing.player.systemFitScore ||
-      (candidate.player.systemFitScore === existing.player.systemFitScore && currentCost < existingCost)
+      candidate.selectionScore > existing.selectionScore ||
+      (candidate.selectionScore === existing.selectionScore && currentCost < existingCost)
     ) {
       bestByKey.set(key, candidate)
     }
   }
 
   return Array.from(bestByKey.values()).sort((a, b) => {
-    if (b.player.systemFitScore !== a.player.systemFitScore) {
-      return b.player.systemFitScore - a.player.systemFitScore
+    if (b.selectionScore !== a.selectionScore) {
+      return b.selectionScore - a.selectionScore
     }
     return candidateCost(a) - candidateCost(b)
   })
 }
 
-function buildLocalSlots(slots: ManagerXISlot[]): EnrichedSlot[] {
-  return slots.map((slot) => ({
-    slotId: slot.slotId,
-    candidates: dedupeCandidates(
-      materializeCandidates(slot).map((player) => buildCandidateEvaluation(player, null))
-    ),
-  }))
-}
-
-async function enrichSlots(slots: ManagerXISlot[]): Promise<EnrichedSlot[]> {
+async function enrichSlots(
+  slots: ManagerXISlot[],
+  manager: ManagerProfile | null,
+  managerName: string,
+  cap: number | null
+): Promise<EnrichedSlot[]> {
   const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
   await warmTransfermarktSearch(slots, searchCache)
   const evaluatedSlots = await mapWithConcurrency(
@@ -332,7 +702,15 @@ async function enrichSlots(slots: ManagerXISlot[]): Promise<EnrichedSlot[]> {
       const candidates = await mapWithConcurrency(
         materializeCandidates(slot),
         TM_ENRICHMENT_CONCURRENCY,
-        async (player) => buildCandidateEvaluation(player, await findSearchResult(player, searchCache))
+        async (player) =>
+          buildCandidateEvaluation(
+            slot,
+            player,
+            await findSearchResult(player, searchCache),
+            manager,
+            managerName,
+            cap
+          )
       )
 
       return {
@@ -388,7 +766,7 @@ function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): Selec
 
       used.add(key)
       chosen.push(candidate)
-      dfs(index + 1, chosen, used, nextTotal, score + candidate.player.systemFitScore)
+      dfs(index + 1, chosen, used, nextTotal, score + candidate.selectionScore)
       chosen.pop()
       used.delete(key)
     }
@@ -396,32 +774,6 @@ function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): Selec
 
   dfs(0, [], new Set<string>(), 0, 0)
   return bestWithin ?? bestOver ?? { chosen: [], total: 0, score: 0, withinBudget: false }
-}
-
-async function enrichPlayer(
-  player: IdealPlayer,
-  searchResult: TMPlayerSearchResult | null
-): Promise<IdealPlayer> {
-  return searchResult ? mergeSearchResult(player, searchResult) : player
-}
-
-async function enrichSelectedPlayers(players: IdealPlayer[]): Promise<IdealPlayer[]> {
-  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-
-  const firstPlayer = players[0]
-  if (firstPlayer) {
-    try {
-      await findSearchResult(firstPlayer, searchCache)
-    } catch {
-      // Keep going — warmup is a best-effort latency improvement only.
-    }
-  }
-
-  return mapWithConcurrency(
-    players,
-    TM_ENRICHMENT_CONCURRENCY,
-    async (player) => enrichPlayer(player, await findSearchResult(player, searchCache))
-  )
 }
 
 function calculateTotalEstimatedCost(players: IdealPlayer[]): number {
@@ -446,22 +798,20 @@ function withComputedBudget(
   }
 }
 
-async function resolveCandidatePool(pool: ManagerXICandidatePool, budget: string): Promise<ManagerXIResult | null> {
+async function resolveCandidatePool(
+  pool: ManagerXICandidatePool,
+  budget: string,
+  manager: ManagerProfile | null
+): Promise<ManagerXIResult | null> {
   const cap = getBudgetCap(budget)
-  const candidateSlots = cap === null ? buildLocalSlots(pool.slots) : await enrichSlots(pool.slots)
+  const candidateSlots = await enrichSlots(pool.slots, manager, pool.managerName, cap)
   const selection = selectPlayersForSlots(candidateSlots, cap)
 
   if (selection.chosen.length !== pool.slots.length) {
     return null
   }
 
-  const enrichedPlayers = cap === null
-    ? await enrichSelectedPlayers(selection.chosen.map((candidate) => candidate.player))
-    : await mapWithConcurrency(
-        selection.chosen,
-        TM_ENRICHMENT_CONCURRENCY,
-        async (candidate) => enrichPlayer(candidate.player, candidate.searchResult)
-      )
+  const enrichedPlayers = selection.chosen.map((candidate) => candidate.player)
 
   return withComputedBudget(
     {
@@ -490,7 +840,7 @@ async function buildBudgetAwareManagerXI(
 
   if (instructionPasses.length === 0) {
     const pool = await generateManagerXICandidatePool(budget, manager, managerName)
-    const resolved = await resolveCandidatePool(pool, budget)
+    const resolved = await resolveCandidatePool(pool, budget, manager)
     if (!resolved) throw new Error('Failed to build a valid XI from the candidate pool.')
     return resolved
   }
@@ -499,7 +849,7 @@ async function buildBudgetAwareManagerXI(
 
   for (const instructions of instructionPasses) {
     const pool = await generateManagerXICandidatePool(budget, manager, managerName, instructions)
-    const resolved = await resolveCandidatePool(pool, budget)
+    const resolved = await resolveCandidatePool(pool, budget, manager)
     if (!resolved) continue
     lastResolved = resolved
     if (resolved.budgetStatus !== 'over') return resolved
