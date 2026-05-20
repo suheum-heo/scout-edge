@@ -405,6 +405,25 @@ async function enrichPlayer(
   return searchResult ? mergeSearchResult(player, searchResult) : player
 }
 
+async function enrichSelectedPlayers(players: IdealPlayer[]): Promise<IdealPlayer[]> {
+  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+
+  const firstPlayer = players[0]
+  if (firstPlayer) {
+    try {
+      await findSearchResult(firstPlayer, searchCache)
+    } catch {
+      // Keep going — warmup is a best-effort latency improvement only.
+    }
+  }
+
+  return mapWithConcurrency(
+    players,
+    TM_ENRICHMENT_CONCURRENCY,
+    async (player) => enrichPlayer(player, await findSearchResult(player, searchCache))
+  )
+}
+
 function calculateTotalEstimatedCost(players: IdealPlayer[]): number {
   return players.reduce((sum, player) => sum + playerCost(player), 0)
 }
@@ -436,11 +455,13 @@ async function resolveCandidatePool(pool: ManagerXICandidatePool, budget: string
     return null
   }
 
-  const enrichedPlayers = await mapWithConcurrency(
-    selection.chosen,
-    TM_ENRICHMENT_CONCURRENCY,
-    async (candidate) => enrichPlayer(candidate.player, candidate.searchResult)
-  )
+  const enrichedPlayers = cap === null
+    ? await enrichSelectedPlayers(selection.chosen.map((candidate) => candidate.player))
+    : await mapWithConcurrency(
+        selection.chosen,
+        TM_ENRICHMENT_CONCURRENCY,
+        async (candidate) => enrichPlayer(candidate.player, candidate.searchResult)
+      )
 
   return withComputedBudget(
     {
