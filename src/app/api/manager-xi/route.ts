@@ -476,6 +476,38 @@ function joinWithAnd(parts: string[]): string {
   return `${parts[0]} and ${parts[1]}`
 }
 
+function toProsePositionCode(position: string): string {
+  switch (position) {
+    case 'CDM':
+      return 'DM'
+    case 'CAM':
+      return 'AM'
+    default:
+      return position.toUpperCase()
+  }
+}
+
+function toTMPositionCode(position?: string | null): string | null {
+  const normalized = normalizeText(position)
+  if (!normalized) return null
+
+  if (includesAny(normalized, ['goalkeeper', 'keeper'])) return 'GK'
+  if (includesAny(normalized, ['left wing back', 'right wing back', 'wing back'])) return 'WB'
+  if (includesAny(normalized, ['left back'])) return 'LB'
+  if (includesAny(normalized, ['right back'])) return 'RB'
+  if (includesAny(normalized, ['centre back', 'center back', 'central defender'])) return 'CB'
+  if (includesAny(normalized, ['defensive midfield', 'defensive midfielder'])) return 'DM'
+  if (includesAny(normalized, ['central midfield', 'central midfielder'])) return 'CM'
+  if (includesAny(normalized, ['attacking midfield', 'attacking midfielder'])) return 'AM'
+  if (includesAny(normalized, ['left wing', 'left winger'])) return 'LW'
+  if (includesAny(normalized, ['right wing', 'right winger'])) return 'RW'
+  if (includesAny(normalized, ['second striker', 'false 9', 'centre forward', 'center forward'])) return 'CF'
+  if (includesAny(normalized, ['striker'])) return 'ST'
+  if (normalized.includes('forward')) return 'FW'
+
+  return null
+}
+
 function buildWhyIdeal(
   player: IdealPlayer,
   slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>,
@@ -484,25 +516,28 @@ function buildWhyIdeal(
   searchResult: TMPlayerSearchResult | null,
   cap: number | null
 ): string {
-  const roleLabel = searchResult?.position
-    ? searchResult.position.toLowerCase()
-    : `${slot.position.toLowerCase()} profile`
+  const slotLabel = toProsePositionCode(slot.position)
+  const tmRoleLabel = toTMPositionCode(searchResult?.position)
   const intro = player.tmVerified
-    ? `${player.playerName} gives this XI a verified ${roleLabel} for the ${slot.archetypeLabel.toLowerCase()} brief.`
-    : `${player.playerName} projects as a strong ${roleLabel} option for the ${slot.archetypeLabel.toLowerCase()} brief.`
+    ? `${player.playerName} gives this XI a verified club-backed option for the ${slotLabel} role in the ${slot.archetypeLabel} brief.`
+    : `${player.playerName} projects as a strong option for the ${slotLabel} role in the ${slot.archetypeLabel} brief.`
 
   const mustHaves = requirement?.mustHave
     .slice(0, 2)
     .map((trait) => lowercaseFirst(trait))
     .filter(Boolean) || []
 
+  const roleContext = tmRoleLabel && tmRoleLabel !== slotLabel
+    ? ` TM lists him closest to ${tmRoleLabel}, but the selector still rated him as a credible fit in this slot.`
+    : ''
+
   const budgetLine = cap !== null && player.estimatedFee && player.estimatedFee !== 'Unknown'
     ? ` ${player.estimatedFee} keeps this role workable inside the ${formatCompactEuros(cap)} build.`
     : ''
 
   const detail = mustHaves.length
-    ? `${managerName}'s setup asks for ${joinWithAnd(mustHaves)}.${budgetLine}`
-    : `He rated best once tactical fit, live price, and squad-building balance were scored together.${budgetLine}`
+    ? `${managerName}'s setup asks for ${joinWithAnd(mustHaves)}.${roleContext}${budgetLine}`
+    : `He rated best once tactical fit, live price, and squad-building balance were scored together.${roleContext}${budgetLine}`
 
   return `${intro} ${detail}`.trim()
 }
