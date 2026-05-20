@@ -1364,14 +1364,16 @@ ${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructi
 ${slotList}
 
 ## Rules:
-1. For EACH slot, return exactly 2 candidates:
+1. For EACH slot, return exactly 3 candidates:
    - one best-fit option
+   - one balanced reliable option
    - one cheaper fallback option
 2. Every player must be ACTIVELY playing professional football right now
 3. Be highly confident about current club
 4. Keep fees realistic for the stated budget
 5. Use only standard Latin characters in names
-6. Think like a shortlist scout, not the final selector. Prioritize true role fit, live current-club accuracy, and budget variety across the two names because a server-side selector will verify prices and make the final XI.
+6. Think like a shortlist scout, not the final selector. Prioritize true role fit, live current-club accuracy, and budget variety across the three names because a server-side selector will verify prices and make the final XI.
+7. Only include players you are confident can be found easily on Transfermarkt player search with the exact spelling you provide.
 
 Return ONLY plain text lines in this exact format, with no bullets, no numbering, no markdown, and no extra commentary:
 slotId|playerName|age|currentClub|estimatedFee|systemFitScore
@@ -1416,7 +1418,7 @@ GK|Bart Verbruggen|23|Brighton & Hove Albion|€40M|93`
   return {
     slots: slots.map((slot) => ({
       slotId: slot.slotId,
-      candidates: (parsedSlots.get(slot.slotId) || []).slice(0, 2),
+      candidates: (parsedSlots.get(slot.slotId) || []).slice(0, 3),
     })),
   }
 }

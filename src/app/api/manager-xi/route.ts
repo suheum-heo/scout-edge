@@ -169,6 +169,15 @@ function buildBudgetInstructions(budget: string, cap: number): string {
   ].join(' ')
 }
 
+function buildVerificationInstructions(): string {
+  return [
+    'Every candidate must be easily verifiable on current Transfermarkt player search with the exact spelling you provide.',
+    'Avoid speculative youth names, uncertain transliterations, reserve-team players, and anyone whose current club you are not completely certain about.',
+    'If a role is tricky, prefer a slightly more established active first-team player over a clever obscure option.',
+    'The final XI should be capable of being fully club-verified by Transfermarkt, not just tactically plausible.',
+  ].join(' ')
+}
+
 function normalizeKey(value?: string | null): string {
   return (value || '')
     .toLowerCase()
@@ -750,7 +759,11 @@ async function enrichSlots(
 
       return {
         slotId: slot.slotId,
-        candidates: dedupeCandidates(candidates),
+        candidates: (() => {
+          const deduped = dedupeCandidates(candidates)
+          const verified = deduped.filter((candidate) => candidate.player.tmVerified)
+          return verified.length ? verified : deduped
+        })(),
       }
     }
   )
@@ -847,6 +860,9 @@ async function resolveCandidatePool(
   }
 
   const enrichedPlayers = selection.chosen.map((candidate) => candidate.player)
+  if (enrichedPlayers.some((player) => !player.tmVerified)) {
+    return null
+  }
 
   return withComputedBudget(
     {
@@ -866,10 +882,13 @@ async function buildBudgetAwareManagerXI(
 ): Promise<ManagerXIResult> {
   const manager = managerId ? (getManagerById(managerId) || null) : null
   const cap = getBudgetCap(budget)
-  const baseInstructions = cap !== null ? buildBudgetInstructions(budget, cap) : undefined
+  const verificationInstructions = buildVerificationInstructions()
+  const baseInstructions = cap !== null
+    ? `${buildBudgetInstructions(budget, cap)} ${verificationInstructions}`
+    : verificationInstructions
   const retryInstructions = cap !== null
-    ? `${baseInstructions} Previous attempt was still too expensive once priced against live Transfermarkt values. Return materially cheaper alternatives across multiple slots and avoid any player likely to cost above ${formatCompactEuros(Math.floor(cap * 0.18))}.`
-    : undefined
+    ? `${baseInstructions} Previous attempt either produced names that could not be verified on Transfermarkt or was still too expensive once priced against live Transfermarkt values. Return materially cheaper alternatives across multiple slots, avoid any player likely to cost above ${formatCompactEuros(Math.floor(cap * 0.18))}, and lean toward more recognizable first-team players with exact current clubs.`
+    : `${baseInstructions} Previous attempt included at least one player who could not be verified on Transfermarkt. Return more mainstream active first-team players with exact current clubs and spellings that are easy to verify.`
 
   const instructionPasses = [baseInstructions, retryInstructions].filter((value): value is string => Boolean(value))
 
