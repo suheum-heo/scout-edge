@@ -33,8 +33,8 @@ const TTL = {
   TEAMS: 24 * 60 * 60 * 1000,       // 24 hours
   SQUAD: 24 * 60 * 60 * 1000,       // 24 hours
   PLAYERS: 12 * 60 * 60 * 1000,     // 12 hours
-  COACHES: 6 * 60 * 60 * 1000,      // 6 hours
-  FORMATIONS: 6 * 60 * 60 * 1000,   // 6 hours
+  COACHES: 30 * 60 * 1000,          // 30 minutes
+  FORMATIONS: 30 * 60 * 1000,       // 30 minutes
   LINEUPS: 30 * 24 * 60 * 60 * 1000, // historical lineups are stable
 }
 

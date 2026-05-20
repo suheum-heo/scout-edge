@@ -608,6 +608,9 @@ export async function searchManager(name: string): Promise<TMManagerSearchResult
     if (!results.length) return null
 
     const ranked = [...results].sort((left, right) => {
+      const roleScoreDiff = scoreStaffRole(right.functionTitle || '') - scoreStaffRole(left.functionTitle || '')
+      if (roleScoreDiff !== 0) return roleScoreDiff
+
       const scoreDiff = managerNameScore(right.name, name) - managerNameScore(left.name, name)
       if (scoreDiff !== 0) return scoreDiff
       if (left.currentClub && !right.currentClub) return -1
@@ -615,7 +618,14 @@ export async function searchManager(name: string): Promise<TMManagerSearchResult
       return left.name.length - right.name.length
     })
 
-    return ranked[0] || null
+    const best = ranked[0] || null
+    if (!best) return null
+
+    if (scoreStaffRole(best.functionTitle || '') <= 0) {
+      return null
+    }
+
+    return best
   } catch {
     return null
   }

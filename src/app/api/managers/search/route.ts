@@ -5,6 +5,8 @@ import { normalizeClubDisplayName } from '@/lib/club-names'
 import { buildFullName, namesMatch } from '@/lib/person-names'
 import { searchManagers, TMManagerSearchResult } from '@/lib/transfermarkt'
 
+export const dynamic = 'force-dynamic'
+
 function formatCoachCurrentClub(
   coach: APICoach | null | undefined,
   tmManager: TMManagerSearchResult | null | undefined
@@ -81,10 +83,29 @@ export async function GET(request: NextRequest) {
     // Skip any that are already covered by the DB matches (avoid duplicates)
     .filter((c) => !dbMatches.some((m) => m.name.toLowerCase() === c.name.toLowerCase()))
 
+  const tmOnlyResults = tmManagers
+    .map((manager) => {
+      const profile = getManagerByName(manager.name)
+
+      return {
+        id: profile?.id ?? `tm-${manager.id}`,
+        profileId: profile?.id ?? null,
+        name: profile?.name ?? manager.name,
+        currentClub: manager.currentClub || 'Free Agent',
+        formations: [],
+        hasProfile: !!profile,
+      }
+    })
+    .filter((manager) => {
+      const key = manager.name.toLowerCase()
+      return !dbMatches.some((match) => match.name.toLowerCase() === key) &&
+        !apiResults.some((match) => match.name.toLowerCase() === key)
+    })
+
   // Merge: DB matches first (more reliable names), then API results
   // Final dedup by name — catches cases where two API IDs resolve to the same person
   const seenNames = new Set<string>()
-  const coaches = [...dbMatches, ...apiResults]
+  const coaches = [...dbMatches, ...apiResults, ...tmOnlyResults]
     .filter((c) => {
       const key = c.name.toLowerCase()
       if (seenNames.has(key)) return false
@@ -93,5 +114,8 @@ export async function GET(request: NextRequest) {
     })
     .slice(0, 10)
 
-  return NextResponse.json({ coaches })
+  return NextResponse.json(
+    { coaches },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  )
 }

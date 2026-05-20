@@ -4,9 +4,11 @@ import { getCoachLiveContext, getLiveCoachByName } from '@/lib/api-football'
 import { normalizeClubDisplayName } from '@/lib/club-names'
 import { searchManager } from '@/lib/transfermarkt'
 
-// Server-side cache for the enriched manager list — refreshed hourly
+export const dynamic = 'force-dynamic'
+
+// Server-side cache for the enriched manager list — refreshed every 15 minutes
 let managersCache: { data: object[]; expiresAt: number } | null = null
-const MANAGERS_TTL = 60 * 60 * 1000
+const MANAGERS_TTL = 15 * 60 * 1000
 
 export async function GET() {
   if (managersCache && managersCache.expiresAt > Date.now()) {
@@ -40,5 +42,8 @@ export async function GET() {
   )
 
   managersCache = { data: enriched, expiresAt: Date.now() + MANAGERS_TTL }
-  return NextResponse.json({ managers: enriched })
+  return NextResponse.json(
+    { managers: enriched },
+    { headers: { 'Cache-Control': 'no-store, max-age=0' } }
+  )
 }
