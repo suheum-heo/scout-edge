@@ -210,6 +210,39 @@ function aggregateStats(stats: Array<{
   )
 }
 
+interface TMSitePerformanceRow {
+  nameSeason: string
+  gamesPlayed?: number | null
+  goalsScored?: number | null
+  assists?: number | null
+  minutesPlayed?: number | null
+  yellowCards?: number | null
+}
+
+function aggregateSitePerformanceStats(rows: TMSitePerformanceRow[]) {
+  if (!rows.length) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
+
+  const latestSeason = rows
+    .map((row) => row.nameSeason?.trim())
+    .filter(Boolean)
+    .sort((left, right) => right.localeCompare(left))[0]
+
+  if (!latestSeason) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
+
+  return rows
+    .filter((row) => row.nameSeason?.trim() === latestSeason)
+    .reduce(
+      (acc, row) => ({
+        appearances: acc.appearances + (row.gamesPlayed ?? 0),
+        goals: acc.goals + (row.goalsScored ?? 0),
+        assists: acc.assists + (row.assists ?? 0),
+        minutesPlayed: acc.minutesPlayed + (row.minutesPlayed ?? 0),
+        yellowCards: acc.yellowCards + (row.yellowCards ?? 0),
+      }),
+      { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
+    )
+}
+
 function getCurrentTMSeasonId(now = new Date()): number {
   const year = now.getUTCFullYear()
   const month = now.getUTCMonth()
@@ -572,8 +605,23 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       tmFetch<{ stats: Array<{ seasonId: string; appearances?: number | null; goals?: number | null; assists?: number | null; minutesPlayed?: number | null; yellowCards?: number | null }> }>(`/players/${tmId}/stats`),
     ])
 
-    const stats = aggregateStats(statsData.stats)
-    const statsAvailable = Array.isArray(statsData.stats) && statsData.stats.length > 0
+    let stats = aggregateStats(statsData.stats)
+    let statsAvailable = Array.isArray(statsData.stats) && statsData.stats.length > 0
+
+    if (!statsAvailable) {
+      try {
+        const sitePerformance = await tmSiteFetch<TMSitePerformanceRow[]>(
+          `/ceapi/player/performance/${encodeURIComponent(tmId)}`
+        )
+
+        if (Array.isArray(sitePerformance) && sitePerformance.length > 0) {
+          stats = aggregateSitePerformanceStats(sitePerformance)
+          statsAvailable = sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
+        }
+      } catch {
+        // Keep the zeroed fallback when the site performance endpoint is unavailable.
+      }
+    }
 
     return {
       id: profile.id,
