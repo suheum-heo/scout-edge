@@ -1331,9 +1331,9 @@ export async function analyzeTransferVerdict(
 **Current Club**: ${tmPlayer.currentClub} | **Contract until**: ${tmPlayer.contractYear}
 **Market Value**: ${tmPlayer.marketValueFormatted}
 ${tmPlayer.statsAvailable
-  ? `**2024/25 season stats (across all clubs)**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}
-**Important**: These stats cover the full season across all clubs the player has appeared for — do NOT attribute them to any single club, especially if the player recently transferred.`
-  : `**2024/25 season stats**: unavailable from live Transfermarkt data right now.
+  ? `**Current live season totals (across all clubs)**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}
+**Important**: These stats cover the player's latest live season window across all clubs and competitions returned by Transfermarkt — do NOT attribute them to any single club, especially if the player recently transferred.`
+  : `**Current live season totals**: unavailable from live Transfermarkt data right now.
 **Important**: Missing stats are not the same as zero stats. Do NOT describe the player as having zero goals, zero appearances, or poor form unless that is explicitly stated above.`}
 **Fact Guardrail**: You may reference only the player's current club, contract year, market value, age, nationality, position, and any season totals explicitly listed here. Do NOT infer international status, previous clubs, previous leagues, loan spells, youth clubs, transfer history, or missing-season output.`
     : `**Player**: ${playerName}

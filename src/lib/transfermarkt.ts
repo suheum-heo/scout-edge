@@ -182,6 +182,28 @@ function contractYear(isoDate: string | null): string {
   return isoDate.slice(0, 4)
 }
 
+function getSeasonBucket(value: string | null | undefined): number | null {
+  const season = value?.trim()
+  if (!season) return null
+
+  if (/^\d{4}$/.test(season)) {
+    return Number(season)
+  }
+
+  const parts = season.split('/').map((part) => part.trim()).filter(Boolean)
+  if (parts.length === 2) {
+    const [, second] = parts
+    if (/^\d{4}$/.test(second)) return Number(second)
+    if (/^\d{2}$/.test(second)) return 2000 + Number(second)
+  }
+
+  if (/^\d{2}$/.test(season)) {
+    return 2000 + Number(season)
+  }
+
+  return null
+}
+
 function aggregateStats(stats: Array<{
   seasonId: string
   appearances?: number | null
@@ -190,14 +212,17 @@ function aggregateStats(stats: Array<{
   minutesPlayed?: number | null
   yellowCards?: number | null
 }>) {
-  // Pick the most recent season (first two chars = "25" for 25/26, etc.)
   if (!stats.length) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
 
-  // Sort seasons descending, take the latest
-  const sorted = [...stats].sort((a, b) => b.seasonId.localeCompare(a.seasonId))
-  const latestSeason = sorted[0].seasonId
+  const buckets = stats
+    .map((row) => getSeasonBucket(row.seasonId))
+    .filter((bucket): bucket is number => bucket !== null)
 
-  const rows = sorted.filter((s) => s.seasonId === latestSeason)
+  const latestBucket = buckets.length > 0 ? Math.max(...buckets) : null
+  const rows = latestBucket !== null
+    ? stats.filter((row) => getSeasonBucket(row.seasonId) === latestBucket)
+    : stats
+
   return rows.reduce(
     (acc, s) => ({
       appearances: acc.appearances + (s.appearances ?? 0),
@@ -222,15 +247,16 @@ interface TMSitePerformanceRow {
 function aggregateSitePerformanceStats(rows: TMSitePerformanceRow[]) {
   if (!rows.length) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
 
-  const latestSeason = rows
-    .map((row) => row.nameSeason?.trim())
-    .filter(Boolean)
-    .sort((left, right) => right.localeCompare(left))[0]
+  const buckets = rows
+    .map((row) => getSeasonBucket(row.nameSeason))
+    .filter((bucket): bucket is number => bucket !== null)
 
-  if (!latestSeason) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
+  const latestBucket = buckets.length > 0 ? Math.max(...buckets) : null
+  const latestRows = latestBucket !== null
+    ? rows.filter((row) => getSeasonBucket(row.nameSeason) === latestBucket)
+    : rows
 
-  return rows
-    .filter((row) => row.nameSeason?.trim() === latestSeason)
+  return latestRows
     .reduce(
       (acc, row) => ({
         appearances: acc.appearances + (row.gamesPlayed ?? 0),
