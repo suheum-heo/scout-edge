@@ -7,7 +7,12 @@ import { ManagerXIResult, IdealPlayer } from '@/lib/claude'
 
 const BUDGETS = ['€100M', '€200M', '€300M', '€500M', 'Unlimited']
 
-const POSITION_ORDER = ['GK', 'RB', 'CB', 'LB', 'WB', 'CDM', 'CM', 'CAM', 'RW', 'LW', 'CF', 'ST']
+const POSITION_ORDER = ['GK', 'RB', 'RWB', 'CB', 'LB', 'LWB', 'CDM', 'CM', 'CAM', 'RW', 'LW', 'CF', 'ST']
+
+function positionSortIndex(position: string) {
+  const index = POSITION_ORDER.indexOf(position)
+  return index === -1 ? 99 : index
+}
 
 function fitColor(score: number) {
   if (score >= 90) return 'text-violet-400'
@@ -153,7 +158,7 @@ export default function BuildPage() {
 
   const sortedPlayers = result
     ? [...result.players].sort(
-        (a, b) => (POSITION_ORDER.indexOf(a.position) ?? 99) - (POSITION_ORDER.indexOf(b.position) ?? 99)
+        (a, b) => positionSortIndex(a.position) - positionSortIndex(b.position)
       )
     : []
 
@@ -280,7 +285,7 @@ export default function BuildPage() {
           {/* Player grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {sortedPlayers.map((p) => (
-              <PlayerCard key={p.playerName} player={p} />
+              <PlayerCard key={`${p.playerName}-${p.position}`} player={p} />
             ))}
           </div>
 

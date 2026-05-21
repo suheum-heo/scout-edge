@@ -213,6 +213,8 @@ function getSlotFamily(slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>)
     case 'LB':
     case 'RB':
       return 'fullback'
+    case 'LWB':
+    case 'RWB':
     case 'WB':
       return 'wing-back'
     case 'CDM':
@@ -325,6 +327,8 @@ function scorePositionCompatibility(
       if (positionText.includes('defender')) return 6
       return 0
     case 'wing-back':
+      if (slot.position === 'LWB' && includesAny(positionText, ['left wing back', 'left back'])) return 18
+      if (slot.position === 'RWB' && includesAny(positionText, ['right wing back', 'right back'])) return 18
       if (includesAny(positionText, ['wing back', 'left wing back', 'right wing back'])) return 18
       if (includesAny(positionText, ['left back', 'right back', 'full back'])) return 10
       if (positionText.includes('winger')) return 4
@@ -434,6 +438,8 @@ function slotBudgetMultiplier(position: string): number {
     case 'LB':
     case 'RB':
       return 0.85
+    case 'LWB':
+    case 'RWB':
     case 'WB':
       return 0.9
     case 'CB':
@@ -502,7 +508,9 @@ function toTMPositionCode(position?: string | null): string | null {
   if (!normalized) return null
 
   if (includesAny(normalized, ['goalkeeper', 'keeper'])) return 'GK'
-  if (includesAny(normalized, ['left wing back', 'right wing back', 'wing back'])) return 'WB'
+  if (includesAny(normalized, ['left wing back'])) return 'LWB'
+  if (includesAny(normalized, ['right wing back'])) return 'RWB'
+  if (includesAny(normalized, ['wing back'])) return 'WB'
   if (includesAny(normalized, ['left back'])) return 'LB'
   if (includesAny(normalized, ['right back'])) return 'RB'
   if (includesAny(normalized, ['centre back', 'center back', 'central defender'])) return 'CB'

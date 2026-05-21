@@ -1270,7 +1270,7 @@ No other text.`
 
 export interface IdealPlayer {
   playerName: string
-  position: string        // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF", "WB"
+  position: string        // "GK", "CB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
   age: number
   nationality: string
@@ -1332,6 +1332,326 @@ interface ManagerXICandidateBatch {
     slotId: string
     candidates: ManagerXISlotCandidate[]
   }>
+}
+
+function normalizeManagerXIText(value?: string | null): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function includesAnyManagerXI(text: string, phrases: string[]): boolean {
+  return phrases.some((phrase) => text.includes(phrase))
+}
+
+function normalizeManagerXIFormation(formation?: string | null): string | null {
+  const raw = (formation || '').trim()
+  if (!raw) return null
+
+  const numbers = raw.match(/\d+/g)
+  if (!numbers?.length) return null
+
+  return numbers.join('-')
+}
+
+function defaultArchetypeForPosition(position: string): string {
+  switch (position) {
+    case 'GK':
+      return 'Sweeper-Keeper'
+    case 'RB':
+      return 'Attacking Right-Back'
+    case 'LB':
+      return 'Attacking Left-Back'
+    case 'RWB':
+      return 'Dynamic Right Wing-Back'
+    case 'LWB':
+      return 'Dynamic Left Wing-Back'
+    case 'CB':
+      return 'Ball-Playing Center-Back'
+    case 'CDM':
+      return 'Press-Resistant #6'
+    case 'CM':
+      return 'Two-Way #8'
+    case 'CAM':
+      return 'Creative Attacking Midfielder'
+    case 'RW':
+      return 'Inverted Right Winger'
+    case 'LW':
+      return 'Inverted Left Winger'
+    case 'CF':
+      return 'Link Forward'
+    case 'ST':
+    default:
+      return 'Mobile Striker'
+  }
+}
+
+function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot[] | null {
+  switch (formation) {
+    case '4-3-3':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-3', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
+        { slotId: 'LW', position: 'LW', archetypeLabel: defaultArchetypeForPosition('LW') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '4-2-3-1':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
+        { slotId: 'CAM', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'LW', position: 'LW', archetypeLabel: defaultArchetypeForPosition('LW') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '4-3-1-2':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-3', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CAM', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'ST-1', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+        { slotId: 'ST-2', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '4-1-4-1':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'CDM', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
+        { slotId: 'LW', position: 'LW', archetypeLabel: defaultArchetypeForPosition('LW') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '4-4-2':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'LW', position: 'LW', archetypeLabel: defaultArchetypeForPosition('LW') },
+        { slotId: 'ST-1', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+        { slotId: 'ST-2', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '4-2-2-2':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
+        { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'CAM-1', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'CAM-2', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'ST-1', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+        { slotId: 'ST-2', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '3-2-4-1':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
+        { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
+        { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
+        { slotId: 'CAM-1', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'CAM-2', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '3-4-1-2':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
+        { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CAM', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'ST-1', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+        { slotId: 'ST-2', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '3-4-2-1':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
+        { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CAM-1', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'CAM-2', position: 'CAM', archetypeLabel: defaultArchetypeForPosition('CAM') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '3-4-3':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
+        { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
+        { slotId: 'LW', position: 'LW', archetypeLabel: defaultArchetypeForPosition('LW') },
+        { slotId: 'ST', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    case '3-5-2':
+    case '5-3-2':
+      return [
+        { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
+        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
+        { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
+        { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'CM-3', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
+        { slotId: 'ST-1', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+        { slotId: 'ST-2', position: 'ST', archetypeLabel: defaultArchetypeForPosition('ST') },
+      ]
+    default:
+      return null
+  }
+}
+
+function getManagerXISlotFamily(position: string): string {
+  switch (position) {
+    case 'GK':
+      return 'goalkeeper'
+    case 'CB':
+      return 'center-back'
+    case 'LB':
+    case 'RB':
+      return 'fullback'
+    case 'LWB':
+    case 'RWB':
+    case 'WB':
+      return 'wing-back'
+    case 'CDM':
+      return 'holding-midfielder'
+    case 'CAM':
+      return 'attacking-midfielder'
+    case 'LW':
+    case 'RW':
+      return 'winger'
+    case 'CF':
+    case 'ST':
+      return 'striker'
+    case 'CM':
+    default:
+      return 'central-midfielder'
+  }
+}
+
+function normalizeManagerXISlotPosition(position?: string | null, slotId?: string | null): string | null {
+  const normalized = normalizeManagerXIText(`${slotId || ''} ${position || ''}`)
+  if (!normalized) return null
+
+  if (includesAnyManagerXI(normalized, ['left wing back', 'left wingback']) || normalized.includes('lwb')) return 'LWB'
+  if (includesAnyManagerXI(normalized, ['right wing back', 'right wingback']) || normalized.includes('rwb')) return 'RWB'
+  if (includesAnyManagerXI(normalized, ['left back'])) return 'LB'
+  if (includesAnyManagerXI(normalized, ['right back'])) return 'RB'
+  if (includesAnyManagerXI(normalized, ['centre back', 'center back', 'central defender']) || normalized === 'cb') return 'CB'
+  if (includesAnyManagerXI(normalized, ['goalkeeper', 'keeper']) || normalized === 'gk') return 'GK'
+  if (includesAnyManagerXI(normalized, ['defensive midfield', 'defensive midfielder']) || normalized.includes('cdm')) return 'CDM'
+  if (includesAnyManagerXI(normalized, ['attacking midfield', 'attacking midfielder']) || normalized.includes('cam')) return 'CAM'
+  if (includesAnyManagerXI(normalized, ['central midfield', 'central midfielder']) || normalized === 'cm') return 'CM'
+  if (includesAnyManagerXI(normalized, ['left wing', 'left winger', 'left midfield', 'left mid']) || normalized === 'lw') return 'LW'
+  if (includesAnyManagerXI(normalized, ['right wing', 'right winger', 'right midfield', 'right mid']) || normalized === 'rw') return 'RW'
+  if (includesAnyManagerXI(normalized, ['second striker', 'false 9', 'centre forward', 'center forward']) || normalized === 'cf') return 'CF'
+  if (includesAnyManagerXI(normalized, ['striker', 'forward']) || normalized === 'st') return 'ST'
+  if (includesAnyManagerXI(normalized, ['wing back', 'wingback']) || normalized === 'wb') return 'WB'
+
+  return position || null
+}
+
+function normalizeManagerXIStructure(structure: ManagerXIStructure): ManagerXIStructure {
+  const normalizedFormation = normalizeManagerXIFormation(structure.formation) || structure.formation
+  const canonicalSlots = buildCanonicalFormationSlots(normalizedFormation)
+
+  if (!canonicalSlots) {
+    return {
+      ...structure,
+      formation: normalizedFormation,
+    }
+  }
+
+  const sourceSlots = structure.slots.map((slot, index) => ({
+    ...slot,
+    index,
+    normalizedPosition: normalizeManagerXISlotPosition(slot.position, slot.slotId),
+    family: getManagerXISlotFamily(normalizeManagerXISlotPosition(slot.position, slot.slotId) || slot.position),
+    used: false,
+  }))
+
+  function takeBestMatch(target: ManagerXIStructureSlot) {
+    const exactMatches = sourceSlots.filter((slot) => !slot.used && slot.normalizedPosition === target.position)
+    if (exactMatches[0]) {
+      exactMatches[0].used = true
+      return exactMatches[0]
+    }
+
+    const familyMatches = sourceSlots.filter(
+      (slot) => !slot.used && slot.family === getManagerXISlotFamily(target.position)
+    )
+    if (familyMatches[0]) {
+      familyMatches[0].used = true
+      return familyMatches[0]
+    }
+
+    return null
+  }
+
+  return {
+    formation: normalizedFormation,
+    managerName: structure.managerName,
+    identity: structure.identity,
+    slots: canonicalSlots.map((slot) => {
+      const matched = takeBestMatch(slot)
+      return {
+        slotId: slot.slotId,
+        position: slot.position,
+        archetypeLabel: matched?.archetypeLabel || slot.archetypeLabel || defaultArchetypeForPosition(slot.position),
+      }
+    }),
+  }
 }
 
 interface ManagerXILiveContext {
@@ -1415,7 +1735,7 @@ Return ONLY this JSON:
   ]
 }
 
-Position values: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Position values: GK, CB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
 There must be exactly 11 slots.`
 
   const response = await anthropic.messages.create({
@@ -1425,7 +1745,9 @@ There must be exactly 11 slots.`
   })
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  const structure = extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+  const structure = normalizeManagerXIStructure(
+    extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+  )
 
   if (lockedFormation) {
     return {
@@ -1630,7 +1952,7 @@ Return ONLY this JSON:
   ]
 }
 
-Position values: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Position values: GK, CB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
 Cover every position in your chosen formation — exactly 11 players.`
 
   const response = await anthropic.messages.create({
