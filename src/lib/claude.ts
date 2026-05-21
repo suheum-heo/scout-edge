@@ -129,7 +129,7 @@ export interface PlayerSystemFit {
 
 const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
 const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
-const SQUAD_FIT_BATCH_SIZE = 12
+const SQUAD_FIT_BATCH_SIZE = 15
 
 export interface PlayerCompatibilityResult {
   playerName: string
@@ -155,6 +155,16 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(i, i + size))
   }
   return chunks
+}
+
+function buildCachedManagerSystemPrompt(managerSection: string) {
+  return [
+    {
+      type: 'text' as const,
+      text: managerSection,
+      cache_control: { type: 'ephemeral' as const },
+    },
+  ]
 }
 
 function buildFallbackSystemFit(player: SquadPlayer): PlayerSystemFit {
@@ -329,8 +339,6 @@ ${
 
   const prompt = `You are an elite football scout and tactical analyst. Today's date is ${currentDate}. Analyze this squad's fit with the manager's tactical system.
 
-${managerSection}
-
 ## Current Squad at ${teamName} (as of ${currentDate}):
 ${squadSummary || `No squad data is available from our providers. Use your own knowledge of ${teamName}'s current roster (as of ${currentDate}) to perform this analysis. Apply the same JSON format — infer the squad composition, identify positional gaps, and assess tactical fit based on your training knowledge.`}
 ${squadSummary && (!hasStats ? '\n*Note: Per-match stats are not available. Use your knowledge of these players to assess their quality and tactical profile — but treat the squad list above as the authoritative current roster. Do NOT flag a positional gap if a player already listed in the squad can credibly fill that role.*' : !hasFullStats ? '\n*Note: Season appearance/minute data is not available, but FotMob ratings, goals, and assists are shown where non-zero. Use these plus your knowledge of each player to judge quality and recent form. The squad list and position data are authoritative.*' : '')}
@@ -380,7 +388,8 @@ Be specific and reference actual players from the squad. Urgency levels: critica
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    system: buildCachedManagerSystemPrompt(managerSection),
+    max_tokens: 2000,
     temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -421,7 +430,7 @@ export async function rankPlayersForGap(
 
   const playersData = candidatePlayers
     .filter(Boolean)
-    .slice(0, 20) // Limit to 20 candidates
+    .slice(0, 12)
     .map(
       (p) =>
         `ID:${p!.playerId} | ${p!.name} (Age ${p!.age}, ${p!.nationality}) | Team: ${p!.currentTeam} | Goals: ${p!.goals}, Assists: ${p!.assists}, Rating: ${p!.rating}, Apps: ${p!.appearances}, Tackles: ${p!.tackles}, Interceptions: ${p!.interceptions}, Duel Win%: ${p!.duelWinRate}%, Dribble Success%: ${p!.dribbleSuccess}%, Pass Acc: ${p!.passAccuracy}%, Key Passes: ${p!.keyPasses}`
@@ -469,7 +478,7 @@ Be analytical. Reference specific stats. Think like a scout who watches every ga
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
+    max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   })
 
@@ -530,8 +539,6 @@ Use your knowledge of this player — their current club, position, age, nationa
 
 ${playerSection}
 
-${managerSection}
-
 ${targetTeam ? `**Target Club**: ${targetTeam}` : ''}
 
 ## Task:
@@ -558,6 +565,7 @@ Be honest, specific, and analytical.`
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 2048,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -601,9 +609,6 @@ ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel})
         .join('\n')
 
       const prompt = `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
-
-## Manager: ${resolvedName}
-${managerSection}
 
 ## Squad batch ${chunkIndex + 1} of ${squadChunks.length} at ${teamName}:
 ${playerList}
@@ -652,7 +657,8 @@ Do not rename players. Copy playerName, position, and age exactly from the input
       try {
         const res = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
-          max_tokens: 1400,
+          system: buildCachedManagerSystemPrompt(managerSection),
+          max_tokens: 1200,
           temperature: 0,
           messages: [{ role: 'user', content: prompt }],
         })
@@ -693,7 +699,6 @@ export async function recommendPlayersForGap(
   const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend up to 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
-${managerSection}
 
 ## Tactical Gap:
 **Position**: ${gap.position}
@@ -749,6 +754,7 @@ Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "�
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -1164,7 +1170,6 @@ Use your knowledge of this player's current club, position, age, playing style, 
 ## Rumour: ${targetClub} want to sign ${playerName}
 
 ## Target Club Manager: ${resolvedManagerName}
-${managerSection}
 
 ## Player Profile:
 ${playerSection}
@@ -1193,6 +1198,7 @@ No other text.`
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 1500,
     messages: [{ role: 'user', content: prompt }],
   })
