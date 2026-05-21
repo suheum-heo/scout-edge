@@ -1324,6 +1324,7 @@ export interface IdealPlayer {
   playerName: string
   position: string        // "GK", "LCB", "CB", "RCB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
+  displayOrder?: number   // preserves canonical formation slot order for UI rendering
   age: number
   nationality: string
   currentClub: string

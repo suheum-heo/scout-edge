@@ -954,6 +954,10 @@ async function resolveCandidatePool(
   }
 
   const enrichedPlayers = selection.chosen.map((candidate) => candidate.player)
+    .map((player, index) => ({
+      ...player,
+      displayOrder: index,
+    }))
   if (enrichedPlayers.some((player) => !player.tmVerified)) {
     return null
   }

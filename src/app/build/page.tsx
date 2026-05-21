@@ -14,6 +14,11 @@ function positionSortIndex(position: string) {
   return index === -1 ? 99 : index
 }
 
+function playerSortIndex(player: IdealPlayer) {
+  if (typeof player.displayOrder === 'number') return player.displayOrder
+  return 100 + positionSortIndex(player.position)
+}
+
 function fitColor(score: number) {
   if (score >= 90) return 'text-violet-400'
   if (score >= 75) return 'text-blue-400'
@@ -158,7 +163,7 @@ export default function BuildPage() {
 
   const sortedPlayers = result
     ? [...result.players].sort(
-        (a, b) => positionSortIndex(a.position) - positionSortIndex(b.position)
+        (a, b) => playerSortIndex(a) - playerSortIndex(b)
       )
     : []
 
