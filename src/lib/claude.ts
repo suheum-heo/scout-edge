@@ -167,6 +167,51 @@ function buildCachedManagerSystemPrompt(managerSection: string) {
   ]
 }
 
+function requestUsesPromptCaching(params: Anthropic.MessageCreateParamsNonStreaming): boolean {
+  return Array.isArray(params.system)
+    && params.system.some((block) => typeof block === 'object' && block != null && 'cache_control' in block && Boolean(block.cache_control))
+}
+
+function stripPromptCachingFromSystem(system: Anthropic.MessageCreateParamsNonStreaming['system']) {
+  if (!Array.isArray(system)) return system
+  return system.map(({ cache_control: _cacheControl, ...block }) => block)
+}
+
+function shouldRetryWithoutPromptCaching(error: unknown): boolean {
+  const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) : null
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+    ? error
+    : ''
+  const normalized = message.toLowerCase()
+
+  return status === 400 && (
+    normalized.includes('cache_control') ||
+    normalized.includes('prompt caching') ||
+    normalized.includes('prompt cache') ||
+    normalized.includes('ephemeral') ||
+    normalized.includes('not enabled') ||
+    normalized.includes('unsupported')
+  )
+}
+
+async function createMessageWithPromptCacheFallback(params: Anthropic.MessageCreateParamsNonStreaming) {
+  try {
+    return await anthropic.messages.create(params)
+  } catch (error) {
+    if (!requestUsesPromptCaching(params) || !shouldRetryWithoutPromptCaching(error)) {
+      throw error
+    }
+
+    console.warn('Anthropic prompt caching unavailable, retrying without cache_control')
+    return anthropic.messages.create({
+      ...params,
+      system: stripPromptCachingFromSystem(params.system),
+    })
+  }
+}
+
 function buildFallbackSystemFit(player: SquadPlayer): PlayerSystemFit {
   return {
     playerName: player.name,
@@ -384,12 +429,19 @@ needScore (0-100) is a composite transfer priority score. Compute it as:
   - hybrid_coverage (0-30): deduct if a versatile player in the squad genuinely covers this role
 Higher needScore = more urgent transfer priority. Sort gaps in your response by needScore descending.
 
-Be specific and reference actual players from the squad. Urgency levels: critical (major weakness that will hurt results), high (clear need), medium (would help but manageable), low (minor upgrade). Return a maximum of 5 gaps.`
+Be specific and reference actual players from the squad. Urgency levels: critical (major weakness that will hurt results), high (clear need), medium (would help but manageable), low (minor upgrade). Return a maximum of 5 gaps.
 
-  const response = await anthropic.messages.create({
+## Concision Rules:
+- Keep overallAssessment to exactly 2 sentences
+- Keep each strength and weakness to 24 words max
+- Keep each gap reasoning to 2 sentences and 95 words max
+- Keep keyStatsPriority to at most 5 items
+- Prefer precision over long explanations`
+
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: 2000,
+    max_tokens: 2400,
     temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -563,7 +615,7 @@ Respond in this exact JSON format:
 Recommendation options: "Strong Yes", "Yes", "Conditional", "No", "Strong No"
 Be honest, specific, and analytical.`
 
-  const response = await anthropic.messages.create({
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 2048,
@@ -655,7 +707,7 @@ No other text. Cover every player.
 Do not rename players. Copy playerName, position, and age exactly from the input list.`
 
       try {
-        const res = await anthropic.messages.create({
+        const res = await createMessageWithPromptCacheFallback({
           model: 'claude-sonnet-4-6',
           system: buildCachedManagerSystemPrompt(managerSection),
           max_tokens: 1200,
@@ -752,7 +804,7 @@ Respond in this exact JSON format (be concise, no extra text):
 Availability options: "Likely available" | "Possible" | "Hard to get"
 Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.`
 
-  const response = await anthropic.messages.create({
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 1500,
@@ -1196,7 +1248,7 @@ Return ONLY this JSON:
 verdictLabel must be exactly one of: "Do it" | "Consider it" | "Risky" | "Avoid"
 No other text.`
 
-  const response = await anthropic.messages.create({
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 1500,
