@@ -2,6 +2,7 @@
 
 import { ManagerProfile } from '@/lib/managers'
 import { getPressingLabel, getLineLabel, getBuildUpLabel } from '@/lib/utils'
+import ExpandableText from '@/components/ExpandableText'
 
 interface ManagerCardProps {
   manager: ManagerProfile
@@ -57,9 +58,11 @@ export default function ManagerCard({ manager, compact = false }: ManagerCardPro
         </div>
       </div>
 
-      <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed mt-4 line-clamp-3">
-        {manager.tacticalSummary}
-      </p>
+      <ExpandableText
+        text={manager.tacticalSummary}
+        collapsedLines={3}
+        className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed mt-4"
+      />
     </div>
   )
 }

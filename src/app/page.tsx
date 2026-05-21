@@ -11,6 +11,7 @@ import ScenarioResultCard from '@/components/ScenarioResultCard'
 import ScenarioCompare from '@/components/ScenarioCompare'
 import UndervaluedXI from '@/components/UndervaluedXI'
 import LoadingSpinner from '@/components/LoadingSpinner'
+import ExpandableText from '@/components/ExpandableText'
 import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
@@ -544,9 +545,12 @@ export default function HomePage() {
                   </div>
                 )}
                 {managerResult.tacticalSummary && (
-                  <p className="text-slate-400 text-sm leading-relaxed mt-3 ml-11 line-clamp-2">
-                    {managerResult.tacticalSummary}
-                  </p>
+                  <ExpandableText
+                    text={managerResult.tacticalSummary}
+                    collapsedLines={2}
+                    className="text-slate-400 text-sm leading-relaxed mt-3 ml-11"
+                    buttonClassName="ml-11"
+                  />
                 )}
               </div>
               <div className="text-right flex-shrink-0">
