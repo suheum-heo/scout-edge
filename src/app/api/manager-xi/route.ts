@@ -116,6 +116,19 @@ function formatCompactEuros(value: number): string {
   return `€${Math.round(value)}`
 }
 
+function getBudgetSpendFloor(budget: string, cap: number | null): number | null {
+  if (cap === null) return null
+
+  switch (budget) {
+    case '€300M':
+      return 200_000_000
+    case '€500M':
+      return 325_000_000
+    default:
+      return null
+  }
+}
+
 function normalizeText(value?: string | null): string {
   return (value || '')
     .normalize('NFD')
@@ -131,6 +144,7 @@ function includesAny(text: string, phrases: string[]): boolean {
 
 function buildBudgetInstructions(budget: string, cap: number): string {
   const averagePerStarter = Math.floor(cap / 11)
+  const spendFloor = getBudgetSpendFloor(budget, cap)
 
   const bracketRules =
     budget === '€100M'
@@ -163,6 +177,7 @@ function buildBudgetInstructions(budget: string, cap: number): string {
     `Treat ${budget} as a hard ceiling, not a rough vibe.`,
     `Your pool must allow a full XI at or below ${formatCompactEuros(cap)} total.`,
     `The average starter can only cost about ${formatCompactEuros(averagePerStarter)}.`,
+    ...(spendFloor ? [`In this bracket, do not lowball the overall build: the final XI should usually land at or above ${formatCompactEuros(spendFloor)} unless no verified alternatives exist.`] : []),
     'If one player would consume more than roughly a fifth of the budget, exclude them unless the rest of the pool is clearly cheap enough to compensate.',
     'Provide materially cheaper fallback options in multiple slots, not just one or two.',
     'Before answering, sanity-check the arithmetic so a code-based selector can assemble a legal XI from your pool.',
@@ -472,10 +487,20 @@ function scoreBudgetFit(
   cap: number | null
 ): number {
   if (cap === null || !Number.isFinite(cost)) return 0
-  if (cost <= 0) return 10
+  if (cost <= 0) return cap >= 300_000_000 ? 4 : 10
 
   const target = Math.max(1, (cap / 11) * slotBudgetMultiplier(slot.position))
   const ratio = cost / target
+
+  if (cap >= 300_000_000) {
+    if (ratio < 0.45) return -4
+    if (ratio < 0.65) return 1
+    if (ratio <= 0.95) return 8
+    if (ratio <= 1.15) return 10
+    if (ratio <= 1.4) return 5
+    if (ratio <= 1.7) return 0
+    return -6
+  }
 
   if (ratio <= 0.75) return 12
   if (ratio <= 1) return 9
@@ -483,6 +508,31 @@ function scoreBudgetFit(
   if (ratio <= 1.5) return 2
   if (ratio <= 1.8) return -2
   return -8
+}
+
+function getBudgetUsageBonus(total: number, cap: number | null, budget: string): number {
+  if (cap === null || cap <= 0) return 0
+
+  const ratio = total / cap
+
+  switch (budget) {
+    case '€300M':
+    case '€500M':
+      if (ratio >= 0.85 && ratio <= 1) return 18
+      if (ratio >= 0.72) return 10
+      if (ratio >= 0.6) return 2
+      return -12
+    case '€200M':
+      if (ratio >= 0.7 && ratio <= 1) return 5
+      if (ratio >= 0.55) return 2
+      return 0
+    default:
+      return 0
+  }
+}
+
+function selectionRankScore(total: number, score: number, cap: number | null, budget: string): number {
+  return score + getBudgetUsageBonus(total, cap, budget)
 }
 
 function clampScore(value: number): number {
@@ -788,19 +838,46 @@ async function enrichSlots(
   return evaluatedSlots
 }
 
-function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): SelectionSummary {
+function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null, budget: string): SelectionSummary {
+  const spendFloor = getBudgetSpendFloor(budget, cap)
+  const preferHigherSpend = spendFloor !== null
+  let bestPreferredWithin: SelectionSummary | null = null
   let bestWithin: SelectionSummary | null = null
   let bestOver: SelectionSummary | null = null
 
+  function isBetterWithin(candidate: SelectionSummary, current: SelectionSummary, requireHealthySpend: boolean) {
+    const candidateRank = selectionRankScore(candidate.total, candidate.score, cap, budget)
+    const currentRank = selectionRankScore(current.total, current.score, cap, budget)
+
+    if (candidateRank !== currentRank) {
+      return candidateRank > currentRank
+    }
+
+    if (requireHealthySpend && cap !== null) {
+      const candidateGap = Math.abs(cap - candidate.total)
+      const currentGap = Math.abs(cap - current.total)
+      if (candidateGap !== currentGap) return candidateGap < currentGap
+      return candidate.total > current.total
+    }
+
+    return candidate.total < current.total
+  }
+
   function recordSelection(chosen: CandidateEvaluation[], total: number, score: number) {
     if (cap === null || total <= cap) {
-      if (
-        !bestWithin ||
-        score > bestWithin.score ||
-        (score === bestWithin.score && total < bestWithin.total)
-      ) {
-        bestWithin = { chosen: [...chosen], total, score, withinBudget: true }
+      const candidateSummary = { chosen: [...chosen], total, score, withinBudget: true }
+
+      if (!bestWithin || isBetterWithin(candidateSummary, bestWithin, preferHigherSpend)) {
+        bestWithin = candidateSummary
       }
+
+      if ((spendFloor === null || total >= spendFloor) && (
+        !bestPreferredWithin ||
+        isBetterWithin(candidateSummary, bestPreferredWithin, true)
+      )) {
+        bestPreferredWithin = candidateSummary
+      }
+
       return
     }
 
@@ -838,7 +915,7 @@ function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): Selec
   }
 
   dfs(0, [], new Set<string>(), 0, 0)
-  return bestWithin ?? bestOver ?? { chosen: [], total: 0, score: 0, withinBudget: false }
+  return bestPreferredWithin ?? bestWithin ?? bestOver ?? { chosen: [], total: 0, score: 0, withinBudget: false }
 }
 
 function calculateTotalEstimatedCost(players: IdealPlayer[]): number {
@@ -870,7 +947,7 @@ async function resolveCandidatePool(
 ): Promise<ManagerXIResult | null> {
   const cap = getBudgetCap(budget)
   const candidateSlots = await enrichSlots(pool.slots, manager, pool.managerName, cap)
-  const selection = selectPlayersForSlots(candidateSlots, cap)
+  const selection = selectPlayersForSlots(candidateSlots, cap, budget)
 
   if (selection.chosen.length !== pool.slots.length) {
     return null
