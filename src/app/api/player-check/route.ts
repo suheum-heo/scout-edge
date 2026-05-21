@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getManagerById } from '@/lib/managers'
 import { analyzePlayerCompatibility } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 
 export async function POST(request: NextRequest) {
@@ -23,6 +24,10 @@ export async function POST(request: NextRequest) {
     }
 
     const manager = managerId ? (getManagerById(managerId) ?? null) : null
+    const factualManagerName = manager?.name || managerName || null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      : null
 
     // Fetch live player data from Transfermarkt
     // If tmPlayerId is provided (player selected from typeahead), skip search
@@ -45,14 +50,23 @@ export async function POST(request: NextRequest) {
       tmPlayer,
       manager,
       targetTeam,
-      managerName
+      managerName,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
     )
 
     return NextResponse.json({
       compatibility,
       player: tmPlayer,
       manager: manager
-        ? { id: manager.id, name: manager.name, formations: manager.formations, style: manager.style, tacticalSummary: manager.tacticalSummary }
+        ? { id: manager.id, name: manager.name, formations: liveManagerSnapshot?.recentFormations || [], style: manager.style, tacticalSummary: manager.tacticalSummary }
         : { id: null, name: managerName || 'Unknown', formations: [], style: null, tacticalSummary: null },
     })
   } catch (error) {

@@ -208,6 +208,8 @@ function getSlotFamily(slot: Pick<ManagerXISlot, 'position' | 'archetypeLabel'>)
   switch (slot.position) {
     case 'GK':
       return 'goalkeeper'
+    case 'LCB':
+    case 'RCB':
     case 'CB':
       return 'center-back'
     case 'LB':
@@ -316,6 +318,8 @@ function scorePositionCompatibility(
     case 'goalkeeper':
       return includesAny(positionText, ['goalkeeper', 'keeper']) ? 18 : 0
     case 'center-back':
+      if (slot.position === 'LCB' && includesAny(positionText, ['left centre back', 'left center back'])) return 20
+      if (slot.position === 'RCB' && includesAny(positionText, ['right centre back', 'right center back'])) return 20
       if (includesAny(positionText, ['centre back', 'center back', 'central defender'])) return 18
       if (positionText.includes('defender')) return 10
       if (includesAny(positionText, ['left back', 'right back', 'wing back'])) return 6
@@ -438,6 +442,8 @@ function slotBudgetMultiplier(position: string): number {
     case 'LB':
     case 'RB':
       return 0.85
+    case 'LCB':
+    case 'RCB':
     case 'LWB':
     case 'RWB':
     case 'WB':
@@ -508,6 +514,8 @@ function toTMPositionCode(position?: string | null): string | null {
   if (!normalized) return null
 
   if (includesAny(normalized, ['goalkeeper', 'keeper'])) return 'GK'
+  if (includesAny(normalized, ['left centre back', 'left center back'])) return 'LCB'
+  if (includesAny(normalized, ['right centre back', 'right center back'])) return 'RCB'
   if (includesAny(normalized, ['left wing back'])) return 'LWB'
   if (includesAny(normalized, ['right wing back'])) return 'RWB'
   if (includesAny(normalized, ['wing back'])) return 'WB'
@@ -892,8 +900,12 @@ async function buildBudgetAwareManagerXI(
   const manager = managerId ? (getManagerById(managerId) || null) : null
   const liveManagerName = manager?.name || managerName || null
   const liveManagerSnapshot = liveManagerName
-    ? await getLiveManagerSnapshot(liveManagerName, { maxMatches: 10 }).catch(() => null)
+    ? await getLiveManagerSnapshot(liveManagerName, { maxMatches: 20 }).catch(() => null)
     : null
+  if (!liveManagerSnapshot?.primaryFormation) {
+    const resolvedName = manager?.name || managerName || 'This manager'
+    throw new Error(`Live formation data is unavailable for ${resolvedName} right now. Build XI currently requires a recent verified shape from live lineup data.`)
+  }
   const cap = getBudgetCap(budget)
   const verificationInstructions = buildVerificationInstructions()
   const baseInstructions = cap !== null
@@ -919,6 +931,7 @@ async function buildBudgetAwareManagerXI(
             currentClub: liveManagerSnapshot.currentClub,
             currentStatus: liveManagerSnapshot.status,
             referenceClub: liveManagerSnapshot.referenceClub,
+            recentFormations: liveManagerSnapshot.recentFormations,
           }
         : undefined
     )
@@ -943,6 +956,7 @@ async function buildBudgetAwareManagerXI(
             currentClub: liveManagerSnapshot.currentClub,
             currentStatus: liveManagerSnapshot.status,
             referenceClub: liveManagerSnapshot.referenceClub,
+            recentFormations: liveManagerSnapshot.recentFormations,
           }
         : undefined
     )
@@ -973,6 +987,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result)
   } catch (error) {
     console.error('Manager XI error:', error)
+    if (error instanceof Error && error.message.startsWith('Live formation data is unavailable')) {
+      return NextResponse.json({ error: error.message }, { status: 503 })
+    }
     const details = getAIErrorDetails(error, 'Failed to build XI. Please try again.')
     return NextResponse.json({ error: details.error }, { status: details.status })
   }

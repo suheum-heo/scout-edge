@@ -506,6 +506,11 @@ export async function POST(request: NextRequest) {
 
     // Detect national teams so recommendations can filter by nationality
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
+    const resolvedManager = manager ?? providerManagerProfile
+    const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      : null
 
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
     const allowManagerInference = Boolean(manager || providerManagerName)
@@ -516,13 +521,17 @@ export async function POST(request: NextRequest) {
       managerNameHint,
       unavailablePlayers,
       allowManagerInference,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined,
     )
     const inferredManagerName = analysis.managerName?.trim() || null
-    const resolvedManager = manager ?? providerManagerProfile
-    const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
-    const liveManagerSnapshot = factualManagerName
-      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 10 }).catch(() => null)
-      : null
     const factualManagerVerified = Boolean(factualManagerName)
     const managerSource = managerId
       ? 'override'

@@ -127,6 +127,14 @@ export interface PlayerSystemFit {
   valueLabel: 'Undervalued' | 'Fair Value' | 'Overpriced'
 }
 
+export interface LiveFormationContext {
+  primaryFormation?: string | null
+  recentFormations?: string[]
+  formationSampleSize?: number
+  formationSeason?: number | null
+  referenceClub?: string | null
+}
+
 const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
 const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
 const SQUAD_FIT_BATCH_SIZE = 15
@@ -155,6 +163,32 @@ function chunkArray<T>(items: T[], size: number): T[][] {
     chunks.push(items.slice(i, i + size))
   }
   return chunks
+}
+
+function buildLiveFormationDisplay(context?: LiveFormationContext): string {
+  if (!context?.primaryFormation) return 'Live recent shape unavailable'
+
+  const clubNote = context.referenceClub ? ` with ${context.referenceClub}` : ''
+  const seasonNote = context.formationSeason ? `, season ${context.formationSeason}` : ''
+  const sampleNote = context.formationSampleSize
+    ? ` (from ${context.formationSampleSize} recent lineup${context.formationSampleSize === 1 ? '' : 's'}${clubNote}${seasonNote})`
+    : ''
+
+  return `${context.primaryFormation}${sampleNote}`
+}
+
+function buildLiveFormationGuidance(context?: LiveFormationContext): string {
+  if (!context?.primaryFormation) {
+    return 'Live recent formation data is unavailable right now. Do not assume a hardcoded primary shape; stay shape-agnostic and lean on broader stylistic principles instead.'
+  }
+
+  const alternates = (context.recentFormations || [])
+    .filter((shape) => shape && shape !== context.primaryFormation)
+    .slice(0, 3)
+
+  return alternates.length
+    ? `Use ${context.primaryFormation} as the primary live shape reference. Secondary recent shapes: ${alternates.join(' / ')}.`
+    : `Use ${context.primaryFormation} as the primary live shape reference.`
 }
 
 function buildCachedManagerSystemPrompt(managerSection: string) {
@@ -317,6 +351,7 @@ export async function analyzeSquadGaps(
   managerName?: string,
   unavailablePlayers?: { name: string; position: string }[],
   allowManagerInference = true,
+  liveFormationContext?: LiveFormationContext,
 ): Promise<SquadAnalysisResult> {
   const resolvedName = manager?.name || managerName || 'Unknown Manager'
 
@@ -352,8 +387,9 @@ export async function analyzeSquadGaps(
 
   const managerSection = manager
     ? `## Manager: ${manager.name}
-**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 
 **Key Principles**:
 ${manager.keyPrinciples.map((p) => `- ${p}`).join('\n')}
@@ -377,7 +413,7 @@ ${
     ? allowManagerInference
       ? `Identify who currently manages ${teamName} as of ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} and use your knowledge of their tactical system for this analysis.`
       : `Live coach data is unavailable from our providers for ${teamName}. Do NOT guess or identify a current manager. Instead, analyze the squad generically and focus on structural weaknesses, squad balance, age risk, and role coverage that would matter across most modern top-level systems.`
-    : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). If this manager has recently changed clubs or been sacked, account for that. Apply their known tactical profile to analyze the squad below.`
+    : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). ${buildLiveFormationGuidance(liveFormationContext)} Apply their known tactical profile to analyze the squad below.`
 }`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -471,7 +507,8 @@ export async function rankPlayersForGap(
   manager: ManagerProfile | null,
   candidatePlayers: ReturnType<typeof formatPlayerStats>[],
   teamName: string,
-  managerName?: string
+  managerName?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<PlayerRecommendation[]> {
   if (!candidatePlayers.length) return []
 
@@ -491,9 +528,10 @@ export async function rankPlayersForGap(
 
   const managerSection = manager
     ? `## Manager: ${manager.name}
-**System**: ${manager.formations[0]} | **Pressing**: ${manager.style.pressing} | **Defensive Line**: ${manager.style.defensiveLine}`
+**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Pressing**: ${manager.style.pressing} | **Defensive Line**: ${manager.style.defensiveLine}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}`
     : `## Manager: ${resolvedName}
-Use your knowledge of ${resolvedName}'s tactical system and what this manager demands from players in this position.`
+Use your knowledge of ${resolvedName}'s tactical system and what this manager demands from players in this position. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const prompt = `You are an elite football scout. Rank these players for the specific tactical need.
 
@@ -559,15 +597,17 @@ export async function analyzePlayerCompatibility(
   tmPlayer: TMPlayerData | null,
   manager: ManagerProfile | null,
   targetTeam?: string,
-  managerName?: string
+  managerName?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<PlayerCompatibilityResult> {
   const resolvedManagerName = manager?.name || managerName || 'Unknown Manager'
 
   const managerSection = manager
     ? `## Manager: ${manager.name}
-**System**: ${manager.formations.join(' / ')}
+**System**: ${buildLiveFormationDisplay(liveFormationContext)}
 **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} defensive line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
 **Summary**: ${manager.tacticalSummary}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 
 **Key Principles**:
 ${manager.keyPrinciples.map((p) => `- ${p}`).join('\n')}
@@ -575,7 +615,7 @@ ${manager.keyPrinciples.map((p) => `- ${p}`).join('\n')}
 **Positional Requirements**:
 ${manager.positionalRequirements.map((req) => `**${req.position}** (${req.profileLabel}): Must Have: ${req.mustHave.join(', ')} | Avoid If: ${req.avoidIf.join(', ')}`).join('\n')}`
     : `## Manager: ${resolvedManagerName}
-Use your extensive knowledge of ${resolvedManagerName}'s tactical system — their preferred formations, pressing intensity, defensive line, build-up style, and what they demand from players in each position.`
+Use your extensive knowledge of ${resolvedManagerName}'s tactical system — their pressing intensity, defensive line, build-up style, and what they demand from players in each position. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const playerSection = tmPlayer
     ? `## Player: ${tmPlayer.name}
@@ -637,19 +677,21 @@ export async function analyzeSquadSystemFit(
   squad: SquadPlayer[],
   manager: ManagerProfile | null,
   teamName: string,
-  managerName?: string
+  managerName?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<PlayerSystemFit[]> {
   if (!squad.length) return []
 
   const resolvedName = manager?.name || managerName || 'the manager'
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}
 **Positional Requirements**:
 ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')}`).join('\n')}`
-    : `Use your knowledge of ${resolvedName}'s tactical system — formations, pressing intensity, build-up style, and what he demands from players in each role.`
+    : `Use your knowledge of ${resolvedName}'s tactical system — pressing intensity, build-up style, and what he demands from players in each role. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const squadChunks = chunkArray(squad, SQUAD_FIT_BATCH_SIZE)
@@ -737,14 +779,16 @@ export async function recommendPlayersForGap(
   budget: string,
   managerName?: string,
   roleCoverageContext?: string,
-  nationalTeamCountry?: string
+  nationalTeamCountry?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<TransferTarget[]> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')} | **Pressing**: ${manager.style.pressing} | **Build-up**: ${manager.style.buildUp}
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Pressing**: ${manager.style.pressing} | **Build-up**: ${manager.style.buildUp}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
-    : `Use your knowledge of ${resolvedName}'s tactical system and what he demands from players.`
+    : `Use your knowledge of ${resolvedName}'s tactical system and what he demands from players. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
@@ -866,15 +910,17 @@ export async function generateUndervaluedXI(
   manager: ManagerProfile | null,
   managerName?: string,
   teamName?: string,
-  extraBudgetInstructions?: string
+  extraBudgetInstructions?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<UndervaluedXIResult> {
   const resolvedName = manager?.name || managerName || 'a modern pressing manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
-    : `Use your knowledge of ${resolvedName}'s preferred tactical system.`
+    : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
 
@@ -939,15 +985,17 @@ export async function generateUndervaluedXICandidatePool(
   manager: ManagerProfile | null,
   managerName?: string,
   teamName?: string,
-  extraBudgetInstructions?: string
+  extraBudgetInstructions?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<UndervaluedXICandidatePool> {
   const resolvedName = manager?.name || managerName || 'a modern pressing manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
-    : `Use your knowledge of ${resolvedName}'s preferred tactical system.`
+    : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
 
@@ -1068,7 +1116,8 @@ export async function analyzeScenario(
   playersIn: ScenarioInPlayer[],
   manager: ManagerProfile | null,
   teamName: string,
-  managerName?: string
+  managerName?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<Omit<ScenarioResult, 'id' | 'label' | 'createdAt' | 'playersOut' | 'playersIn'>> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -1089,10 +1138,11 @@ export async function analyzeScenario(
   ]
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}`
-    : `Use your knowledge of ${resolvedName}'s tactical system — formations, pressing intensity, build-up style, and what he demands from players in each role.`
+    : `Use your knowledge of ${resolvedName}'s tactical system — pressing intensity, build-up style, and what he demands from players in each role. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
@@ -1194,18 +1244,20 @@ export async function analyzeTransferVerdict(
   targetClub: string,
   tmPlayer: TMPlayerData | null,
   manager: ManagerProfile | null,
-  managerName?: string
+  managerName?: string,
+  liveFormationContext?: LiveFormationContext
 ): Promise<TransferVerdictResult> {
   const resolvedManagerName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
   const managerSection = manager
-    ? `**System**: ${manager.formations.join(' / ')}
+    ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)}
 **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
+**Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}
 **Positional Requirements**: ${manager.positionalRequirements.map((r) => `${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')}`).join(' | ')}`
-    : `Use your knowledge of ${resolvedManagerName}'s tactical system — formations, pressing style, build-up, and what he demands from each position.`
+    : `Use your knowledge of ${resolvedManagerName}'s tactical system — pressing style, build-up, and what he demands from each position. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const playerSection = tmPlayer
     ? `**Player**: ${tmPlayer.name}
@@ -1270,7 +1322,7 @@ No other text.`
 
 export interface IdealPlayer {
   playerName: string
-  position: string        // "GK", "CB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
+  position: string        // "GK", "LCB", "CB", "RCB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
   age: number
   nationality: string
@@ -1361,6 +1413,10 @@ function defaultArchetypeForPosition(position: string): string {
   switch (position) {
     case 'GK':
       return 'Sweeper-Keeper'
+    case 'RCB':
+      return 'Aggressive Right Centre-Back'
+    case 'LCB':
+      return 'Progressive Left Centre-Back'
     case 'RB':
       return 'Attacking Right-Back'
     case 'LB':
@@ -1370,7 +1426,7 @@ function defaultArchetypeForPosition(position: string): string {
     case 'LWB':
       return 'Dynamic Left Wing-Back'
     case 'CB':
-      return 'Ball-Playing Center-Back'
+      return 'Covering Central Centre-Back'
     case 'CDM':
       return 'Press-Resistant #6'
     case 'CM':
@@ -1395,8 +1451,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
         { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1409,8 +1465,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
         { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
@@ -1423,8 +1479,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
         { slotId: 'CM-2', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1437,8 +1493,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'CDM', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1451,8 +1507,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'RW', position: 'RW', archetypeLabel: defaultArchetypeForPosition('RW') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1465,8 +1521,8 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
         { slotId: 'RB', position: 'RB', archetypeLabel: defaultArchetypeForPosition('RB') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'LB', position: 'LB', archetypeLabel: defaultArchetypeForPosition('LB') },
         { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
         { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
@@ -1478,9 +1534,9 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
     case '3-2-4-1':
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'CB', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'CDM-1', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
         { slotId: 'CDM-2', position: 'CDM', archetypeLabel: defaultArchetypeForPosition('CDM') },
         { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
@@ -1492,9 +1548,9 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
     case '3-4-1-2':
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'CB', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
         { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1506,9 +1562,9 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
     case '3-4-2-1':
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'CB', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
         { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1520,9 +1576,9 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
     case '3-4-3':
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'CB', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
         { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1535,9 +1591,9 @@ function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot
     case '5-3-2':
       return [
         { slotId: 'GK', position: 'GK', archetypeLabel: defaultArchetypeForPosition('GK') },
-        { slotId: 'CB-1', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-2', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
-        { slotId: 'CB-3', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'RCB', position: 'RCB', archetypeLabel: defaultArchetypeForPosition('RCB') },
+        { slotId: 'CB', position: 'CB', archetypeLabel: defaultArchetypeForPosition('CB') },
+        { slotId: 'LCB', position: 'LCB', archetypeLabel: defaultArchetypeForPosition('LCB') },
         { slotId: 'RWB', position: 'RWB', archetypeLabel: defaultArchetypeForPosition('RWB') },
         { slotId: 'LWB', position: 'LWB', archetypeLabel: defaultArchetypeForPosition('LWB') },
         { slotId: 'CM-1', position: 'CM', archetypeLabel: defaultArchetypeForPosition('CM') },
@@ -1555,6 +1611,8 @@ function getManagerXISlotFamily(position: string): string {
   switch (position) {
     case 'GK':
       return 'goalkeeper'
+    case 'LCB':
+    case 'RCB':
     case 'CB':
       return 'center-back'
     case 'LB':
@@ -1584,6 +1642,8 @@ function normalizeManagerXISlotPosition(position?: string | null, slotId?: strin
   const normalized = normalizeManagerXIText(`${slotId || ''} ${position || ''}`)
   if (!normalized) return null
 
+  if (includesAnyManagerXI(normalized, ['left centre back', 'left center back', 'left central defender']) || normalized.includes('lcb')) return 'LCB'
+  if (includesAnyManagerXI(normalized, ['right centre back', 'right center back', 'right central defender']) || normalized.includes('rcb')) return 'RCB'
   if (includesAnyManagerXI(normalized, ['left wing back', 'left wingback']) || normalized.includes('lwb')) return 'LWB'
   if (includesAnyManagerXI(normalized, ['right wing back', 'right wingback']) || normalized.includes('rwb')) return 'RWB'
   if (includesAnyManagerXI(normalized, ['left back'])) return 'LB'
@@ -1661,6 +1721,7 @@ interface ManagerXILiveContext {
   currentClub?: string | null
   currentStatus?: 'active' | 'free_agent' | 'unknown'
   referenceClub?: string | null
+  recentFormations?: string[]
 }
 
 function buildManagerXIContext(
@@ -1671,7 +1732,6 @@ function buildManagerXIContext(
   const resolvedName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const livePrimaryFormation = liveContext?.preferredFormation || null
-  const fallbackPrimaryFormation = livePrimaryFormation || manager?.formations[0] || null
   const liveStatusNote = liveContext?.currentStatus === 'free_agent'
     ? '**Live Status**: Free agent\n'
     : ''
@@ -1681,11 +1741,16 @@ function buildManagerXIContext(
   const liveFormationClub = liveContext?.referenceClub || liveContext?.currentClub || null
   const liveFormationNote = livePrimaryFormation
     ? `**Live Recent Shape**: ${livePrimaryFormation}${liveContext?.formationSampleSize ? ` (from ${liveContext.formationSampleSize} recent lineup${liveContext.formationSampleSize === 1 ? '' : 's'}${liveFormationClub ? ` with ${liveFormationClub}` : ''}${liveContext.formationSeason ? `, season ${liveContext.formationSeason}` : ''})` : ''}\n`
+    : liveContext
+    ? '**Live Recent Shape**: unavailable right now\n'
     : ''
-  const profileFallbackNote = !livePrimaryFormation && manager?.formations[0]
-    ? `**Profile Fallback Shape**: ${manager.formations[0]} (used because live recent formation data is unavailable)\n`
+  const alternateRecentShapes = (liveContext?.recentFormations || [])
+    .filter((shape) => shape && shape !== livePrimaryFormation)
+    .slice(0, 3)
+  const liveShapeMenu = alternateRecentShapes.length
+    ? `**Other Recent Shapes**: ${alternateRecentShapes.join(' / ')}\n`
     : ''
-  const liveContextHeader = `${liveStatusNote}${liveClubNote}${liveFormationNote}${profileFallbackNote}`
+  const liveContextHeader = `${liveStatusNote}${liveClubNote}${liveFormationNote}${liveShapeMenu}`
 
   const managerSection = manager
     ? `${liveContextHeader}**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
@@ -1695,7 +1760,7 @@ function buildManagerXIContext(
 ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
     : `${liveContextHeader}Use the live manager context above as the primary source of truth. Infer the tactical roles from the recent shape and current context, and only lean on broader football knowledge for stylistic details that the live data does not provide.`
 
-  return { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation }
+  return { resolvedName, currentDate, managerSection, livePrimaryFormation }
 }
 
 async function generateManagerXIStructure(
@@ -1719,7 +1784,7 @@ ${lockedFormation ? `\n## FORMATION RULE:\nUse exactly ${lockedFormation} as the
 1. ${lockedFormation ? `Use ${lockedFormation} as the formation` : `Choose one formation that perfectly suits ${resolvedName}'s system`}
 2. Return exactly 11 slots for that formation
 3. For each slot, give the exact position code and archetype label that best describes the role
-4. Use unique slot ids for repeated positions, e.g. CB-1 and CB-2
+4. Use side-specific position codes where appropriate, e.g. LCB / CB / RCB or LWB / RWB
 
 Return ONLY this JSON:
 {
@@ -1735,7 +1800,7 @@ Return ONLY this JSON:
   ]
 }
 
-Position values: GK, CB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Position values: GK, LCB, CB, RCB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
 There must be exactly 11 slots.`
 
   const response = await anthropic.messages.create({
@@ -1849,14 +1914,14 @@ export async function generateManagerXICandidatePool(
   extraBudgetInstructions?: string,
   liveContext?: ManagerXILiveContext
 ): Promise<ManagerXICandidatePool> {
-  const { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation } = buildManagerXIContext(manager, managerName, liveContext)
+  const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(manager, managerName, liveContext)
   const structure = await generateManagerXIStructure(
     resolvedName,
     currentDate,
     managerSection,
     budget,
     extraBudgetInstructions,
-    fallbackPrimaryFormation
+    livePrimaryFormation
   )
 
   const batchResults = await Promise.all(
@@ -1903,7 +1968,7 @@ export async function buildManagerXI(
   managerName?: string,
   liveContext?: ManagerXILiveContext
 ): Promise<ManagerXIResult> {
-  const { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation } = buildManagerXIContext(
+  const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(
     manager,
     managerName,
     liveContext
@@ -1915,10 +1980,10 @@ export async function buildManagerXI(
 ${managerSection}
 
 ## Budget: ${budget}
-${fallbackPrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${fallbackPrimaryFormation} as the base formation for this XI. Do not switch to a different primary shape.` : ''}
+${livePrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${livePrimaryFormation} as the base formation for this XI. Do not switch to a different primary shape.` : ''}
 
 ## Rules:
-1. Pick exactly 11 players in ${fallbackPrimaryFormation || 'a formation that fits'} ${fallbackPrimaryFormation ? `for ${resolvedName}'s system` : `that fits ${resolvedName}'s system perfectly`}
+1. Pick exactly 11 players in ${livePrimaryFormation || 'the live recent shape provided above'} for ${resolvedName}'s system
 2. Every player must be ACTIVELY playing professional football right now
 3. These are the IDEAL PROFILE players — the ones who most perfectly embody what ${resolvedName} wants at each position. Not necessarily the most famous, but the most tactically aligned.
 4. Budget constrains the realistic pool: if budget is €100M, you can't fill 11 positions with €50M players each — be realistic about fees. If budget is "Unlimited", pick the absolute best profile players money can buy.
@@ -1932,7 +1997,7 @@ ${fallbackPrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${fallbackPrimar
 
 Return ONLY this JSON:
 {
-  "formation": "${fallbackPrimaryFormation || '4-3-3'}",
+  "formation": "${livePrimaryFormation || '4-3-3'}",
   "managerName": "${resolvedName}",
   "identity": "2-3 sentences: the tactical DNA of this XI — what makes it uniquely suited to this manager's system and philosophy",
   "totalEstimatedCost": "≈€XM",
@@ -1952,7 +2017,7 @@ Return ONLY this JSON:
   ]
 }
 
-Position values: GK, CB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
+Position values: GK, LCB, CB, RCB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
 Cover every position in your chosen formation — exactly 11 players.`
 
   const response = await anthropic.messages.create({

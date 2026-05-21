@@ -5,6 +5,7 @@ export const maxDuration = 60
 import { getManagerByName } from '@/lib/managers'
 import { analyzeTransferVerdict } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 import { getTeamData, APICoach } from '@/lib/football-data'
 import { getSquadAndCoach as fotmobGetSquadAndCoach } from '@/lib/fotmob'
@@ -59,13 +60,26 @@ export async function POST(request: NextRequest) {
 
     // Resolve manager from coach name
     const manager = coachName ? getManagerByName(coachName) : undefined
+    const factualManagerName = manager?.name || coachName || null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      : null
 
     const verdict = await analyzeTransferVerdict(
       playerName,
       teamName,
       tmPlayer ?? null,
       manager || null,
-      coachName
+      coachName,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
     )
 
     return NextResponse.json({

@@ -10,6 +10,7 @@ import {
   UndervaluedXISlot,
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 7000
@@ -436,6 +437,10 @@ export async function POST(request: NextRequest) {
     }
 
     const manager = managerId ? getManagerById(managerId) : undefined
+    const factualManagerName = manager?.name || managerName || null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      : null
     const cap = getBudgetCap(budget)
     const budgetInstructions = cap !== null
       ? buildBudgetInstructions(budget, cap)
@@ -446,7 +451,16 @@ export async function POST(request: NextRequest) {
       manager || null,
       managerName,
       teamName,
-      budgetInstructions
+      budgetInstructions,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
     )
 
     const enrichedSlots = await enrichSlots(pool.slots)

@@ -149,6 +149,24 @@ export interface TMManagerSearchResult {
   contractUntil: string | null
 }
 
+export interface TMManagerProfileSnapshot {
+  preferredFormation: string | null
+  latestClub: string | null
+  latestClubId: string | null
+  latestRole: string | null
+  latestAppointed: string | null
+  latestInChargeUntil: string | null
+}
+
+export interface TMClubFinalFormation {
+  formation: string | null
+  rawTactic: string | null
+  matchday: string | null
+  matchReportUrl: string | null
+  trainerName: string | null
+  trainerId: string | null
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 export function formatMarketValue(value: number | null): string {
@@ -228,6 +246,16 @@ function normalizeManagerClub(value: string | null | undefined): string | null {
   }
 
   return normalizeClubDisplayName(clubName)
+}
+
+function normalizeTactic(value: string | null | undefined): string | null {
+  const raw = decodeHtml(value || '').trim()
+  if (!raw) return null
+
+  const numbers = raw.match(/\d+/g)
+  if (!numbers?.length) return null
+
+  return numbers.join('-')
 }
 
 function scoreStaffRole(position: string): number {
@@ -595,6 +623,65 @@ export async function getClubManager(
     .sort((left, right) => right.score - left.score)
 
   return ranked[0]?.member ?? null
+}
+
+export async function getClubFinalFormation(tmClubId: string): Promise<TMClubFinalFormation | null> {
+  try {
+    const data = await tmSiteFetch<{
+      matchInfo?: { tactic?: string; matchday?: { day?: string | number } }
+      matchReport?: { url?: string }
+      trainer?: { id?: string; name?: string }
+    }>(`/ceapi/FinalFormation/ClubId/${encodeURIComponent(tmClubId)}`)
+
+    const rawTactic = data?.matchInfo?.tactic || null
+    const formation = normalizeTactic(rawTactic)
+
+    if (!formation) return null
+
+    return {
+      formation,
+      rawTactic,
+      matchday: data?.matchInfo?.matchday?.day ? String(data.matchInfo.matchday.day) : null,
+      matchReportUrl: data?.matchReport?.url ? `${TM_SITE_BASE}${data.matchReport.url}` : null,
+      trainerName: data?.trainer?.name || null,
+      trainerId: data?.trainer?.id || null,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function getManagerProfileSnapshot(tmManagerId: string): Promise<TMManagerProfileSnapshot | null> {
+  try {
+    const html = await tmSiteFetchText(`/-/profil/trainer/${encodeURIComponent(tmManagerId)}`)
+
+    const preferredFormation = normalizeTactic(
+      decodeHtml(html.match(/<th>\s*Preferred formation:\s*<\/th>\s*<td>([^<]+)<\/td>/i)?.[1] || '')
+    )
+
+    const latestRoleRow = html.match(
+      /<tr class="">[\s\S]*?<a title="([^"]+)" href="\/[^"]*\/verein\/(\d+)[^"]*">[\s\S]*?<td class="hauptlink no-border-links"><a[^>]*>[^<]+<\/a><br>([^<]+)<\/td><td class="zentriert">[^<]*(?:\((\d{2}\/\d{2}\/\d{4})\))?<\/td><td class="zentriert">[^<]*(?:\((\d{2}\/\d{2}\/\d{4})\))?<\/td>/i
+    )
+
+    const latestRole = decodeHtml(latestRoleRow?.[3] || '')
+    const latestRoleScore = latestRole ? scoreStaffRole(latestRole) : 0
+
+    const snapshot: TMManagerProfileSnapshot = {
+      preferredFormation,
+      latestClub: latestRoleRow?.[1] ? normalizeClubDisplayName(decodeHtml(latestRoleRow[1])) : null,
+      latestClubId: latestRoleRow?.[2] || null,
+      latestRole: latestRole || null,
+      latestAppointed: normalizeTMDate(latestRoleRow?.[4] || null),
+      latestInChargeUntil: normalizeTMDate(latestRoleRow?.[5] || null),
+    }
+
+    if (!snapshot.preferredFormation && !snapshot.latestClub) return null
+    if (snapshot.latestRole && latestRoleScore <= 0) return null
+
+    return snapshot
+  } catch {
+    return null
+  }
 }
 
 export async function searchManagers(query: string): Promise<TMManagerSearchResult[]> {

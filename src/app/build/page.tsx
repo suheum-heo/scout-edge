@@ -7,7 +7,7 @@ import { ManagerXIResult, IdealPlayer } from '@/lib/claude'
 
 const BUDGETS = ['€100M', '€200M', '€300M', '€500M', 'Unlimited']
 
-const POSITION_ORDER = ['GK', 'RB', 'RWB', 'CB', 'LB', 'LWB', 'CDM', 'CM', 'CAM', 'RW', 'LW', 'CF', 'ST']
+const POSITION_ORDER = ['GK', 'RB', 'RWB', 'RCB', 'CB', 'LCB', 'LB', 'LWB', 'CDM', 'CM', 'CAM', 'RW', 'LW', 'CF', 'ST']
 
 function positionSortIndex(position: string) {
   const index = POSITION_ORDER.indexOf(position)

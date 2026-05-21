@@ -6,6 +6,7 @@ export const maxDuration = 60
 import { getManagerById } from '@/lib/managers'
 import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 
@@ -134,6 +135,10 @@ export async function POST(request: NextRequest) {
     }
 
     const manager = managerId ? getManagerById(managerId) : undefined
+    const factualManagerName = manager?.name || managerName || null
+    const liveManagerSnapshot = factualManagerName
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      : null
 
     // Lazy role-profile inference: fetch/infer profiles for all squad players, then summarize coverage
     let roleCoverageContext: string | undefined
@@ -155,7 +160,16 @@ export async function POST(request: NextRequest) {
       budget,
       managerName,
       roleCoverageContext,
-      nationalTeamCountry
+      nationalTeamCountry,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            formationSampleSize: liveManagerSnapshot.sampleSize,
+            formationSeason: liveManagerSnapshot.season,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
     )
 
     // Enrich with live Transfermarkt data (current club, real market value, contract)

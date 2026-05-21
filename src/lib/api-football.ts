@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { normalizeCountryDisplayName } from './country-names'
 import { buildFullName, namesMatch } from './person-names'
-import { searchManager } from './transfermarkt'
+import { getClubFinalFormation, getManagerProfileSnapshot, searchClub, searchManager } from './transfermarkt'
 
 const BASE_URL = 'https://v3.football.api-sports.io'
 
@@ -117,6 +117,7 @@ export interface CoachLiveContext {
   referenceClub: string | null
   referenceTeamId: number | null
   referenceStart: string | null
+  referenceEnd: string | null
 }
 
 export interface ManagerLiveSnapshot {
@@ -148,15 +149,26 @@ export const SUPPORTED_LEAGUES = [
 
 export const CURRENT_SEASON = 2025
 
-// Leagues not covered by football-data.org — pre-fetched and cached for local fuzzy search
-// Each entry is one API call. MLS includes both 2024+2025 so we always get data.
+// League team lists pre-fetched and cached for local fuzzy search.
+// This avoids relying on /teams?search=..., which has become unreliable for many clubs.
 const EXTRA_LEAGUES = [
+  { id: 39,  season: CURRENT_SEASON }, // Premier League
+  { id: 40,  season: CURRENT_SEASON }, // Championship
+  { id: 140, season: CURRENT_SEASON }, // La Liga
+  { id: 135, season: CURRENT_SEASON }, // Serie A
+  { id: 78,  season: CURRENT_SEASON }, // Bundesliga
+  { id: 61,  season: CURRENT_SEASON }, // Ligue 1
+  { id: 88,  season: CURRENT_SEASON }, // Eredivisie
+  { id: 94,  season: CURRENT_SEASON }, // Primeira Liga
+  { id: 179, season: CURRENT_SEASON }, // Scottish Premiership
+  { id: 307, season: CURRENT_SEASON }, // Saudi Pro League
+  { id: 71,  season: CURRENT_SEASON }, // Brasileirao Serie A
   { id: 253, season: 2025 }, // MLS 2025
   { id: 253, season: 2024 }, // MLS 2024 (fallback — 2025 may be incomplete early in season)
-  { id: 203, season: 2024 }, // Turkish Süper Lig
+  { id: 203, season: CURRENT_SEASON }, // Turkish Süper Lig
   { id: 292, season: 2025 }, // K League 1
   { id: 98,  season: 2025 }, // J1 League
-  { id: 144, season: 2024 }, // Belgian Pro League
+  { id: 144, season: CURRENT_SEASON }, // Belgian Pro League
 ]
 
 let extraLeagueTeams: APITeam[] | null = null
@@ -285,6 +297,10 @@ function compareIsoDateDesc(left?: string | null, right?: string | null) {
   return String(right || '').localeCompare(String(left || ''))
 }
 
+function toIsoDateKey(value?: string | null) {
+  return String(value || '').slice(0, 10)
+}
+
 function buildFullCoachName(coach: APICoach) {
   return buildFullName(coach.firstname, coach.lastname, coach.name)
 }
@@ -333,6 +349,7 @@ export function getCoachLiveContext(coach: APICoach): CoachLiveContext {
       referenceClub: current.teamName,
       referenceTeamId: current.teamId,
       referenceStart: current.start,
+      referenceEnd: current.end,
     }
   }
 
@@ -345,6 +362,7 @@ export function getCoachLiveContext(coach: APICoach): CoachLiveContext {
       referenceClub: latest.teamName,
       referenceTeamId: latest.teamId,
       referenceStart: latest.start,
+      referenceEnd: latest.end,
     }
   }
 
@@ -357,6 +375,7 @@ export function getCoachLiveContext(coach: APICoach): CoachLiveContext {
       referenceClub: coach.team.name,
       referenceTeamId: coach.team.id,
       referenceStart: null,
+      referenceEnd: null,
     }
   }
 
@@ -368,6 +387,7 @@ export function getCoachLiveContext(coach: APICoach): CoachLiveContext {
     referenceClub: null,
     referenceTeamId: null,
     referenceStart: null,
+    referenceEnd: null,
   }
 }
 
@@ -736,11 +756,12 @@ export async function getLiveCoachByName(coachName: string): Promise<APICoach | 
 
 export async function getRecentTeamFormations(
   teamId: number,
-  options?: { maxMatches?: number; since?: string | null }
+  options?: { maxMatches?: number; since?: string | null; until?: string | null }
 ): Promise<RecentTeamFormations> {
   const maxMatches = Math.max(1, Math.min(options?.maxMatches ?? 10, 20))
   const since = options?.since || null
-  const cacheKey = `formations:${teamId}:${maxMatches}:${since || 'none'}`
+  const until = options?.until || null
+  const cacheKey = `formations:${teamId}:${maxMatches}:${since || 'none'}:${until || 'none'}`
   const cached = getCached<RecentTeamFormations>(cacheKey)
   if (cached) return cached
 
@@ -755,7 +776,8 @@ export async function getRecentTeamFormations(
 
       const recentFixtures = fixtureRows
         .filter((row) => row.fixture?.id && isFinishedFixture(row.fixture?.status?.short))
-        .filter((row) => !since || String(row.fixture?.date || '') >= since)
+        .filter((row) => !since || toIsoDateKey(row.fixture?.date) >= toIsoDateKey(since))
+        .filter((row) => !until || toIsoDateKey(row.fixture?.date) <= toIsoDateKey(until))
         .sort((left, right) => compareIsoDateDesc(left.fixture?.date, right.fixture?.date))
         .slice(0, maxMatches)
 
@@ -848,6 +870,9 @@ export async function getLiveManagerSnapshot(
     getLiveCoachByName(coachName),
     searchManager(coachName).catch(() => null),
   ])
+  const tmManagerProfile = tmManager?.id
+    ? await getManagerProfileSnapshot(tmManager.id).catch(() => null)
+    : null
 
   const afLiveContext = coach ? getCoachLiveContext(coach) : null
   const tmCurrentClub = tmManager?.currentClub || null
@@ -865,24 +890,27 @@ export async function getLiveManagerSnapshot(
             ...afActiveContext,
             currentClub: tmCurrentClub,
             referenceClub: tmCurrentClub,
+            referenceStart: afActiveContext.referenceStart || tmManagerProfile?.latestAppointed || null,
           }
         : {
             status: 'active',
             currentClub: tmCurrentClub,
             currentTeamId: null,
-            currentStart: null,
+            currentStart: tmManagerProfile?.latestAppointed || null,
             referenceClub: tmCurrentClub,
             referenceTeamId: null,
-            referenceStart: null,
+            referenceStart: tmManagerProfile?.latestAppointed || null,
+            referenceEnd: null,
           }
       : {
           status: 'free_agent',
           currentClub: null,
           currentTeamId: null,
           currentStart: null,
-          referenceClub: afLiveContext?.referenceClub || null,
+          referenceClub: afLiveContext?.referenceClub || tmManagerProfile?.latestClub || null,
           referenceTeamId: afLiveContext?.referenceTeamId || null,
-          referenceStart: afLiveContext?.referenceStart || null,
+          referenceStart: afLiveContext?.referenceStart || tmManagerProfile?.latestAppointed || null,
+          referenceEnd: afLiveContext?.referenceEnd || tmManagerProfile?.latestInChargeUntil || null,
         }
     : afLiveContext
 
@@ -903,12 +931,52 @@ export async function getLiveManagerSnapshot(
     currentTeamId = referenceTeamId
   }
 
-  const formations = referenceTeamId
-    ? await getRecentTeamFormations(referenceTeamId, {
-        maxMatches: options?.maxMatches ?? 10,
-        since: liveContext.referenceStart,
-      })
-    : { primaryFormation: null, formations: [], sampleSize: 0, season: null }
+  const shouldUseTMFinalFormation = liveContext.status === 'active'
+  let tmReferenceClubId = shouldUseTMFinalFormation ? tmManager?.currentClubId || null : null
+  if (!tmReferenceClubId && shouldUseTMFinalFormation) {
+    const tmClubQuery = liveContext.currentClub || liveContext.referenceClub
+    if (tmClubQuery) {
+      tmReferenceClubId = await searchClub(tmClubQuery).catch(() => null)
+    }
+  }
+
+  const [formations, rawTMFinalFormation] = await Promise.all([
+    referenceTeamId
+      ? getRecentTeamFormations(referenceTeamId, {
+          maxMatches: options?.maxMatches ?? 10,
+          since: liveContext.referenceStart,
+          until: liveContext.referenceEnd,
+        })
+      : Promise.resolve({ primaryFormation: null, formations: [], sampleSize: 0, season: null }),
+    tmReferenceClubId ? getClubFinalFormation(tmReferenceClubId).catch(() => null) : Promise.resolve(null),
+  ])
+
+  const tmFinalFormation =
+    shouldUseTMFinalFormation &&
+    rawTMFinalFormation &&
+    (
+      !rawTMFinalFormation.trainerName ||
+      namesMatch(rawTMFinalFormation.trainerName, tmManager?.name || coachName) ||
+      namesMatch(rawTMFinalFormation.trainerName, coachName)
+    )
+      ? rawTMFinalFormation
+      : null
+
+  const profilePreferredFormation = tmManagerProfile?.preferredFormation || null
+  const recentFormations = [
+    ...formations.formations.map((item) => item.formation),
+    ...(tmFinalFormation?.formation ? [tmFinalFormation.formation] : []),
+    ...(profilePreferredFormation ? [profilePreferredFormation] : []),
+  ].filter((formation, index, list) => Boolean(formation) && list.indexOf(formation) === index)
+
+  const formationCounts = formations.formations.length > 0
+    ? formations.formations
+    : tmFinalFormation?.formation
+    ? [{ formation: tmFinalFormation.formation, count: 1 }]
+    : []
+
+  const primaryFormation = formations.primaryFormation || tmFinalFormation?.formation || profilePreferredFormation || null
+  const sampleSize = formations.sampleSize || (tmFinalFormation?.formation ? 1 : 0)
 
   return {
     name: tmManager?.name || (coach ? buildFullCoachName(coach) || coach.name : coachName),
@@ -918,10 +986,10 @@ export async function getLiveManagerSnapshot(
     referenceClub: liveContext.referenceClub,
     referenceTeamId: referenceTeamId || null,
     tenureStart: liveContext.referenceStart,
-    primaryFormation: formations.primaryFormation,
-    recentFormations: formations.formations.map((item) => item.formation),
-    formationCounts: formations.formations,
-    sampleSize: formations.sampleSize,
+    primaryFormation,
+    recentFormations,
+    formationCounts,
+    sampleSize,
     season: formations.season,
   }
 }
