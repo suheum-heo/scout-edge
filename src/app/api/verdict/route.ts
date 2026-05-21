@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       verdict,
       player: tmPlayer,
+      playerVerified: Boolean(tmPlayer),
       detectedManager: coachName || null,
     })
   } catch (error) {

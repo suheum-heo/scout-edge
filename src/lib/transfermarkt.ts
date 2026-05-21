@@ -113,6 +113,7 @@ export interface TMPlayerData {
   assists: number
   minutesPlayed: number
   yellowCards: number
+  statsAvailable: boolean
 }
 
 export interface TMClubPlayer {
@@ -301,6 +302,63 @@ function stripDiacritics(str: string): string {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+function buildHyphenatedTokenVariants(token: string): string[] {
+  const normalized = token.trim()
+  if (!normalized || normalized.includes('-')) return []
+  if (normalized.length < 5 || normalized.length > 10) return []
+
+  const variants = new Set<string>()
+  for (const tailLength of [2, 3, 4]) {
+    if (normalized.length - tailLength < 2) continue
+    variants.add(`${normalized.slice(0, -tailLength)}-${normalized.slice(-tailLength)}`)
+  }
+
+  return Array.from(variants)
+}
+
+function buildTMPlayerSearchQueries(query: string): string[] {
+  const trimmed = query.trim()
+  const stripped = stripDiacritics(trimmed)
+  const spaced = trimmed.replace(/[’']/g, "'").replace(/-/g, ' ').replace(/\s+/g, ' ').trim()
+  const strippedSpaced = stripDiacritics(spaced)
+  const tokens = strippedSpaced.split(' ').filter(Boolean)
+
+  const queries = new Set<string>([
+    trimmed,
+    stripped,
+    spaced,
+    strippedSpaced,
+  ].filter(Boolean))
+
+  if (tokens.length >= 2) {
+    queries.add(tokens.join(' '))
+    queries.add([...tokens].reverse().join(' '))
+  }
+
+  if (tokens.length === 2) {
+    const [first, second] = tokens
+
+    for (const firstVariant of [first, ...buildHyphenatedTokenVariants(first)]) {
+      queries.add(`${firstVariant} ${second}`)
+      queries.add(`${second} ${firstVariant}`)
+    }
+
+    for (const secondVariant of [second, ...buildHyphenatedTokenVariants(second)]) {
+      queries.add(`${first} ${secondVariant}`)
+      queries.add(`${secondVariant} ${first}`)
+    }
+  }
+
+  const firstToken = tokens[0] || ''
+  const lastToken = tokens.at(-1) || ''
+  if (firstToken.length >= 4) queries.add(firstToken)
+  if (lastToken.length >= 4) queries.add(lastToken)
+
+  return Array.from(queries)
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
 function buildTMClubSearchQueries(query: string): string[] {
   const stripped = stripDiacritics(query)
   const spaced = query.replace(/[/-]+/g, ' ').replace(/\s+/g, ' ').trim()
@@ -428,13 +486,7 @@ export async function searchPlayer(
   name: string,
   hints?: { age?: number; club?: string }
 ): Promise<TMPlayerSearchResult | null> {
-  const stripped = stripDiacritics(name)
-  const lastName = stripped.split(' ').at(-1) ?? ''
-
-  // Try progressively simpler queries until we get results
-  let results = await searchPlayers(name)
-  if (!results.length && stripped !== name) results = await searchPlayers(stripped)
-  if (!results.length && lastName.length >= 5) results = await searchPlayers(lastName)
+  const results = await searchPlayers(name)
   if (!results.length) return null
 
   const q = name.toLowerCase()
@@ -475,19 +527,29 @@ export async function searchPlayer(
  * Search players by name, return up to 8 results for typeahead suggestions.
  */
 export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[]> {
-  try {
-    const encoded = encodeURIComponent(name)
-    const data = await tmFetch<{ results: TMPlayerSearchResult[] }>(`/players/search/${encoded}`)
-    return data.results.slice(0, 8).map((player) => ({
-      ...player,
-      club: {
-        ...player.club,
-        name: normalizeClubDisplayName(player.club?.name),
-      },
-    }))
-  } catch {
-    return []
+  const queries = buildTMPlayerSearchQueries(name)
+
+  for (const query of queries) {
+    try {
+      const encoded = encodeURIComponent(query)
+      const data = await tmFetch<{ results: TMPlayerSearchResult[] }>(`/players/search/${encoded}`)
+      const results = (data.results || []).slice(0, 8).map((player) => ({
+        ...player,
+        club: {
+          ...player.club,
+          name: normalizeClubDisplayName(player.club?.name),
+        },
+      }))
+
+      if (results.length > 0) {
+        return results
+      }
+    } catch {
+      continue
+    }
   }
+
+  return []
 }
 
 /**
@@ -511,6 +573,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
     ])
 
     const stats = aggregateStats(statsData.stats)
+    const statsAvailable = Array.isArray(statsData.stats) && statsData.stats.length > 0
 
     return {
       id: profile.id,
@@ -527,6 +590,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       marketValue: profile.marketValue,
       marketValueFormatted: formatMarketValue(profile.marketValue),
       ...stats,
+      statsAvailable,
     }
   } catch {
     return null

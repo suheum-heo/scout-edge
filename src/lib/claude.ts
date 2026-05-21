@@ -1239,6 +1239,72 @@ export interface TransferVerdictResult {
   scoutVerdict: string      // 2-3 sentence full scout reasoning on the transfer picture
 }
 
+const VERDICT_UNSUPPORTED_HISTORY_PATTERN = /\b(loan|loanee|spells?|previously|formerly|prior spell|came through|developed at|during (?:his|her) time at)\b/i
+const VERDICT_UNSUPPORTED_LEAGUE_PATTERN = /\b(eredivisie|la liga|serie a|bundesliga|ligue 1|k-league|j-league|mls|primeira liga|scottish premiership|championship|super lig|süper lig)\b/i
+const VERDICT_UNSUPPORTED_MISSING_STATS_PATTERN = /\b(zero goals?|zero assists?|zero appearances?|zero minutes?|no recorded output|no appearances|no minutes|no statistical baseline|absence of recorded output|registered no minutes|registered no appearances)\b/i
+
+function mentionsUnsupportedVerdictHistory(text: string, hasVerifiedPlayerFacts: boolean): boolean {
+  if (VERDICT_UNSUPPORTED_HISTORY_PATTERN.test(text)) return true
+  return !hasVerifiedPlayerFacts && VERDICT_UNSUPPORTED_LEAGUE_PATTERN.test(text)
+}
+
+function mentionsUnsupportedVerdictStats(text: string, tmPlayer: TMPlayerData | null): boolean {
+  return Boolean(tmPlayer && !tmPlayer.statsAvailable && VERDICT_UNSUPPORTED_MISSING_STATS_PATTERN.test(text))
+}
+
+function sanitizeTransferVerdict(
+  result: Omit<TransferVerdictResult, 'playerName' | 'targetClub' | 'managerName'>,
+  playerName: string,
+  targetClub: string,
+  managerName: string,
+  tmPlayer: TMPlayerData | null
+): Omit<TransferVerdictResult, 'playerName' | 'targetClub' | 'managerName'> {
+  const hasVerifiedPlayerFacts = Boolean(tmPlayer)
+
+  const defaultWorks = [
+    `${playerName}'s broad role profile may still offer upside if the coaching staff see a clear tactical development plan.`,
+    hasVerifiedPlayerFacts
+      ? `The live player record supports discussing ${playerName} as a real market option rather than a purely hypothetical fit.`
+      : `If the deal is framed as a low-risk project rather than an instant solution, the downside is easier to control.`,
+  ]
+
+  const defaultConcerns = [
+    hasVerifiedPlayerFacts
+      ? `This move still has to be judged on system fit rather than generic name value alone.`
+      : `The live player facts for this spelling could not be fully verified, so any career-specific narrative would be too risky to trust.`,
+    `${managerName}'s tactical demands may require technical and positional qualities that cannot simply be assumed.`,
+  ]
+
+  const sanitizedWorks = (result.whyItWorks || [])
+    .filter((entry) => !mentionsUnsupportedVerdictHistory(entry, hasVerifiedPlayerFacts))
+    .filter((entry) => !mentionsUnsupportedVerdictStats(entry, tmPlayer))
+  const sanitizedConcerns = (result.whyItDoesnt || [])
+    .filter((entry) => !mentionsUnsupportedVerdictHistory(entry, hasVerifiedPlayerFacts))
+    .filter((entry) => !mentionsUnsupportedVerdictStats(entry, tmPlayer))
+
+  return {
+    ...result,
+    headline: (mentionsUnsupportedVerdictHistory(result.headline || '', hasVerifiedPlayerFacts) || mentionsUnsupportedVerdictStats(result.headline || '', tmPlayer))
+      ? `${playerName} may be an interesting tactical idea for ${targetClub}, but the live player facts are not strong enough for a biography-heavy verdict.`
+      : result.headline,
+    whyItWorks: sanitizedWorks.length > 0 ? sanitizedWorks : defaultWorks,
+    whyItDoesnt: sanitizedConcerns.length > 0 ? sanitizedConcerns : defaultConcerns,
+    valueAssessment: hasVerifiedPlayerFacts
+      ? result.valueAssessment
+      : `Without a verified live player record, fee and contract analysis should be treated cautiously rather than confidently.`,
+    timing: hasVerifiedPlayerFacts
+      ? mentionsUnsupportedVerdictStats(result.timing || '', tmPlayer)
+        ? `The current live profile does not provide enough verified season-detail context to make a confident timing argument beyond broad age and market logic.`
+        : result.timing
+      : `Without a verified live player record, timing and career-stage claims should stay cautious rather than biography-heavy.`,
+    scoutVerdict: (mentionsUnsupportedVerdictHistory(result.scoutVerdict || '', hasVerifiedPlayerFacts) || mentionsUnsupportedVerdictStats(result.scoutVerdict || '', tmPlayer))
+      ? hasVerifiedPlayerFacts
+        ? `${playerName} can still be judged as a tactical fit question first, but unsupported claims about past clubs or loan spells should not drive the verdict. The safer read is to keep the focus on present role fit, price, and whether ${managerName}'s system truly suits the player.`
+        : `${playerName} can still be discussed as a tactical fit question, but the live player record was not verified strongly enough for detailed career storytelling. The safest verdict is to judge the move on broad role fit and price discipline, not invented biography.`
+      : result.scoutVerdict,
+  }
+}
+
 export async function analyzeTransferVerdict(
   playerName: string,
   targetClub: string,
@@ -1264,10 +1330,15 @@ export async function analyzeTransferVerdict(
 **Position**: ${tmPlayer.position} | **Age**: ${tmPlayer.age} | **Nationality**: ${tmPlayer.nationality}
 **Current Club**: ${tmPlayer.currentClub} | **Contract until**: ${tmPlayer.contractYear}
 **Market Value**: ${tmPlayer.marketValueFormatted}
-**2024/25 season stats (across all clubs)**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}
+${tmPlayer.statsAvailable
+  ? `**2024/25 season stats (across all clubs)**: Goals ${tmPlayer.goals}, Assists ${tmPlayer.assists}, Apps ${tmPlayer.appearances}, Mins ${tmPlayer.minutesPlayed}
 **Important**: These stats cover the full season across all clubs the player has appeared for — do NOT attribute them to any single club, especially if the player recently transferred.`
+  : `**2024/25 season stats**: unavailable from live Transfermarkt data right now.
+**Important**: Missing stats are not the same as zero stats. Do NOT describe the player as having zero goals, zero appearances, or poor form unless that is explicitly stated above.`}
+**Fact Guardrail**: You may reference only the player's current club, contract year, market value, age, nationality, position, and any season totals explicitly listed here. Do NOT infer international status, previous clubs, previous leagues, loan spells, youth clubs, transfer history, or missing-season output.`
     : `**Player**: ${playerName}
-Use your knowledge of this player's current club, position, age, playing style, and market situation as of ${currentDate}.`
+**Verified Player Facts**: unavailable for this spelling right now.
+**Fact Guardrail**: Because live player verification failed, do NOT mention specific previous clubs, previous leagues, loan spells, exact contract situations, exact goal records, or transfer history as facts. Keep the verdict role-based and uncertainty-aware instead of inventing biography.`
 
   const prompt = `You are an elite football scout giving a verdict on a transfer rumour. Today is ${currentDate}.
 
@@ -1282,6 +1353,12 @@ ${playerSection}
 Give an honest, decisive scout verdict on whether ${targetClub} should sign ${playerName}.
 
 Be opinionated — this is a verdict, not a balance sheet. If it's a good move, say so clearly. If it's wrong, explain why. Reference the manager's specific system demands and whether this player can meet them.
+
+## Accuracy Rules:
+- Treat the supplied player facts as the only reliable factual source.
+- If previous clubs, loan spells, previous leagues, or transfer history are not explicitly listed in the player profile above, do not mention them.
+- If verified player facts are unavailable, keep the verdict generic and tactical. Do not invent biography.
+- Never cite a club, league, loan spell, or contract fact that is missing from the supplied profile.
 
 Return ONLY this JSON:
 {
@@ -1308,7 +1385,8 @@ No other text.`
   })
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  const result = extractJSON(sanitizeHomoglyphs(raw), 'object') as Omit<TransferVerdictResult, 'playerName' | 'targetClub' | 'managerName'>
+  const parsed = extractJSON(sanitizeHomoglyphs(raw), 'object') as Omit<TransferVerdictResult, 'playerName' | 'targetClub' | 'managerName'>
+  const result = sanitizeTransferVerdict(parsed, playerName, targetClub, resolvedManagerName, tmPlayer)
 
   return {
     playerName,

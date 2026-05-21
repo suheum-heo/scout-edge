@@ -52,6 +52,7 @@ export default function PlayerCheckPage() {
   const [result, setResult] = useState<PlayerCompatibilityResult | null>(null)
   const [tmPlayer, setTmPlayer] = useState<TMPlayerData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const statDisplay = (value: number, available?: boolean) => available ? String(value) : '—'
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -325,9 +326,9 @@ export default function PlayerCheckPage() {
               </div>
               {tmPlayer && (
                 <div className="flex items-center gap-4 flex-wrap">
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.goals}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Goals</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.assists}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Assists</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{tmPlayer.appearances}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Apps</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.goals, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Goals</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.assists, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Assists</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.appearances, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Apps</p></div>
                   <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Value</p></div>
                   <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Contract</p></div>
                 </div>

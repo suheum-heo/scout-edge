@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { searchPlayers } from '@/lib/transfermarkt'
+import { searchPlayer, searchPlayers } from '@/lib/transfermarkt'
 
 export async function GET(request: NextRequest) {
   const q = request.nextUrl.searchParams.get('q')?.trim()
@@ -7,7 +7,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ players: [] })
   }
 
-  const results = await searchPlayers(q)
+  let results = await searchPlayers(q)
+  if (results.length === 0) {
+    const bestMatch = await searchPlayer(q)
+    if (bestMatch) {
+      results = [bestMatch]
+    }
+  }
 
   const players = results.map((p) => ({
     id: p.id,
