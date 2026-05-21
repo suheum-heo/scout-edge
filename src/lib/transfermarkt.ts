@@ -572,6 +572,7 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
           ...player.club,
           name: normalizeClubDisplayName(player.club?.name),
         },
+        nationalities: (player.nationalities || []).map((country) => normalizeCountryDisplayName(country)),
       }))
 
       if (results.length > 0) {
@@ -629,7 +630,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       fullName: profile.fullName,
       imageUrl: profile.imageUrl,
       age: profile.age,
-      nationality: profile.citizenship[0] || 'Unknown',
+      nationality: normalizeCountryDisplayName(profile.citizenship[0]) || 'Unknown',
       position: profile.position.main || 'Unknown',
       currentClub: normalizeClubDisplayName(profile.club.name),
       currentClubId: profile.club.id,
@@ -667,7 +668,7 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
       name: p.name,
       position: p.position,
       age: p.age,
-      nationality: p.nationality[0] || 'Unknown',
+      nationality: normalizeCountryDisplayName(p.nationality[0]) || 'Unknown',
       contract: p.contract,
       contractYear: contractYear(p.contract),
       marketValue: p.marketValue,
