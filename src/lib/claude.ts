@@ -1446,6 +1446,36 @@ function defaultArchetypeForPosition(position: string): string {
   }
 }
 
+function buildFallbackManagerXIIdentity(
+  formation: string,
+  resolvedName: string,
+  liveContext?: ManagerXILiveContext
+): string {
+  const liveClubContext = liveContext?.currentStatus === 'free_agent'
+    ? `${resolvedName}'s recent live tactical reference`
+    : liveContext?.currentClub
+    ? `${resolvedName}'s current ${liveContext.currentClub} context`
+    : `${resolvedName}'s live tactical context`
+
+  if (formation === '4-2-3-1') {
+    return `A live-shape-led 4-2-3-1 built around double-pivot control, a central creator between the lines, and wide forwards supporting a mobile striker. The structure stays anchored to ${liveClubContext}, prioritising compact rest defence, patient circulation, and quick vertical attacks when space opens.`
+  }
+
+  if (formation === '4-3-3') {
+    return `A live-shape-led 4-3-3 built on a controlling midfield triangle, aggressive full-backs, and wide forwards attacking the half-spaces. The structure stays anchored to ${liveClubContext}, balancing positional control with direct pressure once the press is triggered.`
+  }
+
+  if (formation === '3-5-2') {
+    return `A live-shape-led 3-5-2 built on central midfield overloads, wing-backs covering the full flank, and a front two that can combine quickly. The structure stays anchored to ${liveClubContext}, emphasising rest-defence stability and layered support around the ball.`
+  }
+
+  if (formation.startsWith('3-')) {
+    return `A live-shape-led ${formation} built on three centre-backs, wing-back width, and compact access into the half-spaces behind the striker line. The structure stays anchored to ${liveClubContext}, prioritising stable rest defence and coordinated progression through central overloads.`
+  }
+
+  return `A live-shape-led ${formation} built to reflect ${liveClubContext}, with clear role separation between build-up security, midfield control, and direct attacking support. The structure prioritises current tactical context over historical labels or stale club narratives.`
+}
+
 function buildCanonicalFormationSlots(formation: string): ManagerXIStructureSlot[] | null {
   switch (formation) {
     case '4-3-3':
@@ -1725,6 +1755,26 @@ interface ManagerXILiveContext {
   recentFormations?: string[]
 }
 
+function normalizeManagerClubContext(value?: string | null): string {
+  return (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\b(fc|cf|sc|afc|ac|cfc)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function clubsShareCurrentContext(left?: string | null, right?: string | null): boolean {
+  const normalizedLeft = normalizeManagerClubContext(left)
+  const normalizedRight = normalizeManagerClubContext(right)
+
+  if (!normalizedLeft || !normalizedRight) return false
+  if (normalizedLeft === normalizedRight) return true
+  return normalizedLeft.startsWith(normalizedRight) || normalizedRight.startsWith(normalizedLeft)
+}
+
 function buildManagerXIContext(
   manager: ManagerProfile | null,
   managerName?: string,
@@ -1752,14 +1802,32 @@ function buildManagerXIContext(
     ? `**Other Recent Shapes**: ${alternateRecentShapes.join(' / ')}\n`
     : ''
   const liveContextHeader = `${liveStatusNote}${liveClubNote}${liveFormationNote}${liveShapeMenu}`
+  const liveClubMismatch = Boolean(
+    manager &&
+    liveContext?.currentStatus === 'active' &&
+    liveContext.currentClub &&
+    manager.currentClub &&
+    !clubsShareCurrentContext(manager.currentClub, liveContext.currentClub)
+  )
+  const liveContextRule = liveContext?.currentStatus === 'free_agent'
+    ? `**Live Context Rule**: ${resolvedName} is currently a free agent. If you reference club context at all, treat ${liveContext.referenceClub || 'the most recent club'} only as a recent tactical reference point, never as the current employer.\n`
+    : liveContext?.currentClub
+    ? `**Live Context Rule**: ${resolvedName} is currently at ${liveContext.currentClub}. Treat that live club and the live recent shape above as the authoritative present-day context. Do not describe ${resolvedName} as still being at a former club, and do not use old-club labels like "${resolvedName}'s ${manager?.currentClub || 'former-club'} DNA".\n`
+    : '**Live Context Rule**: If live current-club context is unavailable, do not invent or imply a current employer. Keep the identity tactical rather than biographical.\n'
+  const profileSummary = manager && !liveClubMismatch
+    ? `**Summary**: ${manager.tacticalSummary}\n`
+    : ''
+  const profileContextNote = manager && liveClubMismatch
+    ? `**Profile Context Note**: Use the stored style, principles, and role requirements below only as generic coaching tendencies. The stored club context is outdated for current-employment framing.\n`
+    : ''
 
   const managerSection = manager
-    ? `${liveContextHeader}**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
-**Summary**: ${manager.tacticalSummary}
+    ? `${liveContextHeader}${liveContextRule}${profileContextNote}**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
+${profileSummary}**Identity Writing Rule**: Describe the XI's current tactical behaviour, not the manager's old employment story. If live club/status and stored profile club disagree, the live club/status wins.
 **Key Principles**: ${manager.keyPrinciples.join('; ')}
 **Positional Requirements**:
 ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
-    : `${liveContextHeader}Use the live manager context above as the primary source of truth. Infer the tactical roles from the recent shape and current context, and only lean on broader football knowledge for stylistic details that the live data does not provide.`
+    : `${liveContextHeader}${liveContextRule}Use the live manager context above as the primary source of truth. Infer the tactical roles from the recent shape and current context, and only lean on broader football knowledge for stylistic details that the live data does not provide. Never reference a former club, previous job, or stale tactical "DNA" label as if it were the manager's current situation.`
 
   return { resolvedName, currentDate, managerSection, livePrimaryFormation }
 }
@@ -1770,7 +1838,8 @@ async function generateManagerXIStructure(
   managerSection: string,
   budget: string,
   extraBudgetInstructions?: string,
-  lockedFormation?: string | null
+  lockedFormation?: string | null,
+  liveContext?: ManagerXILiveContext
 ): Promise<ManagerXIStructure> {
   const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Design the STRUCTURE of the ideal starting XI for ${resolvedName}'s system within the stated budget.
 
@@ -1786,12 +1855,13 @@ ${lockedFormation ? `\n## FORMATION RULE:\nUse exactly ${lockedFormation} as the
 2. Return exactly 11 slots for that formation
 3. For each slot, give the exact position code and archetype label that best describes the role
 4. Use side-specific position codes where appropriate, e.g. LCB / CB / RCB or LWB / RWB
+5. Write the identity as a present-day tactical description only. Do not reference former clubs, former jobs, outdated employers, or legacy labels like "Middlesbrough DNA" unless the live current club above explicitly matches that club.
 
 Return ONLY this JSON:
 {
   "formation": "${lockedFormation || '4-3-3'}",
   "managerName": "${resolvedName}",
-  "identity": "2-3 sentences on the tactical DNA of this XI",
+  "identity": "Max 2 short sentences on the tactical DNA of this XI",
   "slots": [
     {
       "slotId": "GK",
@@ -1804,25 +1874,41 @@ Return ONLY this JSON:
 Position values: GK, LCB, CB, RCB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
 There must be exactly 11 slots.`
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 900,
-    messages: [{ role: 'user', content: prompt }],
-  })
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 900,
+      messages: [{ role: 'user', content: prompt }],
+    })
 
-  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  const structure = normalizeManagerXIStructure(
-    extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
-  )
+    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+    const structure = normalizeManagerXIStructure(
+      extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+    )
 
-  if (lockedFormation) {
-    return {
-      ...structure,
-      formation: lockedFormation,
+    if (lockedFormation) {
+      return {
+        ...structure,
+        formation: lockedFormation,
+      }
     }
-  }
 
-  return structure
+    return structure
+  } catch (error) {
+    if (lockedFormation) {
+      const fallbackSlots = buildCanonicalFormationSlots(lockedFormation)
+      if (fallbackSlots) {
+        return {
+          formation: lockedFormation,
+          managerName: resolvedName,
+          identity: buildFallbackManagerXIIdentity(lockedFormation, resolvedName, liveContext),
+          slots: fallbackSlots,
+        }
+      }
+    }
+
+    throw error
+  }
 }
 
 async function generateManagerXICandidateBatch(
@@ -1849,15 +1935,14 @@ ${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructi
 ${slotList}
 
 ## Rules:
-1. For EACH slot, return exactly 3 candidates:
+1. For EACH slot, return exactly 2 candidates:
    - one best-fit option
-   - one balanced reliable option
-   - one cheaper fallback option
+   - one cheaper or more flexible fallback option
 2. Every player must be ACTIVELY playing professional football right now
 3. Be highly confident about current club
 4. Keep fees realistic for the stated budget
 5. Use only standard Latin characters in names
-6. Think like a shortlist scout, not the final selector. Prioritize true role fit, live current-club accuracy, and budget variety across the three names because a server-side selector will verify prices and make the final XI.
+6. Think like a shortlist scout, not the final selector. Prioritize true role fit, live current-club accuracy, and budget variety across the two names because a server-side selector will verify prices and make the final XI.
 7. Only include players you are confident can be found easily on Transfermarkt player search with the exact spelling you provide.
 
 Return ONLY plain text lines in this exact format, with no bullets, no numbering, no markdown, and no extra commentary:
@@ -1903,7 +1988,7 @@ GK|Bart Verbruggen|23|Brighton & Hove Albion|€40M|93`
   return {
     slots: slots.map((slot) => ({
       slotId: slot.slotId,
-      candidates: (parsedSlots.get(slot.slotId) || []).slice(0, 3),
+      candidates: (parsedSlots.get(slot.slotId) || []).slice(0, 2),
     })),
   }
 }
@@ -1922,7 +2007,8 @@ export async function generateManagerXICandidatePool(
     managerSection,
     budget,
     extraBudgetInstructions,
-    livePrimaryFormation
+    livePrimaryFormation,
+    liveContext
   )
 
   const batchResults = await Promise.all(
@@ -1989,6 +2075,7 @@ ${livePrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${livePrimaryFormati
 3. These are the IDEAL PROFILE players — the ones who most perfectly embody what ${resolvedName} wants at each position. Not necessarily the most famous, but the most tactically aligned.
 4. Budget constrains the realistic pool: if budget is €100M, you can't fill 11 positions with €50M players each — be realistic about fees. If budget is "Unlimited", pick the absolute best profile players money can buy.
 5. Include players from different leagues for variety.
+6. The identity text must describe the XI's current tactical behaviour only. Do not frame the current build around a former club, previous job, or stale label if the live manager context above points somewhere else.
 
 ## ACCURACY RULES (critical):
 - Only recommend currently ACTIVE professional players

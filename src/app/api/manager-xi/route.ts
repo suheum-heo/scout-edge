@@ -18,8 +18,8 @@ import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_SEARCH_TIMEOUT_MS = 7000
-const TM_ENRICHMENT_CONCURRENCY = 4
+const TM_SEARCH_TIMEOUT_MS = 4500
+const TM_ENRICHMENT_CONCURRENCY = 6
 
 interface CandidateEvaluation {
   player: IdealPlayer
