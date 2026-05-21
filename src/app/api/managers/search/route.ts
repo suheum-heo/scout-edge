@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { APICoach, getCoachLiveContext, searchCoachesByName } from '@/lib/api-football'
+import { APICoach, getCoachLiveContext, getLiveCoachByName, searchCoachesByName } from '@/lib/api-football'
 import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { normalizeClubDisplayName } from '@/lib/club-names'
 import { buildFullName, namesMatch } from '@/lib/person-names'
-import { searchManagers, TMManagerSearchResult } from '@/lib/transfermarkt'
+import { searchManager, searchManagers, TMManagerSearchResult } from '@/lib/transfermarkt'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   const findTMManager = (managerName: string): TMManagerSearchResult | null =>
     tmManagers.find((manager) => namesMatch(manager.name, managerName)) || null
 
-  const getLiveClubForManager = (managerName: string): string | null => {
+  const getLiveClubForManager = (managerName: string): string => {
     const match = apiCoaches.find((coach) =>
       namesMatch(buildFullName(coach.firstname, coach.lastname, coach.name), managerName) ||
       namesMatch(coach.name, managerName)
@@ -45,18 +45,42 @@ export async function GET(request: NextRequest) {
     return formatCoachCurrentClub(match, findTMManager(managerName))
   }
 
+  const exactClubLookups = new Map<string, Promise<string>>()
+
+  const getExactLiveClubForManager = (managerName: string): Promise<string> => {
+    const cached = exactClubLookups.get(managerName)
+    if (cached) return cached
+
+    const lookup = (async () => {
+      const quickClub = getLiveClubForManager(managerName)
+      if (quickClub !== 'Unknown') return quickClub
+
+      const [coach, tmManager] = await Promise.all([
+        getLiveCoachByName(managerName),
+        searchManager(managerName).catch(() => null),
+      ])
+
+      return formatCoachCurrentClub(coach, tmManager)
+    })()
+
+    exactClubLookups.set(managerName, lookup)
+    return lookup
+  }
+
   // 2. Search our local DB — use live club from API Football when available
-  const dbMatches = getAllManagers()
-    .filter((m) => m.name.toLowerCase().includes(lower))
-    .slice(0, 5)
-    .map((m) => ({
-      id: m.id,
-      profileId: m.id,
-      name: m.name,
-      currentClub: normalizeClubDisplayName(getLiveClubForManager(m.name) ?? 'Unknown'),
-      formations: [],
-      hasProfile: true,
-    }))
+  const dbMatches = await Promise.all(
+    getAllManagers()
+      .filter((m) => m.name.toLowerCase().includes(lower))
+      .slice(0, 5)
+      .map(async (m) => ({
+        id: m.id,
+        profileId: m.id,
+        name: m.name,
+        currentClub: normalizeClubDisplayName(await getExactLiveClubForManager(m.name)),
+        formations: [],
+        hasProfile: true,
+      }))
+  )
 
   // Deduplicate API results by coach id, keeping the most recent team entry
   const seen = new Map<number, typeof apiCoaches[0]>()
