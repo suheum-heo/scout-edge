@@ -266,6 +266,17 @@ function normalizeFormation(value?: string | null): string | null {
   return formation ? formation : null
 }
 
+function clubsLikelyMatch(left?: string | null, right?: string | null) {
+  if (!left || !right) return false
+
+  const normalizedLeft = stripClubSuffixes(normalizeTeamName(left))
+  const normalizedRight = stripClubSuffixes(normalizeTeamName(right))
+
+  return normalizedLeft === normalizedRight
+    || normalizedLeft.startsWith(normalizedRight)
+    || normalizedRight.startsWith(normalizedLeft)
+}
+
 function isFinishedFixture(status?: string | null) {
   return ['FT', 'AET', 'PEN', 'AWD', 'WO'].includes((status || '').toUpperCase())
 }
@@ -840,18 +851,30 @@ export async function getLiveManagerSnapshot(
 
   const afLiveContext = coach ? getCoachLiveContext(coach) : null
   const tmCurrentClub = tmManager?.currentClub || null
+  const afActiveContext = afLiveContext?.status === 'active' ? afLiveContext : null
+  const tmMatchesAFActiveClub = Boolean(
+    tmCurrentClub &&
+    afActiveContext?.currentClub &&
+    clubsLikelyMatch(tmCurrentClub, afActiveContext.currentClub)
+  )
 
   const liveContext: CoachLiveContext | null = tmManager
     ? tmCurrentClub
-      ? {
-          status: 'active',
-          currentClub: tmCurrentClub,
-          currentTeamId: null,
-          currentStart: null,
-          referenceClub: tmCurrentClub,
-          referenceTeamId: null,
-          referenceStart: null,
-        }
+      ? tmMatchesAFActiveClub && afActiveContext
+        ? {
+            ...afActiveContext,
+            currentClub: tmCurrentClub,
+            referenceClub: tmCurrentClub,
+          }
+        : {
+            status: 'active',
+            currentClub: tmCurrentClub,
+            currentTeamId: null,
+            currentStart: null,
+            referenceClub: tmCurrentClub,
+            referenceTeamId: null,
+            referenceStart: null,
+          }
       : {
           status: 'free_agent',
           currentClub: null,

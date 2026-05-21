@@ -1351,6 +1351,7 @@ function buildManagerXIContext(
   const resolvedName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
   const livePrimaryFormation = liveContext?.preferredFormation || null
+  const fallbackPrimaryFormation = livePrimaryFormation || manager?.formations[0] || null
   const liveStatusNote = liveContext?.currentStatus === 'free_agent'
     ? '**Live Status**: Free agent\n'
     : ''
@@ -1361,7 +1362,10 @@ function buildManagerXIContext(
   const liveFormationNote = livePrimaryFormation
     ? `**Live Recent Shape**: ${livePrimaryFormation}${liveContext?.formationSampleSize ? ` (from ${liveContext.formationSampleSize} recent lineup${liveContext.formationSampleSize === 1 ? '' : 's'}${liveFormationClub ? ` with ${liveFormationClub}` : ''}${liveContext.formationSeason ? `, season ${liveContext.formationSeason}` : ''})` : ''}\n`
     : ''
-  const liveContextHeader = `${liveStatusNote}${liveClubNote}${liveFormationNote}`
+  const profileFallbackNote = !livePrimaryFormation && manager?.formations[0]
+    ? `**Profile Fallback Shape**: ${manager.formations[0]} (used because live recent formation data is unavailable)\n`
+    : ''
+  const liveContextHeader = `${liveStatusNote}${liveClubNote}${liveFormationNote}${profileFallbackNote}`
 
   const managerSection = manager
     ? `${liveContextHeader}**Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up, ${manager.style.attackingMentality} attacking mentality
@@ -1371,7 +1375,7 @@ function buildManagerXIContext(
 ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')} | avoid if ${r.avoidIf.join(', ')}`).join('\n')}`
     : `${liveContextHeader}Use the live manager context above as the primary source of truth. Infer the tactical roles from the recent shape and current context, and only lean on broader football knowledge for stylistic details that the live data does not provide.`
 
-  return { resolvedName, currentDate, managerSection, livePrimaryFormation }
+  return { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation }
 }
 
 async function generateManagerXIStructure(
@@ -1421,7 +1425,16 @@ There must be exactly 11 slots.`
   })
 
   const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  return extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+  const structure = extractJSON(sanitizeHomoglyphs(raw), 'object') as ManagerXIStructure
+
+  if (lockedFormation) {
+    return {
+      ...structure,
+      formation: lockedFormation,
+    }
+  }
+
+  return structure
 }
 
 async function generateManagerXICandidateBatch(
@@ -1514,14 +1527,14 @@ export async function generateManagerXICandidatePool(
   extraBudgetInstructions?: string,
   liveContext?: ManagerXILiveContext
 ): Promise<ManagerXICandidatePool> {
-  const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(manager, managerName, liveContext)
+  const { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation } = buildManagerXIContext(manager, managerName, liveContext)
   const structure = await generateManagerXIStructure(
     resolvedName,
     currentDate,
     managerSection,
     budget,
     extraBudgetInstructions,
-    livePrimaryFormation
+    fallbackPrimaryFormation
   )
 
   const batchResults = await Promise.all(
@@ -1568,7 +1581,7 @@ export async function buildManagerXI(
   managerName?: string,
   liveContext?: ManagerXILiveContext
 ): Promise<ManagerXIResult> {
-  const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(
+  const { resolvedName, currentDate, managerSection, livePrimaryFormation, fallbackPrimaryFormation } = buildManagerXIContext(
     manager,
     managerName,
     liveContext
@@ -1580,10 +1593,10 @@ export async function buildManagerXI(
 ${managerSection}
 
 ## Budget: ${budget}
-${livePrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${livePrimaryFormation} as the base formation for this XI. Do not switch to a different primary shape.` : ''}
+${fallbackPrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${fallbackPrimaryFormation} as the base formation for this XI. Do not switch to a different primary shape.` : ''}
 
 ## Rules:
-1. Pick exactly 11 players in ${livePrimaryFormation || 'a formation that fits'} ${livePrimaryFormation ? `for ${resolvedName}'s system` : `that fits ${resolvedName}'s system perfectly`}
+1. Pick exactly 11 players in ${fallbackPrimaryFormation || 'a formation that fits'} ${fallbackPrimaryFormation ? `for ${resolvedName}'s system` : `that fits ${resolvedName}'s system perfectly`}
 2. Every player must be ACTIVELY playing professional football right now
 3. These are the IDEAL PROFILE players — the ones who most perfectly embody what ${resolvedName} wants at each position. Not necessarily the most famous, but the most tactically aligned.
 4. Budget constrains the realistic pool: if budget is €100M, you can't fill 11 positions with €50M players each — be realistic about fees. If budget is "Unlimited", pick the absolute best profile players money can buy.
@@ -1597,7 +1610,7 @@ ${livePrimaryFormation ? `\n## FORMATION RULE:\nUse exactly ${livePrimaryFormati
 
 Return ONLY this JSON:
 {
-  "formation": "${livePrimaryFormation || '4-3-3'}",
+  "formation": "${fallbackPrimaryFormation || '4-3-3'}",
   "managerName": "${resolvedName}",
   "identity": "2-3 sentences: the tactical DNA of this XI — what makes it uniquely suited to this manager's system and philosophy",
   "totalEstimatedCost": "≈€XM",
