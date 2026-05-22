@@ -1,3 +1,5 @@
+import { getCanonicalClubLogo } from '@/lib/club-crests'
+
 /**
  * Local database of popular clubs for instant search (no API calls).
  * IDs are football-data.org v4 team IDs by default.
@@ -248,7 +250,7 @@ export function searchLocalTeams(query: string): Array<{
         id: team.id,
         name: team.name,
         country: team.country,
-        logo: team.logo ?? `https://crests.football-data.org/${team.id}.png`,
+        logo: getCanonicalClubLogo(team.name, team.logo ?? `https://crests.football-data.org/${team.id}.png`),
         ...(team.source ? { source: team.source } : {}),
         ...(team.fotmobSearch ? { fotmobSearch: team.fotmobSearch } : {}),
         ...(team.fotmobId ? { fotmobId: team.fotmobId } : {}),

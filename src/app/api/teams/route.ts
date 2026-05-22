@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { searchTeams as searchAFTeams, type APITeam } from '@/lib/api-football'
+import { getCanonicalClubLogo } from '@/lib/club-crests'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
 import { searchFDTeams } from '@/lib/football-data'
 import { searchLocalTeams } from '@/lib/teams-db'
@@ -134,7 +135,7 @@ function buildAFTeamResult(team: APITeam): TeamSearchResult {
       id: team.team.id,
       name: team.team.name,
       country: normalizeCountryDisplayName(team.team.country || ''),
-      logo: nationalTeamFlag(team.team.name) ?? team.team.logo,
+      logo: getCanonicalClubLogo(team.team.name, nationalTeamFlag(team.team.name) ?? team.team.logo),
       source: 'af',
     },
     venue: {
@@ -150,7 +151,7 @@ function buildTMTeamResult(club: Awaited<ReturnType<typeof tmSearchClubs>>[numbe
       id: club.id as string,
       name: club.name,
       country: normalizeCountryDisplayName(club.country),
-      logo: nationalTeamFlag(club.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${club.id}.png`,
+      logo: getCanonicalClubLogo(club.name, nationalTeamFlag(club.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${club.id}.png`),
       source: 'tm',
     },
     venue: { name: '', city: '' },
@@ -182,7 +183,7 @@ function finalizeBucket(bucket: ProviderBucket): TeamSearchResult | null {
     base.team.country
 
   const preferredLogo =
-    nationalTeamFlag(preferredName) ||
+    getCanonicalClubLogo(preferredName, nationalTeamFlag(preferredName) || bucket.af?.team.logo) ||
     bucket.af?.team.logo ||
     bucket.tm?.team.logo ||
     bucket.fd?.team.logo ||
@@ -268,7 +269,7 @@ export async function GET(request: NextRequest) {
           team: {
             ...result.team,
             country: normalizeCountryDisplayName(result.team.country),
-            logo: nationalTeamFlag(result.team.name) ?? result.team.logo,
+            logo: getCanonicalClubLogo(result.team.name, nationalTeamFlag(result.team.name) ?? result.team.logo),
           },
         },
         index,
