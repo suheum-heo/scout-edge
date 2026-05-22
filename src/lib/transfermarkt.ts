@@ -236,6 +236,7 @@ function aggregateStats(stats: Array<{
 }
 
 interface TMSitePerformanceRow {
+  detailedStatsLink?: string | null
   nameSeason: string
   gamesPlayed?: number | null
   goalsScored?: number | null
@@ -244,16 +245,22 @@ interface TMSitePerformanceRow {
   yellowCards?: number | null
 }
 
+function getSitePerformanceCampaignKey(row: TMSitePerformanceRow): number | null {
+  const seasonFromLink = row.detailedStatsLink?.match(/\/saison\/(\d{4})/i)?.[1]
+  if (seasonFromLink) return Number(seasonFromLink)
+  return getSeasonBucket(row.nameSeason)
+}
+
 function aggregateSitePerformanceStats(rows: TMSitePerformanceRow[]) {
   if (!rows.length) return { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
 
   const buckets = rows
-    .map((row) => getSeasonBucket(row.nameSeason))
+    .map((row) => getSitePerformanceCampaignKey(row))
     .filter((bucket): bucket is number => bucket !== null)
 
   const latestBucket = buckets.length > 0 ? Math.max(...buckets) : null
   const latestRows = latestBucket !== null
-    ? rows.filter((row) => getSeasonBucket(row.nameSeason) === latestBucket)
+    ? rows.filter((row) => getSitePerformanceCampaignKey(row) === latestBucket)
     : rows
 
   return latestRows
@@ -617,7 +624,7 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
  */
 export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> {
   try {
-    const [profile, statsData] = await Promise.all([
+    const [profile, statsData, sitePerformance] = await Promise.all([
       tmFetch<{
         id: string
         name: string
@@ -630,25 +637,16 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
         marketValue: number | null
       }>(`/players/${tmId}/profile`),
       tmFetch<{ stats: Array<{ seasonId: string; appearances?: number | null; goals?: number | null; assists?: number | null; minutesPlayed?: number | null; yellowCards?: number | null }> }>(`/players/${tmId}/stats`),
+      tmSiteFetch<TMSitePerformanceRow[]>(`/ceapi/player/performance/${encodeURIComponent(tmId)}`).catch(() => null),
     ])
 
-    let stats = aggregateStats(statsData.stats)
-    let statsAvailable = Array.isArray(statsData.stats) && statsData.stats.length > 0
-
-    if (!statsAvailable) {
-      try {
-        const sitePerformance = await tmSiteFetch<TMSitePerformanceRow[]>(
-          `/ceapi/player/performance/${encodeURIComponent(tmId)}`
-        )
-
-        if (Array.isArray(sitePerformance) && sitePerformance.length > 0) {
-          stats = aggregateSitePerformanceStats(sitePerformance)
-          statsAvailable = sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
-        }
-      } catch {
-        // Keep the zeroed fallback when the site performance endpoint is unavailable.
-      }
-    }
+    const hasSitePerformance = Array.isArray(sitePerformance) && sitePerformance.length > 0
+    const stats = hasSitePerformance
+      ? aggregateSitePerformanceStats(sitePerformance)
+      : aggregateStats(statsData.stats)
+    const statsAvailable = hasSitePerformance
+      ? sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
+      : Array.isArray(statsData.stats) && statsData.stats.length > 0
 
     return {
       id: profile.id,
