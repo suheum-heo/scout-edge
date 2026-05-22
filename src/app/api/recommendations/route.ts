@@ -9,6 +9,7 @@ import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
+import { normalizePositionDisplayName } from '@/lib/position-names'
 
 function budgetRange(budget: string): { min: number; max: number } | null {
   if (budget === '< €20M')   return { min: 0,           max: 20_000_000 }
@@ -26,28 +27,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 }
 
 function normalizeTMPositionLabel(position?: string | null): string {
-  if (!position) return 'Unknown'
-
-  const raw = position.trim()
-  if (!raw) return 'Unknown'
-
-  const p = raw.toLowerCase()
-  if (p === 'gk' || p.includes('goalkeeper')) return 'Goalkeeper'
-  if (p === 'cb' || p.includes('centre-back') || p.includes('center-back')) return 'Centre-Back'
-  if (p === 'lb' || p.includes('left-back')) return 'Left-Back'
-  if (p === 'rb' || p.includes('right-back')) return 'Right-Back'
-  if (p === 'lwb' || p.includes('left wing-back')) return 'Left Wing-Back'
-  if (p === 'rwb' || p.includes('right wing-back')) return 'Right Wing-Back'
-  if (p === 'dm' || p.includes('defensive midfield')) return 'Defensive Midfield'
-  if (p === 'cm' || p.includes('central midfield')) return 'Central Midfield'
-  if (p === 'am' || p.includes('attacking midfield')) return 'Attacking Midfield'
-  if (p === 'lw' || p.includes('left wing')) return 'Left Wing'
-  if (p === 'rw' || p.includes('right wing')) return 'Right Wing'
-  if (p === 'cf' || p === 'st' || p.includes('centre-forward') || p.includes('center-forward') || p.includes('striker')) return 'Striker'
-
-  return raw
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+  if (!position?.trim()) return 'Unknown'
+  return normalizePositionDisplayName(position)
 }
 
 function isUsableTMClubName(clubName?: string | null): clubName is string {

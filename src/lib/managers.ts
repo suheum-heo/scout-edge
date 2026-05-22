@@ -1,4 +1,5 @@
 import { namesMatch, personNameTokens } from './person-names'
+import { normalizePositionDisplayName } from './position-names'
 
 export interface PositionalRequirement {
   position: string
@@ -2500,9 +2501,20 @@ const managers: ManagerProfile[] = [
   },
 ]
 
+
+function normalizeManagerProfile(profile: ManagerProfile): ManagerProfile {
+  return {
+    ...profile,
+    positionalRequirements: profile.positionalRequirements.map((requirement) => ({
+      ...requirement,
+      position: normalizePositionDisplayName(requirement.position),
+    })),
+  }
+}
+
 export function getManagerByName(name: string): ManagerProfile | undefined {
   const directMatch = managers.find((m) => namesMatch(m.name, name))
-  if (directMatch) return directMatch
+  if (directMatch) return normalizeManagerProfile(directMatch)
 
   // 3. Exact last-name-only match (API sometimes returns just the surname)
   //    Requires the last name to be at least 4 chars and an exact word match —
@@ -2514,18 +2526,19 @@ export function getManagerByName(name: string): ManagerProfile | undefined {
       const dbLastName = personNameTokens(m.name).at(-1) || ''
       return dbLastName === lastWord
     })
-    if (lastNameMatch) return lastNameMatch
+    if (lastNameMatch) return normalizeManagerProfile(lastNameMatch)
   }
 
   return undefined
 }
 
 export function getAllManagers(): ManagerProfile[] {
-  return managers
+  return managers.map(normalizeManagerProfile)
 }
 
 export function getManagerById(id: string): ManagerProfile | undefined {
-  return managers.find((m) => m.id === id)
+  const manager = managers.find((m) => m.id === id)
+  return manager ? normalizeManagerProfile(manager) : undefined
 }
 
 export default managers

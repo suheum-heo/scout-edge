@@ -5,6 +5,7 @@
 
 import { getClubLookupKeys, normalizeClubDisplayName } from '@/lib/club-names'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
+import { normalizePositionDisplayName } from '@/lib/position-names'
 
 const TM_BASE = process.env.TRANSFERMARKT_API_URL || 'http://localhost:8000'
 const TM_SITE_BASE = 'https://www.transfermarkt.com'
@@ -627,6 +628,7 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
           ...player.club,
           name: normalizeClubDisplayName(player.club?.name),
         },
+        position: normalizePositionDisplayName(player.position),
         nationalities: (player.nationalities || []).map((country) => normalizeCountryDisplayName(country)),
       }))
 
@@ -681,7 +683,7 @@ export async function getPlayerData(
       imageUrl: profile.imageUrl,
       age: profile.age ?? options?.fallbackAge ?? inferAgeFromDescription(profile.description),
       nationality: normalizeCountryDisplayName(profile.citizenship[0]) || 'Unknown',
-      position: profile.position.main || 'Unknown',
+      position: normalizePositionDisplayName(profile.position.main),
       currentClub: normalizeClubDisplayName(profile.club.name),
       currentClubId: profile.club.id,
       contractExpires: profile.club.contractExpires,
@@ -716,7 +718,7 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
     return data.players.map((p) => ({
       id: p.id,
       name: p.name,
-      position: p.position,
+      position: normalizePositionDisplayName(p.position),
       age: p.age,
       nationality: normalizeCountryDisplayName(p.nationality[0]) || 'Unknown',
       contract: p.contract,
