@@ -100,6 +100,16 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 1903, fotmobId: 9772,  name: 'SL Benfica',             country: 'Portugal', aliases: ['benfica', 'slb', 'eagles'] },
   { id: 503,  fotmobId: 9773,  name: 'FC Porto',               country: 'Portugal', aliases: ['porto', 'fcp', 'dragoes'] },
   { id: 498,  fotmobId: 9768,  name: 'Sporting CP',            country: 'Portugal', aliases: ['sporting', 'scp', 'leoes', 'lions'] },
+  // ── Liga MX (alias-heavy clubs added locally to avoid cross-provider nickname confusion) ─
+  { id: 2278, name: 'Club Deportivo Guadalajara', country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2278.png', aliases: ['chivas', 'guadalajara', 'deportivo guadalajara', 'guadalajara chivas', 'cd guadalajara', 'club deportivo guadalajara'] },
+  { id: 2287, name: 'Club América',              country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2287.png', aliases: ['america', 'club america', 'club america mexico', 'aguilas', 'las aguilas'] },
+  { id: 2282, name: 'CF Monterrey',              country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2282.png', aliases: ['monterrey', 'rayados', 'cf monterrey'] },
+  { id: 2295, name: 'Cruz Azul',                 country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2295.png', aliases: ['cruz azul', 'la maquina', 'cementeros'] },
+  { id: 2279, name: 'Tigres UANL',               country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2279.png', aliases: ['tigres', 'tigres uanl', 'uanl', 'felinos'] },
+  { id: 2281, name: 'Toluca',                    country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2281.png', aliases: ['toluca', 'diablos rojos'] },
+  { id: 2292, name: 'CF Pachuca',                country: 'Mexico', source: 'af', logo: 'https://media.api-sports.io/football/teams/2292.png', aliases: ['pachuca', 'cf pachuca', 'tuzos'] },
+  { id: '7633', name: 'UNAM Pumas',              country: 'Mexico', source: 'tm', logo: 'https://tmssl.akamaized.net/images/wappen/head/7633.png', aliases: ['pumas', 'pumas unam', 'unam pumas', 'club universidad nacional'] },
+
   // ── Scotland (API Football IDs; explicit logos avoid bad FD crest fallbacks) ─
   { id: 247,  fotmobId: 9925,  name: 'Celtic FC',              country: 'Scotland', source: 'af', logo: 'https://media.api-sports.io/football/teams/247.png', aliases: ['celtic', 'bhoys', 'celts'] },
   { id: 257,  fotmobId: 8548,  name: 'Rangers FC',             country: 'Scotland', source: 'af', logo: 'https://media.api-sports.io/football/teams/257.png', aliases: ['rangers', 'gers', 'bluenoses'] },
