@@ -100,9 +100,9 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 1903, fotmobId: 9772,  name: 'SL Benfica',             country: 'Portugal', aliases: ['benfica', 'slb', 'eagles'] },
   { id: 503,  fotmobId: 9773,  name: 'FC Porto',               country: 'Portugal', aliases: ['porto', 'fcp', 'dragoes'] },
   { id: 498,  fotmobId: 9768,  name: 'Sporting CP',            country: 'Portugal', aliases: ['sporting', 'scp', 'leoes', 'lions'] },
-  // ── Scotland ───────────────────────────────────────────────────────────────
-  { id: 726,  fotmobId: 9925,  name: 'Celtic FC',              country: 'Scotland', aliases: ['celtic', 'bhoys', 'celts'] },
-  { id: 733,  fotmobId: 8548,  name: 'Rangers FC',             country: 'Scotland', aliases: ['rangers', 'gers', 'bluenoses'] },
+  // ── Scotland (API Football IDs; explicit logos avoid bad FD crest fallbacks) ─
+  { id: 247,  fotmobId: 9925,  name: 'Celtic FC',              country: 'Scotland', source: 'af', logo: 'https://media.api-sports.io/football/teams/247.png', aliases: ['celtic', 'bhoys', 'celts'] },
+  { id: 257,  fotmobId: 8548,  name: 'Rangers FC',             country: 'Scotland', source: 'af', logo: 'https://media.api-sports.io/football/teams/257.png', aliases: ['rangers', 'gers', 'bluenoses'] },
   // ── Turkish Süper Lig (API Football IDs, source: 'af') ────────────────────
   { id: 611,  fotmobId: 8695,  name: 'Fenerbahçe',             country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/611.png',  aliases: ['fenerbahce', 'fenerbahce sk', 'fener', 'fb', 'sarikanaryalar'] },
   { id: 645,  fotmobId: 8637,  name: 'Galatasaray',            country: 'Türkiye', source: 'af', logo: 'https://media.api-sports.io/football/teams/645.png',  aliases: ['galatasaray sk', 'cimbom', 'gs', 'aslanlar'] },
