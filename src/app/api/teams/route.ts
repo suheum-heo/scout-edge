@@ -1,11 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { searchTeams as searchAFTeams, type APITeam } from '@/lib/api-football'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
 import { searchFDTeams } from '@/lib/football-data'
 import { searchLocalTeams } from '@/lib/teams-db'
 import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
 
-function normalizeName(s: string) {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+function normalizeName(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function normalizeTeamKey(value: string) {
+  const normalized = normalizeName(value)
+  const stripped = normalized
+    .replace(/\b(fc|cf|sc|afc|ac|ud|cd|sd|club|bk|fk|ifk)\b/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+
+  return stripped || normalized
+}
+
+function scoreTeamQuery(name: string, query: string) {
+  const normalizedName = normalizeName(name)
+  const normalizedQuery = normalizeName(query)
+  const strippedName = normalizeTeamKey(name)
+  const strippedQuery = normalizeTeamKey(query)
+
+  if (strippedName === strippedQuery) return 100
+  if (normalizedName === normalizedQuery) return 95
+  if (strippedName.startsWith(strippedQuery) || strippedQuery.startsWith(strippedName)) return 90
+  if (normalizedName.startsWith(normalizedQuery)) return 85
+  if (normalizedName.split(' ').some((word) => word.startsWith(normalizedQuery))) return 80
+  if (normalizedName.includes(normalizedQuery) || strippedName.includes(strippedQuery) || strippedQuery.includes(strippedName)) return 70
+  return 0
 }
 
 type TeamSearchResult = {
@@ -18,6 +50,15 @@ type TeamSearchResult = {
     fotmobId?: number
   }
   venue: { name: string; city: string }
+}
+
+type RemoteProvider = 'fd' | 'af' | 'tm'
+
+type ProviderBucket = {
+  fd?: TeamSearchResult
+  af?: TeamSearchResult
+  tm?: TeamSearchResult
+  order: number
 }
 
 const REMOTE_SEARCH_TTL_MS = 10 * 60 * 1000
@@ -54,7 +95,7 @@ const COUNTRY_ISO: Record<string, string> = {
   'georgia': 'ge', 'germany': 'de', 'ghana': 'gh', 'greece': 'gr', 'guatemala': 'gt',
   'guinea': 'gn', 'guinea-bissau': 'gw', 'haiti': 'ht', 'honduras': 'hn', 'hungary': 'hu',
   'iceland': 'is', 'india': 'in', 'indonesia': 'id', 'iran': 'ir', 'iraq': 'iq',
-  'ireland': 'ie', 'israel': 'il', 'italy': 'it', "ivory coast": 'ci', "côte d'ivoire": 'ci',
+  'ireland': 'ie', 'israel': 'il', 'italy': 'it', "ivory coast": 'ci', "côte d\'ivoire": 'ci',
   'jamaica': 'jm', 'japan': 'jp', 'jordan': 'jo', 'kazakhstan': 'kz', 'kenya': 'ke',
   'kuwait': 'kw', 'latvia': 'lv', 'lebanon': 'lb', 'liberia': 'lr', 'libya': 'ly',
   'liechtenstein': 'li', 'lithuania': 'lt', 'luxembourg': 'lu', 'madagascar': 'mg',
@@ -79,14 +120,111 @@ const COUNTRY_ISO: Record<string, string> = {
 
 /** Returns a flag CDN URL if the club name is (or starts with) a known country — covers U21/U23/etc. */
 function nationalTeamFlag(name: string): string | null {
-  const n = normalizeName(name)
-  // Exact match first (e.g. "England")
-  if (COUNTRY_ISO[n]) return `https://flagcdn.com/w80/${COUNTRY_ISO[n]}.png`
-  // Prefix match for age-group teams (e.g. "England U21", "South Korea U23")
+  const normalized = normalizeName(name)
+  if (COUNTRY_ISO[normalized]) return `https://flagcdn.com/w80/${COUNTRY_ISO[normalized]}.png`
   for (const [country, iso] of Object.entries(COUNTRY_ISO)) {
-    if (n.startsWith(country + ' ')) return `https://flagcdn.com/w80/${iso}.png`
+    if (normalized.startsWith(country + ' ')) return `https://flagcdn.com/w80/${iso}.png`
   }
   return null
+}
+
+function buildAFTeamResult(team: APITeam): TeamSearchResult {
+  return {
+    team: {
+      id: team.team.id,
+      name: team.team.name,
+      country: normalizeCountryDisplayName(team.team.country || ''),
+      logo: nationalTeamFlag(team.team.name) ?? team.team.logo,
+      source: 'af',
+    },
+    venue: {
+      name: team.venue?.name || '',
+      city: team.venue?.city || '',
+    },
+  }
+}
+
+function buildTMTeamResult(club: Awaited<ReturnType<typeof tmSearchClubs>>[number]): TeamSearchResult {
+  return {
+    team: {
+      id: club.id as string,
+      name: club.name,
+      country: normalizeCountryDisplayName(club.country),
+      logo: nationalTeamFlag(club.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${club.id}.png`,
+      source: 'tm',
+    },
+    venue: { name: '', city: '' },
+  }
+}
+
+function addCandidate(
+  buckets: Map<string, ProviderBucket>,
+  provider: RemoteProvider,
+  result: TeamSearchResult,
+  order: number
+) {
+  const key = normalizeTeamKey(result.team.name)
+  const existing = buckets.get(key) ?? { order }
+  existing[provider] = result
+  existing.order = Math.min(existing.order, order)
+  buckets.set(key, existing)
+}
+
+function finalizeBucket(bucket: ProviderBucket): TeamSearchResult | null {
+  const base = bucket.fd ?? bucket.af ?? bucket.tm
+  if (!base) return null
+
+  const preferredName = base.team.name
+  const preferredCountry =
+    bucket.af?.team.country ||
+    bucket.fd?.team.country ||
+    bucket.tm?.team.country ||
+    base.team.country
+
+  const preferredLogo =
+    nationalTeamFlag(preferredName) ||
+    bucket.af?.team.logo ||
+    bucket.tm?.team.logo ||
+    bucket.fd?.team.logo ||
+    base.team.logo
+
+  const preferredVenue = {
+    name: bucket.fd?.venue.name || bucket.af?.venue.name || base.venue.name || '',
+    city: bucket.fd?.venue.city || bucket.af?.venue.city || base.venue.city || '',
+  }
+
+  if (bucket.fd) {
+    return {
+      team: {
+        ...bucket.fd.team,
+        country: preferredCountry,
+        logo: preferredLogo,
+      },
+      venue: preferredVenue,
+    }
+  }
+
+  if (bucket.af) {
+    return {
+      team: {
+        ...bucket.af.team,
+        country: preferredCountry,
+        logo: preferredLogo,
+        source: 'af',
+      },
+      venue: preferredVenue,
+    }
+  }
+
+  return {
+    team: {
+      ...base.team,
+      country: preferredCountry,
+      logo: preferredLogo,
+      source: 'tm',
+    },
+    venue: preferredVenue,
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -111,38 +249,50 @@ export async function GET(request: NextRequest) {
     }
 
     // Remote fallback only when the local DB misses.
-    // FD gives correct IDs for covered leagues, TM fills in the global gaps.
-    const [fdResults, tmResults] = await Promise.all([
+    // FD keeps the unlimited top-league path stable, AF fills broader global coverage,
+    // and TM closes the remaining identity/logo gaps.
+    const [fdResults, afResults, tmResults] = await Promise.all([
       searchFDTeams(query),
+      searchAFTeams(query),
       tmSearchClubs(query),
     ])
 
-    // Merge: FD first, then TM-only — deduplicated by normalized name.
-    const seenNames = new Set<string>()
-    const merged: TeamSearchResult[] = []
+    const buckets = new Map<string, ProviderBucket>()
 
-    for (const t of fdResults) {
-      const key = normalizeName(t.team.name)
-      if (!seenNames.has(key)) { seenNames.add(key); merged.push(t) }
-    }
-    for (const c of tmResults) {
-      const key = normalizeName(c.name)
-      if (!seenNames.has(key)) {
-        seenNames.add(key)
-        merged.push({
+    fdResults.forEach((result, index) => {
+      addCandidate(
+        buckets,
+        'fd',
+        {
+          ...result,
           team: {
-            id: c.id as unknown as number,
-            name: c.name,
-            country: normalizeCountryDisplayName(c.country),
-            logo: nationalTeamFlag(c.name) ?? `https://tmssl.akamaized.net/images/wappen/head/${c.id}.png`,
-            source: 'tm' as const,
+            ...result.team,
+            country: normalizeCountryDisplayName(result.team.country),
+            logo: nationalTeamFlag(result.team.name) ?? result.team.logo,
           },
-          venue: { name: '', city: '' },
-        })
-      }
-    }
+        },
+        index,
+      )
+    })
 
-    const teams = merged.slice(0, 8)
+    afResults.forEach((team, index) => {
+      addCandidate(buckets, 'af', buildAFTeamResult(team), index)
+    })
+
+    tmResults.forEach((club, index) => {
+      addCandidate(buckets, 'tm', buildTMTeamResult(club), index)
+    })
+
+    const teams = Array.from(buckets.values())
+      .map((bucket) => finalizeBucket(bucket))
+      .filter((team): team is TeamSearchResult => Boolean(team))
+      .sort((left, right) => {
+        const scoreDiff = scoreTeamQuery(right.team.name, query) - scoreTeamQuery(left.team.name, query)
+        if (scoreDiff !== 0) return scoreDiff
+        return left.team.name.length - right.team.name.length
+      })
+      .slice(0, 8)
+
     setCachedRemoteSearch(cacheKey, teams)
 
     return NextResponse.json({ teams })
