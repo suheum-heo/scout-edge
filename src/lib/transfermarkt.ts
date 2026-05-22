@@ -93,6 +93,8 @@ export interface TMPlayerSearchResult {
   marketValue: number | null
 }
 
+export type TMPlayerStatus = 'active' | 'free_agent' | 'retired'
+
 export interface TMPlayerData {
   id: string
   name: string
@@ -101,6 +103,7 @@ export interface TMPlayerData {
   age: number | null
   nationality: string
   position: string
+  status: TMPlayerStatus
   currentClub: string
   currentClubId: string | null
   contractExpires: string | null   // ISO date "2027-06-30"
@@ -313,6 +316,36 @@ function normalizeManagerClub(value: string | null | undefined): string | null {
   }
 
   return normalizeClubDisplayName(clubName)
+}
+
+function resolvePlayerStatus(
+  rawClubName?: string | null,
+  options?: { isRetired?: boolean; description?: string | null }
+): { status: TMPlayerStatus; currentClub: string } {
+  const normalizedClub = normalizeClubDisplayName(rawClubName || '')
+  const clubLow = normalizedClub.toLowerCase()
+  const description = (options?.description || '').toLowerCase()
+
+  if (
+    options?.isRetired ||
+    clubLow === 'retired' ||
+    description.includes('former footballer') ||
+    description.includes('former player') ||
+    description.includes('retired since')
+  ) {
+    return { status: 'retired', currentClub: 'Retired' }
+  }
+
+  if (
+    !normalizedClub ||
+    clubLow === 'without club' ||
+    clubLow === 'vereinslos' ||
+    clubLow === '-'
+  ) {
+    return { status: 'free_agent', currentClub: 'Free Agent' }
+  }
+
+  return { status: 'active', currentClub: normalizedClub }
 }
 
 function normalizeTactic(value: string | null | undefined): string | null {
@@ -599,14 +632,17 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
     try {
       const encoded = encodeURIComponent(query)
       const data = await tmFetch<{ results: TMPlayerSearchResult[] }>(`/players/search/${encoded}`)
-      const results = (data.results || []).slice(0, 8).map((player) => ({
-        ...player,
-        club: {
-          ...player.club,
-          name: normalizeClubDisplayName(player.club?.name),
-        },
-        nationalities: (player.nationalities || []).map((country) => normalizeCountryDisplayName(country)),
-      }))
+      const results = (data.results || []).slice(0, 8).map((player) => {
+        const status = resolvePlayerStatus(player.club?.name)
+        return {
+          ...player,
+          club: {
+            ...player.club,
+            name: status.currentClub,
+          },
+          nationalities: (player.nationalities || []).map((country) => normalizeCountryDisplayName(country)),
+        }
+      })
 
       if (results.length > 0) {
         return results
@@ -631,7 +667,9 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
         fullName: string | null
         imageUrl: string | null
         age: number | null
+        description?: string | null
         citizenship: string[]
+        isRetired?: boolean
         position: { main: string | null; other: string[] | null }
         club: { id: string | null; name: string; contractExpires: string | null }
         marketValue: number | null
@@ -647,6 +685,10 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
     const statsAvailable = hasSitePerformance
       ? sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
       : Array.isArray(statsData.stats) && statsData.stats.length > 0
+    const status = resolvePlayerStatus(profile.club.name, {
+      isRetired: profile.isRetired,
+      description: profile.description,
+    })
 
     return {
       id: profile.id,
@@ -656,8 +698,9 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       age: profile.age,
       nationality: normalizeCountryDisplayName(profile.citizenship[0]) || 'Unknown',
       position: profile.position.main || 'Unknown',
-      currentClub: normalizeClubDisplayName(profile.club.name),
-      currentClubId: profile.club.id,
+      status: status.status,
+      currentClub: status.currentClub,
+      currentClubId: status.status === 'active' ? profile.club.id : null,
       contractExpires: profile.club.contractExpires,
       contractYear: contractYear(profile.club.contractExpires),
       marketValue: profile.marketValue,
