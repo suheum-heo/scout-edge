@@ -65,8 +65,8 @@ function registerClubCrest(variant: string, logoUrl: string) {
   }
 }
 
-// Toluca official structured-data crest from the club's own website.
-const TOLUCA_OFFICIAL_CREST = 'https://statics-maker.llt-services.com/tol/images/2025/10/30/large/dccb6d8e-46d9-46b1-883f-d20e4ed42691-686.png'
+// Toluca's official site exposes multiple brand assets; use the match-data shield shown in official fixtures.
+const TOLUCA_OFFICIAL_CREST = 'https://golstatsimages.blob.core.windows.net/teams-80/18.png'
 for (const variant of ['Toluca', 'Deportivo Toluca', 'Deportivo Toluca FC', 'Toluca FC']) {
   registerClubCrest(variant, TOLUCA_OFFICIAL_CREST)
 }
