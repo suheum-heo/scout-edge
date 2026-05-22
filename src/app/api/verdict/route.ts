@@ -33,11 +33,20 @@ export async function POST(request: NextRequest) {
       try {
         if (teamSource === 'tm') {
           // TM clubs — no FotMob/FD ID available; Claude will infer coach from team name
-        } else if (teamSource === 'fotmob' || fotmobId) {
-          const fmId = teamSource === 'fotmob' ? (teamId as number) : fotmobId!
-          const result = await fotmobGetSquadAndCoach(fmId)
-          if (result.coach) coachName = (result.coach as { name: string }).name
-        } else if (typeof teamId === 'number') {
+          return
+        }
+
+        if (teamSource === 'fotmob' || fotmobId) {
+          try {
+            const fmId = teamSource === 'fotmob' ? (teamId as number) : fotmobId!
+            const result = await fotmobGetSquadAndCoach(fmId)
+            if (result.coach) coachName = (result.coach as { name: string }).name
+          } catch {
+            // Fall through to football-data if available
+          }
+        }
+
+        if (!coachName && typeof teamId === 'number') {
           const fdData = await getTeamData(teamId)
           coachName = (fdData.coach as APICoach | null)?.name
         }

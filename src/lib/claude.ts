@@ -1381,6 +1381,7 @@ No other text.`
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 1500,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 
