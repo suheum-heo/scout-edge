@@ -50,7 +50,6 @@ function isUsableTMClubName(clubName?: string | null): clubName is string {
   if (!clubName) return false
   const clubLow = clubName.toLowerCase()
   return !clubLow.includes('retired') &&
-    !clubLow.includes('free agent') &&
     !clubLow.includes('without club') &&
     clubLow !== '-'
 }
