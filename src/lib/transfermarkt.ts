@@ -182,6 +182,28 @@ function contractYear(isoDate: string | null): string {
   return isoDate.slice(0, 4)
 }
 
+function inferAgeFromDescription(description?: string | null): number | null {
+  if (!description) return null
+
+  const match = description.match(/\*\s*(\d{2})\/(\d{2})\/(\d{4})\b/)
+  if (!match) return null
+
+  const [, dayText, monthText, yearText] = match
+  const day = Number(dayText)
+  const month = Number(monthText)
+  const year = Number(yearText)
+  if (!day || !month || !year) return null
+
+  const now = new Date()
+  let age = now.getUTCFullYear() - year
+  const hasHadBirthday =
+    now.getUTCMonth() + 1 > month ||
+    (now.getUTCMonth() + 1 === month && now.getUTCDate() >= day)
+
+  if (!hasHadBirthday) age -= 1
+  return age >= 0 ? age : null
+}
+
 function getSeasonBucket(value: string | null | undefined): number | null {
   const season = value?.trim()
   if (!season) return null
@@ -622,7 +644,10 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
 /**
  * Fetch full player data: profile + aggregated current-season stats.
  */
-export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> {
+export async function getPlayerData(
+  tmId: string,
+  options?: { fallbackAge?: number | null }
+): Promise<TMPlayerData | null> {
   try {
     const [profile, statsData, sitePerformance] = await Promise.all([
       tmFetch<{
@@ -631,6 +656,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
         fullName: string | null
         imageUrl: string | null
         age: number | null
+        description?: string | null
         citizenship: string[]
         position: { main: string | null; other: string[] | null }
         club: { id: string | null; name: string; contractExpires: string | null }
@@ -653,7 +679,7 @@ export async function getPlayerData(tmId: string): Promise<TMPlayerData | null> 
       name: profile.name,
       fullName: profile.fullName,
       imageUrl: profile.imageUrl,
-      age: profile.age,
+      age: profile.age ?? options?.fallbackAge ?? inferAgeFromDescription(profile.description),
       nationality: normalizeCountryDisplayName(profile.citizenship[0]) || 'Unknown',
       position: profile.position.main || 'Unknown',
       currentClub: normalizeClubDisplayName(profile.club.name),

@@ -13,9 +13,10 @@ import { getSquadAndCoach as fotmobGetSquadAndCoach } from '@/lib/fotmob'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { playerName, tmPlayerId, teamId, teamName, teamSource, fotmobId } = body as {
+    const { playerName, tmPlayerId, playerAge, teamId, teamName, teamSource, fotmobId } = body as {
       playerName: string
       tmPlayerId?: string
+      playerAge?: number
       teamId: number | string
       teamName: string
       teamSource?: string
@@ -47,9 +48,9 @@ export async function POST(request: NextRequest) {
 
     const fetchPlayer = async () => {
       try {
-        if (tmPlayerId) return await getPlayerData(tmPlayerId)
+        if (tmPlayerId) return await getPlayerData(tmPlayerId, { fallbackAge: playerAge })
         const searchResult = await searchPlayer(playerName)
-        if (searchResult) return await getPlayerData(searchResult.id)
+        if (searchResult) return await getPlayerData(searchResult.id, { fallbackAge: searchResult.age ?? playerAge })
       } catch {
         return null
       }

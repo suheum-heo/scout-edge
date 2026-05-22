@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
     name: p.name,
     position: p.position,
     club: p.club?.name ?? 'Unknown',
+    age: p.age ?? null,
     nationality: p.nationalities?.[0] ?? '',
     marketValue: p.marketValue,
   }))

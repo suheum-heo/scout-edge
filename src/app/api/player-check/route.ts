@@ -8,9 +8,10 @@ import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { playerName, tmPlayerId, managerId, managerName, targetTeam } = body as {
+    const { playerName, tmPlayerId, playerAge, managerId, managerName, targetTeam } = body as {
       playerName: string
       tmPlayerId?: string
+      playerAge?: number
       managerId?: string
       managerName?: string
       targetTeam?: string
@@ -34,11 +35,11 @@ export async function POST(request: NextRequest) {
     let tmPlayer = null
     try {
       if (tmPlayerId) {
-        tmPlayer = await getPlayerData(tmPlayerId)
+        tmPlayer = await getPlayerData(tmPlayerId, { fallbackAge: playerAge })
       } else {
         const searchResult = await searchPlayer(playerName)
         if (searchResult) {
-          tmPlayer = await getPlayerData(searchResult.id)
+          tmPlayer = await getPlayerData(searchResult.id, { fallbackAge: searchResult.age ?? playerAge })
         }
       }
     } catch {

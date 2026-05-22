@@ -21,6 +21,7 @@ interface PlayerResult {
   name: string
   position: string
   club: string
+  age?: number | null
   nationality: string
 }
 
@@ -142,6 +143,7 @@ export default function PlayerCheckPage() {
         body: JSON.stringify({
           playerName: resolvedPlayerName,
           tmPlayerId: selectedPlayer?.id || undefined,
+          playerAge: selectedPlayer?.age,
           managerId: selectedManager?.profileId || undefined,
           managerName: selectedManager?.profileId ? undefined : managerQuery.trim(),
           targetTeam: clubQuery.trim() || undefined,

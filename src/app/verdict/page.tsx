@@ -27,6 +27,7 @@ interface PlayerResult {
   name: string
   position: string
   club: string
+  age?: number | null
 }
 
 const EXAMPLES: { player: string; team: Team }[] = [
@@ -120,6 +121,7 @@ export default function VerdictPage() {
         body: JSON.stringify({
           playerName: resolvedPlayerName,
           tmPlayerId: overridePlayer ? undefined : selectedPlayer?.id,
+          playerAge: overridePlayer ? undefined : selectedPlayer?.age,
           teamId: resolvedTeam.id,
           teamName: resolvedTeam.name,
           teamSource: resolvedTeam.source,
@@ -253,7 +255,7 @@ export default function VerdictPage() {
                   <div>
                     <p className="text-slate-900 dark:text-white font-semibold">{tmPlayer.name}</p>
                     <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer.currentClub}</p>
-                    <p className="text-slate-400 dark:text-slate-500 text-xs">{tmPlayer.position} · Age {tmPlayer.age} · {tmPlayer.nationality}</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs">{tmPlayer.position}{tmPlayer.age !== null ? ` · Age ${tmPlayer.age}` : ''} · {tmPlayer.nationality}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 flex-wrap">
