@@ -36,7 +36,10 @@ const TTL = {
   COACHES: 30 * 60 * 1000,          // 30 minutes
   FORMATIONS: 30 * 60 * 1000,       // 30 minutes
   LINEUPS: 30 * 24 * 60 * 60 * 1000, // historical lineups are stable
+  MANAGER_SNAPSHOT: 15 * 60 * 1000,
 }
+
+const NULL_MANAGER_SNAPSHOT = '__manager_snapshot_null__'
 
 export interface APITeam {
   team: {
@@ -866,6 +869,19 @@ export async function getLiveManagerSnapshot(
   coachName: string,
   options?: { maxMatches?: number }
 ): Promise<ManagerLiveSnapshot | null> {
+  const maxMatches = options?.maxMatches ?? 10
+  const cacheKey = `manager:snapshot:${coachName.trim().toLowerCase()}:${maxMatches}`
+  const cachedEntry = cache.get(cacheKey)
+  if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+    return cachedEntry.data === NULL_MANAGER_SNAPSHOT
+      ? null
+      : cachedEntry.data as ManagerLiveSnapshot
+  }
+
+  const cacheSnapshot = (snapshot: ManagerLiveSnapshot | null) => {
+    setCache(cacheKey, snapshot ?? NULL_MANAGER_SNAPSHOT, TTL.MANAGER_SNAPSHOT)
+  }
+
   const [coach, tmManager] = await Promise.all([
     getLiveCoachByName(coachName),
     searchManager(coachName).catch(() => null),
@@ -914,7 +930,10 @@ export async function getLiveManagerSnapshot(
         }
     : afLiveContext
 
-  if (!liveContext) return null
+  if (!liveContext) {
+    cacheSnapshot(null)
+    return null
+  }
 
   let referenceTeamId = liveContext.referenceTeamId
   if (!referenceTeamId && liveContext.referenceClub) {
@@ -978,7 +997,7 @@ export async function getLiveManagerSnapshot(
   const primaryFormation = formations.primaryFormation || tmFinalFormation?.formation || profilePreferredFormation || null
   const sampleSize = formations.sampleSize || (tmFinalFormation?.formation ? 1 : 0)
 
-  return {
+  const snapshot: ManagerLiveSnapshot = {
     name: tmManager?.name || (coach ? buildFullCoachName(coach) || coach.name : coachName),
     status: liveContext.status,
     currentClub: liveContext.currentClub,
@@ -992,6 +1011,9 @@ export async function getLiveManagerSnapshot(
     sampleSize,
     season: formations.season,
   }
+
+  cacheSnapshot(snapshot)
+  return snapshot
 }
 
 // Search for a coach by name, return their current team name (live from API)

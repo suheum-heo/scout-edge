@@ -133,7 +133,7 @@ export default function BuildPage() {
         setManagerSuggestions(data.coaches || [])
       } catch { setManagerSuggestions([]) }
       finally { setIsSearchingManager(false) }
-    }, 300)
+    }, 180)
   }
 
   const handleBuild = async () => {

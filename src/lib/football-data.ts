@@ -235,6 +235,40 @@ function normalizePositionLabel(pos: string | undefined): string {
   return normalizePositionDisplayName(pos)
 }
 
+export function getSquadAgeProfile(players: APIPlayer[]) {
+  const ages = players
+    .map((player) => player.player.age)
+    .filter((age): age is number => Number.isFinite(age) && age > 0)
+
+  if (!ages.length) {
+    return {
+      playerCount: 0,
+      averageAge: null as number | null,
+      maxAge: null as number | null,
+      adultCount: 0,
+      minorCount: 0,
+    }
+  }
+
+  const totalAge = ages.reduce((sum, age) => sum + age, 0)
+  return {
+    playerCount: ages.length,
+    averageAge: totalAge / ages.length,
+    maxAge: Math.max(...ages),
+    adultCount: ages.filter((age) => age >= 23).length,
+    minorCount: ages.filter((age) => age < 19).length,
+  }
+}
+
+export function isLikelyYouthOnlySquad(players: APIPlayer[], minPlayers = 16): boolean {
+  const profile = getSquadAgeProfile(players)
+  if (profile.playerCount < minPlayers) return false
+  if (profile.averageAge !== null && profile.averageAge < 19) return true
+  if ((profile.maxAge ?? 0) <= 21) return true
+  if (profile.adultCount <= 2 && profile.minorCount >= Math.ceil(profile.playerCount * 0.6)) return true
+  return false
+}
+
 function teamLogoUrl(id: number): string {
   return `https://crests.football-data.org/${id}.png`
 }

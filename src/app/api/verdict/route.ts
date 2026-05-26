@@ -6,8 +6,8 @@ import { getManagerByName } from '@/lib/managers'
 import { analyzeTransferVerdict } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
-import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
-import { getTeamData, APICoach } from '@/lib/football-data'
+import { searchPlayer, getPlayerData, getClubManager, searchClub, searchManagerByClub } from '@/lib/transfermarkt'
+import { getTeamData, APICoach, isLikelyYouthOnlySquad } from '@/lib/football-data'
 import { getSquadAndCoach as fotmobGetSquadAndCoach } from '@/lib/fotmob'
 
 export async function POST(request: NextRequest) {
@@ -31,25 +31,42 @@ export async function POST(request: NextRequest) {
     let coachName: string | undefined
     const fetchCoach = async () => {
       try {
-        if (teamSource === 'tm') {
-          // TM clubs — no FotMob/FD ID available; Claude will infer coach from team name
-          return
+        const fmPromise = teamSource === 'fotmob' || fotmobId
+          ? (async () => {
+              const fmId = teamSource === 'fotmob' ? (teamId as number) : fotmobId!
+              return await fotmobGetSquadAndCoach(fmId)
+            })().catch(() => null)
+          : Promise.resolve(null)
+
+        const fdPromise = typeof teamId === 'number'
+          ? getTeamData(teamId).catch(() => ({ players: [], coach: null }))
+          : Promise.resolve(null)
+
+        const tmClubIdPromise = teamSource === 'tm'
+          ? Promise.resolve(String(teamId))
+          : searchClub(teamName).catch(() => null)
+
+        const [fotmobResult, fdData, tmClubId] = await Promise.all([
+          fmPromise,
+          fdPromise,
+          tmClubIdPromise,
+        ])
+
+        const fdCoachName = (fdData?.coach as APICoach | null)?.name
+        const fdSquadLooksYouth = fdData ? isLikelyYouthOnlySquad(fdData.players) : false
+        const fotmobCoachName = (fotmobResult?.coach as { name?: string } | null)?.name || undefined
+
+        let tmCoachName: string | undefined
+        if (tmClubId) {
+          const tmManager = await getClubManager(tmClubId).catch(() => null)
+          tmCoachName = tmManager?.name || undefined
+        }
+        if (!tmCoachName) {
+          const tmManagerByClub = await searchManagerByClub(teamName).catch(() => null)
+          tmCoachName = tmManagerByClub?.name || undefined
         }
 
-        if (teamSource === 'fotmob' || fotmobId) {
-          try {
-            const fmId = teamSource === 'fotmob' ? (teamId as number) : fotmobId!
-            const result = await fotmobGetSquadAndCoach(fmId)
-            if (result.coach) coachName = (result.coach as { name: string }).name
-          } catch {
-            // Fall through to football-data if available
-          }
-        }
-
-        if (!coachName && typeof teamId === 'number') {
-          const fdData = await getTeamData(teamId)
-          coachName = (fdData.coach as APICoach | null)?.name
-        }
+        coachName = fotmobCoachName || (fdSquadLooksYouth ? tmCoachName || fdCoachName : fdCoachName || tmCoachName)
       } catch {
         // Coach detection failed — will fall back to Claude's knowledge
       }

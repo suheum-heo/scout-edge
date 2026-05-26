@@ -9,7 +9,10 @@ function sanitizeToken(value: string): string {
 }
 
 function sanitizeDescription(value: string): string {
-  return value.replace(/["\\]/g, '')
+  return value
+    .replace(/["\\]/g, "")
+    .replace(/[^\x20-\x7E]+/g, "-")
+    .trim()
 }
 
 export function createServerTiming() {

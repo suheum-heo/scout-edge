@@ -119,7 +119,7 @@ export default function PlayerCheckPage() {
         setManagerSuggestions(data.coaches || [])
       } catch { setManagerSuggestions([]) }
       finally { setIsSearchingManager(false) }
-    }, 300)
+    }, 180)
   }
 
   const handleSelectManager = (coach: CoachResult) => {

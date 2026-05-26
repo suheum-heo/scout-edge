@@ -30,7 +30,7 @@ const TM_TO_AF_TEAM_ID_OVERRIDES: Record<string, number> = {
   'al nassr': 2939,
   'al nassr fc': 2939,
 }
-import { getTeamData, formatPlayerStats, APIPlayer, APICoach } from '@/lib/football-data'
+import { getTeamData, formatPlayerStats, APIPlayer, APICoach, isLikelyYouthOnlySquad } from '@/lib/football-data'
 import {
   getSquad,
   getCoach,
@@ -392,23 +392,37 @@ export async function POST(request: NextRequest) {
       const fmId: number | null = fotmobId ?? null
       console.log(`[analyze] FD team ${teamName}, fetching FD+FotMob in parallel (fotmobId=${fmId ?? 'none'})`)
 
-      const [fdData, fotmobResult] = await Promise.all([
+      const [fdData, fotmobResult, tmId] = await Promise.all([
         getTeamData(teamId),
         fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
+        searchClub(teamName).catch(() => null),
       ])
 
-      coach = fdData.coach
+      const fdSquadLooksYouth = isLikelyYouthOnlySquad(fdData.players)
+      let tmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
+      let tmCoach: APICoach | null = null
+
+      if (tmId && (fdSquadLooksYouth || !fdData.coach)) {
+        ;[tmPlayers, tmCoach] = await Promise.all([
+          getClubSquad(tmId).catch(() => []),
+          resolveLiveManagerCoach(teamId, teamName, tmId),
+        ])
+      }
+
+      coach = (fotmobResult?.coach as unknown as APICoach | null) ?? fdData.coach ?? tmCoach
+
+      if (fdSquadLooksYouth) {
+        console.warn(`[analyze] Ignoring suspicious FD first-team payload for ${teamName}; attempting live fallback sources`)
+        if (tmCoach) coach = tmCoach
+      }
 
       if (fotmobResult?.squad.length) {
         fotmobSquad = fotmobResult.squad
         usedFotmob = true
-        if (!coach && fotmobResult.coach) {
-          coach = fotmobResult.coach as unknown as APICoach
-        }
       }
 
       if (!coach) {
-        coach = await resolveLiveManagerCoach(teamId, teamName)
+        coach = tmCoach ?? await resolveLiveManagerCoach(teamId, teamName, tmId)
       }
 
       // fotmobId wasn't in local DB — try FotMob search by name
@@ -421,7 +435,7 @@ export async function POST(request: NextRequest) {
             if (result.squad.length) {
               fotmobSquad = result.squad
               usedFotmob = true
-              if (!coach && result.coach) coach = result.coach as unknown as APICoach
+              if (result.coach) coach = result.coach as unknown as APICoach
             }
           }
         } catch (e) {
@@ -431,18 +445,25 @@ export async function POST(request: NextRequest) {
 
       // Fall back to FD squad (no stats), then TM squad, if FotMob enrichment failed.
       if (!usedFotmob) {
-        squadRaw = fdData.players
-        if (!squadRaw.length) {
+        if (fdSquadLooksYouth) {
+          if (tmPlayers.length) {
+            tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+          } else {
+            squadRaw = fdData.players
+          }
+        } else {
+          squadRaw = fdData.players
+        }
+
+        if (!squadRaw.length && !tmFormattedSquad?.length && tmId) {
           try {
-            const tmId = await searchClub(teamName)
-            if (tmId) {
-              const tmPlayers = await getClubSquad(tmId).catch(() => [])
-              tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
-            }
+            const tmFallbackPlayers = tmPlayers.length ? tmPlayers : await getClubSquad(tmId).catch(() => [])
+            tmFormattedSquad = formatTMFallbackSquad(teamName, tmFallbackPlayers)
           } catch {
             // stay empty
           }
         }
+
         if (!squadRaw.length && !tmFormattedSquad?.length) {
           console.log(`[analyze] FD squad empty for ${teamName}, FD/FotMob/TM fallback all missed`)
         }
