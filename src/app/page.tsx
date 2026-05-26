@@ -59,6 +59,7 @@ export default function HomePage() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isLoadingAnalysisDetails, setIsLoadingAnalysisDetails] = useState(false)
+  const [analysisDetailsError, setAnalysisDetailsError] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<SquadAnalysisResult | null>(null)
   const [managerResult, setManagerResult] = useState<ManagerResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -144,6 +145,7 @@ export default function HomePage() {
     setTeamResults([])
     setAnalysis(null)
     setIsLoadingAnalysisDetails(false)
+    setAnalysisDetailsError(null)
     setSquad([])
     setSelectedGap(null)
     setRecommendations([])
@@ -172,6 +174,7 @@ export default function HomePage() {
     setCompareIds(null)
     setScenarioError(null)
     setActiveTab('gaps')
+    setAnalysisDetailsError(null)
   }
 
   const hydrateAnalysisDetails = useCallback(async (
@@ -180,6 +183,7 @@ export default function HomePage() {
     excludeIds?: Set<string>
   ) => {
     setIsLoadingAnalysisDetails(true)
+    setAnalysisDetailsError(null)
 
     try {
       const res = await fetch('/api/analyze', {
@@ -196,14 +200,20 @@ export default function HomePage() {
         }),
       })
 
-      if (!res.ok) return
+      if (!res.ok) {
+        setAnalysisDetailsError('Detailed strengths and weaknesses could not be loaded. Try again.')
+        return
+      }
       const data = await res.json()
       if (analysisRequestSeq.current !== requestSeq) return
       if (data.analysis) {
         setAnalysis(data.analysis as SquadAnalysisResult)
+        setAnalysisDetailsError(null)
       }
     } catch {
-      // Keep the fast first-pass analysis on screen if detail hydration fails.
+      if (analysisRequestSeq.current === requestSeq) {
+        setAnalysisDetailsError('Detailed strengths and weaknesses could not be loaded. Try again.')
+      }
     } finally {
       if (analysisRequestSeq.current === requestSeq) {
         setIsLoadingAnalysisDetails(false)
@@ -218,6 +228,7 @@ export default function HomePage() {
     analysisRequestSeq.current = requestSeq
     setIsAnalyzing(true)
     setIsLoadingAnalysisDetails(false)
+    setAnalysisDetailsError(null)
     setError(null)
     setAnalysis(null)
     setSelectedGap(null)
@@ -409,6 +420,9 @@ export default function HomePage() {
 
   const selectedManagerOverride = managers.find((m) => m.id === selectedManagerId)
   const currentAvailabilityKey = makeAvailabilityKey(unavailableIds)
+  const analyzedUnavailableIds = analyzedUnavailableKey
+    ? new Set(analyzedUnavailableKey.split('|').filter(Boolean))
+    : undefined
   const availabilityDirty = currentAvailabilityKey !== analyzedUnavailableKey
   const availableSquad = unavailableIds.size > 0
     ? squad.filter((player) => !unavailableIds.has(player.playerId))
@@ -423,6 +437,10 @@ export default function HomePage() {
   const unavailableOverflow = unavailablePlayers.length > 4
     ? ` +${unavailablePlayers.length - 4} more`
     : ''
+  const handleRetryAnalysisDetails = () => {
+    if (!selectedTeam || !analysis || isLoadingAnalysisDetails) return
+    void hydrateAnalysisDetails(analysisRequestSeq.current, selectedTeam, analyzedUnavailableIds)
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
@@ -626,6 +644,19 @@ export default function HomePage() {
                 <p className="text-blue-400 text-xs mb-4">
                   Loading deeper strengths and weaknesses...
                 </p>
+              )}
+              {!isLoadingAnalysisDetails && analysis.detailsStatus === 'partial' && (
+                <div className="mb-4 flex items-center gap-3">
+                  <p className={`text-xs ${analysisDetailsError ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {analysisDetailsError || 'Detailed strengths and weaknesses are still loading.'}
+                  </p>
+                  <button
+                    onClick={handleRetryAnalysisDetails}
+                    className="text-xs px-2.5 py-1 rounded-full border border-blue-500/20 text-blue-400 hover:bg-blue-500/10 transition-colors"
+                  >
+                    Retry details
+                  </button>
+                </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>

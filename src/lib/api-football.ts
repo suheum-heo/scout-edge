@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { normalizeCountryDisplayName } from './country-names'
+import { normalizeLiveFormation } from './formations'
 import { buildFullName, namesMatch } from './person-names'
 import { getClubFinalFormation, getManagerProfileSnapshot, searchClub, searchManager } from './transfermarkt'
 
@@ -277,8 +278,7 @@ function normalizeCountry(s: string) {
 }
 
 function normalizeFormation(value?: string | null): string | null {
-  const formation = (value || '').trim()
-  return formation ? formation : null
+  return normalizeLiveFormation(value)
 }
 
 function clubsLikelyMatch(left?: string | null, right?: string | null) {

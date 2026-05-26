@@ -5,6 +5,7 @@
 
 import { getClubLookupKeys, normalizeClubDisplayName } from '@/lib/club-names'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
+import { normalizeLiveFormation } from '@/lib/formations'
 import { normalizePositionDisplayName } from '@/lib/position-names'
 
 const TM_BASE = process.env.TRANSFERMARKT_API_URL || 'http://localhost:8000'
@@ -341,11 +342,7 @@ function normalizeManagerClub(value: string | null | undefined): string | null {
 function normalizeTactic(value: string | null | undefined): string | null {
   const raw = decodeHtml(value || '').trim()
   if (!raw) return null
-
-  const numbers = raw.match(/\d+/g)
-  if (!numbers?.length) return null
-
-  return numbers.join('-')
+  return normalizeLiveFormation(raw)
 }
 
 function scoreStaffRole(position: string): number {

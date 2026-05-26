@@ -239,6 +239,60 @@ function formatTMFallbackSquad(
   }))
 }
 
+type AnalyzeSquadRow = {
+  playerId?: number | string
+  name: string
+  position: string
+  age: number
+  nationality: string
+  appearances: number
+  minutes: number
+  rating: string
+  goals: number
+  assists: number
+  currentTeam?: string
+}
+
+interface CachedAnalyzeProviderContext {
+  squad: AnalyzeSquadRow[]
+  squadPlayers: SquadPlayer[]
+  providerManagerName: string | null
+}
+
+const ANALYZE_PROVIDER_TTL_MS = 10 * 60 * 1000
+const analyzeProviderCache = new Map<string, { data: CachedAnalyzeProviderContext; expiresAt: number }>()
+
+function getAnalyzeProviderCacheKey(teamId: number | string, teamName: string, teamSource?: string, fotmobId?: number | null) {
+  return [
+    'analyze-provider',
+    String(teamSource ?? 'fd'),
+    String(teamId),
+    String(fotmobId ?? 'none'),
+    normalizeTeamLookupName(teamName),
+  ].join(':')
+}
+
+function getCachedAnalyzeProviderContext(cacheKey: string): CachedAnalyzeProviderContext | null {
+  const entry = analyzeProviderCache.get(cacheKey)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    analyzeProviderCache.delete(cacheKey)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedAnalyzeProviderContext(cacheKey: string, data: CachedAnalyzeProviderContext) {
+  analyzeProviderCache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + ANALYZE_PROVIDER_TTL_MS,
+  })
+}
+
+function isAnalyzeSquadRow(value: AnalyzeSquadRow | null | undefined): value is AnalyzeSquadRow {
+  return Boolean(value && value.name)
+}
+
 export async function POST(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
@@ -256,229 +310,271 @@ export async function POST(request: NextRequest) {
     }
 
     const providerFetchStartedAt = timing.start()
+    const formatSquadStartedAt = timing.start()
+    const providerCacheKey = getAnalyzeProviderCacheKey(teamId, teamName, teamSource, typeof fotmobId === 'number' ? fotmobId : null)
+    const cachedProviderContext = getCachedAnalyzeProviderContext(providerCacheKey)
 
-    let squadRaw: APIPlayer[] = []
-    let fotmobSquad: FotmobAPIPlayer[] = []
-    let tmFormattedSquad: Array<{
-      playerId: string; name: string; position: string; age: number; nationality: string;
-      appearances: number; minutes: number; rating: string; goals: number; assists: number; currentTeam: string;
-    }> | null = null
-    let coach: APICoach | null = null
-    let usedFotmob = false
+    let squad: AnalyzeSquadRow[] = cachedProviderContext?.squad ?? []
+    let squadPlayers: SquadPlayer[] = cachedProviderContext?.squadPlayers ?? []
+    let providerManagerName: string | null = cachedProviderContext?.providerManagerName ?? null
 
-    if (teamSource === 'tm') {
-      // Squad + manager from TM first, then exact verified IDs only.
-      // Do not fall back to fuzzy provider name-matching here — that's how clubs get crossed.
-      console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
-      const afSearchVariants = buildAFSearchVariants(teamName)
-      const preferredFmId = typeof fotmobId === 'number' ? fotmobId : null
-      const [tmPlayers, tmManager, afTeamMatches] = await Promise.all([
-        getClubSquad(String(teamId)).catch(() => []),
-        getClubManager(String(teamId)).catch(() => null),
-        Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
-      ])
-      const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
-      const verifiedAfTeam = getVerifiedAFTeam(teamName, bestAfTeam)
-      tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
-      coach = tmManagerToCoach(tmManager, teamId, teamName)
-
-      const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
-      if (preferredAfTeamId && !coach) {
-        try {
-          coach = await getCoach(preferredAfTeamId)
-        } catch { /* coach stays null */ }
-      }
-      if (!preferredAfTeamId && bestAfTeam) {
-        console.log(
-          `[analyze] Rejecting fuzzy API Football team match for ${teamName}: ${bestAfTeam.team.name}`
-        )
-      }
-
-      if (!coach) {
-        const tryFotmobTeam = async (fmTeamId: number) => {
-          try {
-            const fmResult = await fotmobGetSquadAndCoach(fmTeamId)
-            if (fmResult.coach) {
-              coach = fmResult.coach as unknown as APICoach
-            }
-            if (!tmFormattedSquad && fmResult.squad.length) {
-              fotmobSquad = fmResult.squad
-              usedFotmob = true
-            }
-          } catch (e) {
-            console.error('[analyze] TM-path FotMob fallback failed:', e)
-          }
-        }
-
-        if (preferredFmId) {
-          await tryFotmobTeam(preferredFmId)
-        }
-      }
-
-      if (!coach) {
-        coach = await resolveLiveManagerCoach(teamId, teamName, String(teamId))
-      }
-
-      if (!tmFormattedSquad && preferredAfTeamId) {
-        try {
-          squadRaw = await getSquad(preferredAfTeamId)
-        } catch {
-          // stay empty
-        }
-      }
-
-    } else if (teamSource === 'fotmob') {
-      // FotMob ID — direct squad fetch, no re-search needed
-      console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
-      try {
-        const result = await fotmobGetSquadAndCoach(teamId)
-        if (result.squad.length) {
-          fotmobSquad = result.squad
-          usedFotmob = true
-          if (result.coach) coach = result.coach as unknown as APICoach
-        }
-      } catch (e) {
-        console.error('[analyze] FotMob direct fetch failed:', e)
-      }
-
-      if (!coach) {
-        coach = await resolveLiveManagerCoach(teamId, teamName)
-      }
-
-      if (!fotmobSquad.length) {
-        try {
-          const tmId = await searchClub(teamName)
-          if (tmId) {
-            const tmPlayers = await getClubSquad(tmId)
-            tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
-          }
-        } catch {
-          // stay empty
-        }
-      }
-    } else if (teamSource === 'af') {
-      // Run AF coach + FotMob (if we have its ID) + TM club search in parallel
-      const fmId: number | null = fotmobId ?? null
-      console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmobId=${fmId ?? 'none'})`)
-
-      const [afCoach, fmResult, tmId] = await Promise.all([
-        getCoach(teamId).catch(() => null),
-        fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
-        searchClub(teamName).catch(() => null),
-      ])
-
-      // FotMob coach is live — prefer it over potentially stale AF data
-      coach = (fmResult?.coach as unknown as APICoach | null) ?? afCoach
-
-      if (!coach) {
-        coach = await resolveLiveManagerCoach(teamId, teamName, tmId)
-      }
-
-      // Squad: FotMob (has stats) > TM > AF
-      if (fmResult?.squad.length) {
-        fotmobSquad = fmResult.squad
-        usedFotmob = true
-      } else if (tmId) {
-        const tmPlayers = await getClubSquad(tmId).catch(() => [])
-        tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
-      }
-
-      // Last resort: API Football squad (stale but better than nothing)
-      if (!tmFormattedSquad && !usedFotmob) {
-        try { squadRaw = await getSquad(teamId) } catch { /* stay empty */ }
-      }
+    if (cachedProviderContext) {
+      const cachedHasStats = squad.some((p) => (p.appearances ?? 0) > 0 || parseFloat(p.rating || '0') > 0)
+      timing.end('provider_fetch', providerFetchStartedAt, `source:${teamSource ?? 'fd'},cache:hit,squad:${squad.length},coach:${providerManagerName ? 'yes' : 'no'}`)
+      timing.end('format_squad', formatSquadStartedAt, `cache:hit,players:${squadPlayers.length},stats:${cachedHasStats ? 'yes' : 'no'}`)
     } else {
-      // Get FD data + FotMob stats in parallel when fotmobId is already known
-      const fmId: number | null = fotmobId ?? null
-      console.log(`[analyze] FD team ${teamName}, fetching FD+FotMob in parallel (fotmobId=${fmId ?? 'none'})`)
+      let squadRaw: APIPlayer[] = []
+      let fotmobSquad: FotmobAPIPlayer[] = []
+      let tmFormattedSquad: Array<{
+        playerId: string; name: string; position: string; age: number; nationality: string;
+        appearances: number; minutes: number; rating: string; goals: number; assists: number; currentTeam: string;
+      }> | null = null
+      let coach: APICoach | null = null
+      let usedFotmob = false
 
-      const [fdData, fotmobResult, tmId] = await Promise.all([
-        getTeamData(teamId),
-        fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
-        searchClub(teamName).catch(() => null),
-      ])
-
-      const fdSquadLooksYouth = isLikelyYouthOnlySquad(fdData.players)
-      let tmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
-      let tmCoach: APICoach | null = null
-
-      if (tmId && (fdSquadLooksYouth || !fdData.coach)) {
-        ;[tmPlayers, tmCoach] = await Promise.all([
-          getClubSquad(tmId).catch(() => []),
-          resolveLiveManagerCoach(teamId, teamName, tmId),
+      if (teamSource === 'tm') {
+        console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
+        const afSearchVariants = buildAFSearchVariants(teamName)
+        const preferredFmId = typeof fotmobId === 'number' ? fotmobId : null
+        const [tmPlayers, tmManager, afTeamMatches] = await Promise.all([
+          getClubSquad(String(teamId)).catch(() => []),
+          getClubManager(String(teamId)).catch(() => null),
+          Promise.all(afSearchVariants.map((variant) => afSearchTeams(variant).catch(() => []))),
         ])
-      }
+        const bestAfTeam = selectBestAFTeam(afTeamMatches, teamName)
+        const verifiedAfTeam = getVerifiedAFTeam(teamName, bestAfTeam)
+        tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+        coach = tmManagerToCoach(tmManager, teamId, teamName)
 
-      coach = (fotmobResult?.coach as unknown as APICoach | null) ?? fdData.coach ?? tmCoach
+        const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
+        if (preferredAfTeamId && !coach) {
+          try {
+            coach = await getCoach(preferredAfTeamId)
+          } catch {}
+        }
+        if (!preferredAfTeamId && bestAfTeam) {
+          console.log(`[analyze] Rejecting fuzzy API Football team match for ${teamName}: ${bestAfTeam.team.name}`)
+        }
 
-      if (fdSquadLooksYouth) {
-        console.warn(`[analyze] Ignoring suspicious FD first-team payload for ${teamName}; attempting live fallback sources`)
-        if (tmCoach) coach = tmCoach
-      }
-
-      if (fotmobResult?.squad.length) {
-        fotmobSquad = fotmobResult.squad
-        usedFotmob = true
-      }
-
-      if (!coach) {
-        coach = tmCoach ?? await resolveLiveManagerCoach(teamId, teamName, tmId)
-      }
-
-      // fotmobId wasn't in local DB — try FotMob search by name
-      if (!usedFotmob) {
-        try {
-          const fmTeams = await fotmobSearchTeams(teamName)
-          const resolvedFmId = fmTeams[0]?.team.id ?? null
-          if (resolvedFmId) {
-            const result = await fotmobGetSquadAndCoach(resolvedFmId)
-            if (result.squad.length) {
-              fotmobSquad = result.squad
-              usedFotmob = true
-              if (result.coach) coach = result.coach as unknown as APICoach
+        if (!coach) {
+          const tryFotmobTeam = async (fmTeamId: number) => {
+            try {
+              const fmResult = await fotmobGetSquadAndCoach(fmTeamId)
+              if (fmResult.coach) coach = fmResult.coach as unknown as APICoach
+              if (!tmFormattedSquad && fmResult.squad.length) {
+                fotmobSquad = fmResult.squad
+                usedFotmob = true
+              }
+            } catch (e) {
+              console.error('[analyze] TM-path FotMob fallback failed:', e)
             }
+          }
+          if (preferredFmId) await tryFotmobTeam(preferredFmId)
+        }
+
+        if (!coach) {
+          coach = await resolveLiveManagerCoach(teamId, teamName, String(teamId))
+        }
+
+        if (!tmFormattedSquad && preferredAfTeamId) {
+          try {
+            squadRaw = await getSquad(preferredAfTeamId)
+          } catch {}
+        }
+      } else if (teamSource === 'fotmob') {
+        console.log(`[analyze] FotMob team ${teamName} (${teamId}), fetching squad directly`)
+        try {
+          const result = await fotmobGetSquadAndCoach(teamId)
+          if (result.squad.length) {
+            fotmobSquad = result.squad
+            usedFotmob = true
+            if (result.coach) coach = result.coach as unknown as APICoach
           }
         } catch (e) {
-          console.error('[analyze] FotMob search enrichment failed:', e)
+          console.error('[analyze] FotMob direct fetch failed:', e)
         }
-      }
 
-      // Fall back to FD squad (no stats), then TM squad, if FotMob enrichment failed.
-      if (!usedFotmob) {
+        if (!coach) {
+          coach = await resolveLiveManagerCoach(teamId, teamName)
+        }
+
+        if (!fotmobSquad.length) {
+          try {
+            const tmId = await searchClub(teamName)
+            if (tmId) {
+              const tmPlayers = await getClubSquad(tmId)
+              tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+            }
+          } catch {}
+        }
+      } else if (teamSource === 'af') {
+        const fmId: number | null = fotmobId ?? null
+        console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmobId=${fmId ?? 'none'})`)
+
+        const [afCoach, fmResult, tmId] = await Promise.all([
+          getCoach(teamId).catch(() => null),
+          fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
+          searchClub(teamName).catch(() => null),
+        ])
+
+        coach = (fmResult?.coach as unknown as APICoach | null) ?? afCoach
+
+        if (!coach) {
+          coach = await resolveLiveManagerCoach(teamId, teamName, tmId)
+        }
+
+        if (fmResult?.squad.length) {
+          fotmobSquad = fmResult.squad
+          usedFotmob = true
+        } else if (tmId) {
+          const tmPlayers = await getClubSquad(tmId).catch(() => [])
+          tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+        }
+
+        if (!tmFormattedSquad && !usedFotmob) {
+          try { squadRaw = await getSquad(teamId) } catch {}
+        }
+      } else {
+        const fmId: number | null = fotmobId ?? null
+        console.log(`[analyze] FD team ${teamName}, fetching FD+FotMob in parallel (fotmobId=${fmId ?? 'none'})`)
+
+        const [fdData, fotmobResult, tmId] = await Promise.all([
+          getTeamData(teamId),
+          fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
+          searchClub(teamName).catch(() => null),
+        ])
+
+        const fdSquadLooksYouth = isLikelyYouthOnlySquad(fdData.players)
+        let tmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
+        let tmCoach: APICoach | null = null
+
+        if (tmId && (fdSquadLooksYouth || !fdData.coach)) {
+          ;[tmPlayers, tmCoach] = await Promise.all([
+            getClubSquad(tmId).catch(() => []),
+            resolveLiveManagerCoach(teamId, teamName, tmId),
+          ])
+        }
+
+        coach = (fotmobResult?.coach as unknown as APICoach | null) ?? fdData.coach ?? tmCoach
+
         if (fdSquadLooksYouth) {
-          if (tmPlayers.length) {
-            tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+          console.warn(`[analyze] Ignoring suspicious FD first-team payload for ${teamName}; attempting live fallback sources`)
+          if (tmCoach) coach = tmCoach
+        }
+
+        if (fotmobResult?.squad.length) {
+          fotmobSquad = fotmobResult.squad
+          usedFotmob = true
+        }
+
+        if (!coach) {
+          coach = tmCoach ?? await resolveLiveManagerCoach(teamId, teamName, tmId)
+        }
+
+        if (!usedFotmob) {
+          try {
+            const fmTeams = await fotmobSearchTeams(teamName)
+            const resolvedFmId = fmTeams[0]?.team.id ?? null
+            if (resolvedFmId) {
+              const result = await fotmobGetSquadAndCoach(resolvedFmId)
+              if (result.squad.length) {
+                fotmobSquad = result.squad
+                usedFotmob = true
+                if (result.coach) coach = result.coach as unknown as APICoach
+              }
+            }
+          } catch (e) {
+            console.error('[analyze] FotMob search enrichment failed:', e)
+          }
+        }
+
+        if (!usedFotmob) {
+          if (fdSquadLooksYouth) {
+            if (tmPlayers.length) {
+              tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+            } else {
+              squadRaw = fdData.players
+            }
           } else {
             squadRaw = fdData.players
           }
-        } else {
-          squadRaw = fdData.players
-        }
 
-        if (!squadRaw.length && !tmFormattedSquad?.length && tmId) {
-          try {
-            const tmFallbackPlayers = tmPlayers.length ? tmPlayers : await getClubSquad(tmId).catch(() => [])
-            tmFormattedSquad = formatTMFallbackSquad(teamName, tmFallbackPlayers)
-          } catch {
-            // stay empty
+          if (!squadRaw.length && !tmFormattedSquad?.length && tmId) {
+            try {
+              const tmFallbackPlayers = tmPlayers.length ? tmPlayers : await getClubSquad(tmId).catch(() => [])
+              tmFormattedSquad = formatTMFallbackSquad(teamName, tmFallbackPlayers)
+            } catch {}
+          }
+
+          if (!squadRaw.length && !tmFormattedSquad?.length) {
+            console.log(`[analyze] FD squad empty for ${teamName}, FD/FotMob/TM fallback all missed`)
           }
         }
-
-        if (!squadRaw.length && !tmFormattedSquad?.length) {
-          console.log(`[analyze] FD squad empty for ${teamName}, FD/FotMob/TM fallback all missed`)
-        }
       }
+
+      const hasSquadData = !!(tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length)
+      if (!hasSquadData && teamSource !== 'tm') {
+        const response = NextResponse.json(
+          { error: `Could not fetch live squad data for ${teamName} right now. Our squad providers all missed on this request.` },
+          { status: 404 }
+        )
+        timing.end('total', requestStartedAt)
+        timing.apply(response.headers)
+        return response
+      }
+
+      providerManagerName = getCoachDisplayName(coach)
+      let resolvedSquad: AnalyzeSquadRow[] = []
+      if (tmFormattedSquad) {
+        resolvedSquad = tmFormattedSquad
+      } else if (usedFotmob) {
+        resolvedSquad = fotmobSquad.reduce<AnalyzeSquadRow[]>((acc, player) => {
+          const formatted = fotmobFormatPlayerStats(player)
+          if (isAnalyzeSquadRow(formatted)) acc.push(formatted)
+          return acc
+        }, [])
+      } else {
+        resolvedSquad = squadRaw.reduce<AnalyzeSquadRow[]>((acc, player) => {
+          const formatted = formatPlayerStats(player) ?? afFormatPlayerStats(player)
+          if (isAnalyzeSquadRow(formatted)) acc.push(formatted)
+          return acc
+        }, [])
+      }
+      squad = resolvedSquad
+
+      const hasStats = squad.some((p) => p && ((p.appearances ?? 0) > 0 || parseFloat(p.rating || '0') > 0))
+      console.log(`[analyze] source=fotmob:${usedFotmob} squadSize=${squad.length} hasStats=${hasStats}`)
+      if (usedFotmob && squad.length) {
+        const defenders = squad.filter((p) => p && p.position?.match(/CB|LB|RB|LWB|RWB|Defender/))
+        console.log('[analyze] Defenders:', defenders.map((p) => `${p.name}(pos:${p.position},rtg:${p.rating ?? '0'})`).join(', '))
+      }
+
+      squadPlayers = squad
+        .filter(Boolean)
+        .map((p) => ({
+          playerId: String(p.playerId ?? ''),
+          name: p.name,
+          position: p.position ?? '',
+          age: p.age ?? 0,
+          nationality: p.nationality ?? '',
+        }))
+        .filter((p) => p.playerId && p.name)
+
+      setCachedAnalyzeProviderContext(providerCacheKey, {
+        squad,
+        squadPlayers,
+        providerManagerName,
+      })
+
+      timing.end(
+        'provider_fetch',
+        providerFetchStartedAt,
+        `source:${teamSource ?? 'fd'},cache:miss,squad:${squad.length},coach:${providerManagerName ? 'yes' : 'no'}`
+      )
+      timing.end('format_squad', formatSquadStartedAt, `players:${squadPlayers.length},stats:${hasStats ? 'yes' : 'no'}`)
     }
 
-    timing.end(
-      'provider_fetch',
-      providerFetchStartedAt,
-      `source:${teamSource ?? 'fd'},squad:${tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length},coach:${coach ? 'yes' : 'no'}`
-    )
-
-    const hasSquadData = !!(tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length)
-    // National teams (source=tm) may have empty TM squad data — let Claude use own knowledge.
-    // All other sources 404 when empty since we expect real data from FD/FotMob/AF/TM.
+    const hasSquadData = squad.length > 0
     if (!hasSquadData && teamSource !== 'tm') {
       const response = NextResponse.json(
         { error: `Could not fetch live squad data for ${teamName} right now. Our squad providers all missed on this request.` },
@@ -489,11 +585,7 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    // Resolve manager: manual override > live provider coach data.
-    // Claude may still infer a manager name for tactical reasoning, but that must never be
-    // promoted into the factual manager card shown to the user.
     let manager = managerId ? getManagerById(managerId) : undefined
-    const providerManagerName = getCoachDisplayName(coach)
     const providerManagerProfile = providerManagerName ? getManagerByName(providerManagerName) : undefined
 
     if (!manager && providerManagerProfile) {
@@ -501,35 +593,6 @@ export async function POST(request: NextRequest) {
     }
 
     const managerNameHint = providerManagerName ?? manager?.name ?? undefined
-
-    // Format player stats — use the formatter matching the data source
-    const formatSquadStartedAt = timing.start()
-    const squad = tmFormattedSquad
-      ? tmFormattedSquad
-      : usedFotmob
-      ? fotmobSquad.map(fotmobFormatPlayerStats).filter(Boolean)
-      : squadRaw.map((p) => formatPlayerStats(p) ?? afFormatPlayerStats(p)).filter(Boolean)
-
-    const hasStats = squad.some((p) => p && ((p as { appearances?: number }).appearances! > 0 || parseFloat((p as { rating?: string }).rating || '0') > 0))
-    console.log(`[analyze] source=fotmob:${usedFotmob} squadSize=${squad.length} hasStats=${hasStats}`)
-    if (usedFotmob && squad.length) {
-      const defenders = squad.filter((p) => p && (p as { position?: string }).position?.match(/CB|LB|RB|LWB|RWB|Defender/))
-      console.log('[analyze] Defenders:', defenders.map((p) => `${(p as { name: string }).name}(pos:${(p as { position?: string }).position},rtg:${(p as { rating?: string }).rating ?? '0'})`).join(', '))
-    }
-
-    // Build the full squad shape first (needed for both analysis and response)
-    const squadPlayers: SquadPlayer[] = squad
-      .filter(Boolean)
-      .map((p) => ({
-        playerId: String((p as { playerId?: number }).playerId ?? ''),
-        name: (p as { name: string }).name,
-        position: (p as { position?: string }).position ?? '',
-        age: (p as { age?: number }).age ?? 0,
-        nationality: (p as { nationality?: string }).nationality ?? '',
-      }))
-      .filter((p) => p.playerId && p.name)
-
-    timing.end('format_squad', formatSquadStartedAt, `players:${squadPlayers.length},stats:${hasStats ? 'yes' : 'no'}`)
 
     // Filter excluded players (injured/suspended) before passing to Claude
     const availableSquad = excludedSet.size > 0
