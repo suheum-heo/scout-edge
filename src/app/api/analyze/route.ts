@@ -35,6 +35,7 @@ import {
   getSquad,
   getCoach,
   getLiveManagerSnapshot,
+  type ManagerLiveSnapshot,
   searchTeams as afSearchTeams,
   formatPlayerStats as afFormatPlayerStats,
 } from '@/lib/api-football'
@@ -50,7 +51,7 @@ import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
-import { buildFullName } from '@/lib/person-names'
+import { buildFullName, personNameTokens } from '@/lib/person-names'
 
 type AFSearchTeamResult = Awaited<ReturnType<typeof afSearchTeams>>[number]
 
@@ -147,6 +148,57 @@ function getCoachDisplayName(coach: APICoach | null): string | null {
   const displayName = fullName || coach.name?.trim() || ''
 
   return displayName || null
+}
+
+function clubsLikelyMatchForManagerName(left?: string | null, right?: string | null): boolean {
+  const normalizedLeft = stripClubSuffixes(left || '')
+  const normalizedRight = stripClubSuffixes(right || '')
+
+  if (!normalizedLeft || !normalizedRight) return false
+
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  )
+}
+
+function preferRicherManagerName(current?: string | null, candidate?: string | null): string | null {
+  const base = current?.trim() || ''
+  const next = candidate?.trim() || ''
+
+  if (!next) return base || null
+  if (!base) return next
+
+  const baseTokens = personNameTokens(base)
+  const nextTokens = personNameTokens(next)
+  const sharesLastName =
+    baseTokens.length > 0 &&
+    nextTokens.length > 0 &&
+    baseTokens.at(-1) === nextTokens.at(-1)
+
+  if (sharesLastName && nextTokens.length > baseTokens.length) {
+    return next
+  }
+
+  if (baseTokens.join(' ') === nextTokens.join(' ') && next.length > base.length) {
+    return next
+  }
+
+  return base
+}
+
+function getTrustedSnapshotManagerName(snapshot: ManagerLiveSnapshot | null, teamName: string): string | null {
+  if (!snapshot?.name) return null
+
+  if (
+    clubsLikelyMatchForManagerName(snapshot.currentClub, teamName) ||
+    clubsLikelyMatchForManagerName(snapshot.referenceClub, teamName)
+  ) {
+    return snapshot.name
+  }
+
+  return null
 }
 
 function tmManagerToCoach(manager: Awaited<ReturnType<typeof getClubManager>>, teamId: number | string, teamName: string): APICoach | null {
@@ -592,8 +644,6 @@ export async function POST(request: NextRequest) {
       manager = providerManagerProfile
     }
 
-    const managerNameHint = providerManagerName ?? manager?.name ?? undefined
-
     // Filter excluded players (injured/suspended) before passing to Claude
     const availableSquad = excludedSet.size > 0
       ? squad.filter((p) => p && !excludedSet.has(String((p as { playerId?: number }).playerId ?? '')))
@@ -611,17 +661,25 @@ export async function POST(request: NextRequest) {
 
     // Detect national teams so recommendations can filter by nationality
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
-    const resolvedManager = manager ?? providerManagerProfile
-    const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const initialManagerName = manager?.name ?? providerManagerName ?? null
     const managerSnapshotStartedAt = timing.start()
-    const liveManagerSnapshot = factualManagerName
-      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+    const liveManagerSnapshot = initialManagerName
+      ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 20 }).catch(() => null)
       : null
-    timing.end('manager_snapshot', managerSnapshotStartedAt, factualManagerName ?? 'none')
+    timing.end('manager_snapshot', managerSnapshotStartedAt, initialManagerName ?? 'none')
 
-    const allowManagerInference = Boolean(manager || providerManagerName)
+    const snapshotManagerName = getTrustedSnapshotManagerName(liveManagerSnapshot, teamName)
+    const snapshotManagerProfile = !manager && snapshotManagerName ? getManagerByName(snapshotManagerName) : undefined
+    const resolvedManager = manager ?? snapshotManagerProfile ?? providerManagerProfile
+    const factualManagerName = preferRicherManagerName(
+      resolvedManager?.name ?? providerManagerName,
+      snapshotManagerName
+    )
+    const managerNameHint = factualManagerName ?? undefined
+
+    const allowManagerInference = Boolean(resolvedManager || factualManagerName)
     const analysisInput = {
-      manager: manager || null,
+      manager: resolvedManager || null,
       squadPlayers: availableSquad,
       teamName,
       managerName: managerNameHint,
@@ -655,6 +713,12 @@ export async function POST(request: NextRequest) {
         squadStrengths: [],
         squadWeaknesses: [],
         detailsStatus: 'partial' as const,
+      }
+    }
+    if (factualManagerName) {
+      analysis = {
+        ...analysis,
+        managerName: factualManagerName,
       }
     }
     timing.end(

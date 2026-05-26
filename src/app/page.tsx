@@ -437,6 +437,17 @@ export default function HomePage() {
   const unavailableOverflow = unavailablePlayers.length > 4
     ? ` +${unavailablePlayers.length - 4} more`
     : ''
+  const analysisDetailsPending = analysis?.detailsStatus === 'partial'
+  const analysisDetailsHeadline = analysisDetailsError
+    ? 'Detailed strengths and weaknesses did not finish loading.'
+    : isLoadingAnalysisDetails
+    ? 'Detailed strengths and weaknesses are loading now.'
+    : 'Core analysis is ready. The deeper support notes are still on the way.'
+  const analysisDetailsMessage = analysisDetailsError
+    ? 'The follow-up detail pass failed on this attempt. Retry it here to fill in the strengths and weaknesses.'
+    : isLoadingAnalysisDetails
+    ? 'ScoutEdge shows the core verdict first for speed. The support bullets usually arrive within 5-8 seconds.'
+    : 'If the support bullets do not appear after a few seconds, use Retry details to request the follow-up pass again.'
   const handleRetryAnalysisDetails = () => {
     if (!selectedTeam || !analysis || isLoadingAnalysisDetails) return
     void hydrateAnalysisDetails(analysisRequestSeq.current, selectedTeam, analyzedUnavailableIds)
@@ -640,21 +651,37 @@ export default function HomePage() {
 
             <div className="border-t border-slate-200 dark:border-slate-700 mt-4 pt-4">
               <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">{analysis.overallAssessment}</p>
-              {isLoadingAnalysisDetails && (
-                <p className="text-blue-400 text-xs mb-4">
-                  Loading deeper strengths and weaknesses...
-                </p>
-              )}
-              {!isLoadingAnalysisDetails && analysis.detailsStatus === 'partial' && (
-                <div className="mb-4 flex items-center gap-3">
-                  <p className={`text-xs ${analysisDetailsError ? 'text-amber-400' : 'text-slate-500 dark:text-slate-400'}`}>
-                    {analysisDetailsError || 'Detailed strengths and weaknesses are still loading.'}
-                  </p>
+              {analysisDetailsPending && (
+                <div className={`mb-4 rounded-xl border px-4 py-3 flex items-start gap-3 ${
+                  analysisDetailsError
+                    ? 'bg-amber-500/10 border-amber-500/20'
+                    : 'bg-blue-500/10 border-blue-500/20'
+                }`}>
+                  <div className={`mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0 ${
+                    analysisDetailsError
+                      ? 'bg-amber-400'
+                      : isLoadingAnalysisDetails
+                      ? 'bg-blue-400 animate-pulse'
+                      : 'bg-blue-300'
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${
+                      analysisDetailsError ? 'text-amber-300' : 'text-blue-200'
+                    }`}>
+                      {analysisDetailsHeadline}
+                    </p>
+                    <p className={`text-xs mt-1 ${
+                      analysisDetailsError ? 'text-amber-200/90' : 'text-blue-100/80'
+                    }`}>
+                      {analysisDetailsMessage}
+                    </p>
+                  </div>
                   <button
                     onClick={handleRetryAnalysisDetails}
-                    className="text-xs px-2.5 py-1 rounded-full border border-blue-500/20 text-blue-400 hover:bg-blue-500/10 transition-colors"
+                    disabled={isLoadingAnalysisDetails}
+                    className="text-xs px-2.5 py-1 rounded-full border border-blue-500/20 text-blue-300 hover:bg-blue-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Retry details
+                    {isLoadingAnalysisDetails ? 'Loading details…' : 'Retry details'}
                   </button>
                 </div>
               )}
@@ -666,9 +693,20 @@ export default function HomePage() {
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-green-400/60 mt-0.5">+</span>{s}
                       </li>
-                    )) : (
+                    )) : analysisDetailsPending ? (
+                      Array.from({ length: 3 }, (_, index) => (
+                        <li key={index} className="text-slate-500 dark:text-slate-500 text-xs flex items-start gap-1.5">
+                          <span className="text-green-400/60 mt-0.5">+</span>
+                          <span
+                            className={`block h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse ${
+                              index === 1 ? 'w-4/5' : index === 2 ? 'w-3/4' : 'w-[92%]'
+                            }`}
+                          />
+                        </li>
+                      ))
+                    ) : (
                       <li className="text-slate-500 dark:text-slate-500 text-xs">
-                        {isLoadingAnalysisDetails ? 'Building support notes from the full analysis...' : 'No strengths available yet.'}
+                        No strengths available yet.
                       </li>
                     )}
                   </ul>
@@ -680,9 +718,20 @@ export default function HomePage() {
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-red-400/60 mt-0.5">−</span>{w}
                       </li>
-                    )) : (
+                    )) : analysisDetailsPending ? (
+                      Array.from({ length: 3 }, (_, index) => (
+                        <li key={index} className="text-slate-500 dark:text-slate-500 text-xs flex items-start gap-1.5">
+                          <span className="text-red-400/60 mt-0.5">−</span>
+                          <span
+                            className={`block h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 animate-pulse ${
+                              index === 1 ? 'w-[88%]' : index === 2 ? 'w-3/4' : 'w-[94%]'
+                            }`}
+                          />
+                        </li>
+                      ))
+                    ) : (
                       <li className="text-slate-500 dark:text-slate-500 text-xs">
-                        {isLoadingAnalysisDetails ? 'Loading the detailed risk scan...' : 'No weaknesses available yet.'}
+                        No weaknesses available yet.
                       </li>
                     )}
                   </ul>
