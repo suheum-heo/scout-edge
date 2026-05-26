@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { APICoach, getCoachLiveContext, getLiveCoachByName, searchCoachesByName } from '@/lib/api-football'
-import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { normalizeClubDisplayName } from '@/lib/club-names'
+import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { buildFullName, namesMatch } from '@/lib/person-names'
+import { createServerTiming } from '@/lib/server-timing'
 import { searchManager, searchManagers, TMManagerSearchResult } from '@/lib/transfermarkt'
 
 export const dynamic = 'force-dynamic'
@@ -20,18 +21,26 @@ function formatCoachCurrentClub(
 }
 
 export async function GET(request: NextRequest) {
+  const timing = createServerTiming()
+  const requestStartedAt = timing.start()
   const q = request.nextUrl.searchParams.get('q')?.trim()
   if (!q || q.length < 2) {
-    return NextResponse.json({ coaches: [] })
+    const response = NextResponse.json({ coaches: [] })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 
   const lower = q.toLowerCase()
 
-  // 1. Search API Football first so we can use live club data for DB matches too
-  const [apiCoaches, tmManagers] = await Promise.all([
-    searchCoachesByName(q),
-    searchManagers(q).catch(() => []),
-  ])
+  const [apiCoaches, tmManagers] = await timing.measureAsync(
+    'provider_search',
+    () => Promise.all([
+      searchCoachesByName(q),
+      searchManagers(q).catch(() => []),
+    ]),
+    'API-Football and Transfermarkt manager search'
+  )
 
   const findTMManager = (managerName: string): TMManagerSearchResult | null =>
     tmManagers.find((manager) => namesMatch(manager.name, managerName)) || null
@@ -67,22 +76,24 @@ export async function GET(request: NextRequest) {
     return lookup
   }
 
-  // 2. Search our local DB — use live club from API Football when available
-  const dbMatches = await Promise.all(
-    getAllManagers()
-      .filter((m) => m.name.toLowerCase().includes(lower))
-      .slice(0, 5)
-      .map(async (m) => ({
-        id: m.id,
-        profileId: m.id,
-        name: m.name,
-        currentClub: normalizeClubDisplayName(await getExactLiveClubForManager(m.name)),
-        formations: [],
-        hasProfile: true,
-      }))
+  const dbMatches = await timing.measureAsync(
+    'db_enrich',
+    () => Promise.all(
+      getAllManagers()
+        .filter((m) => m.name.toLowerCase().includes(lower))
+        .slice(0, 5)
+        .map(async (m) => ({
+          id: m.id,
+          profileId: m.id,
+          name: m.name,
+          currentClub: normalizeClubDisplayName(await getExactLiveClubForManager(m.name)),
+          formations: [],
+          hasProfile: true,
+        }))
+    ),
+    'enrich local manager profile matches'
   )
 
-  // Deduplicate API results by coach id, keeping the most recent team entry
   const seen = new Map<number, typeof apiCoaches[0]>()
   for (const c of apiCoaches) {
     seen.set(c.id, c)
@@ -90,9 +101,7 @@ export async function GET(request: NextRequest) {
 
   const apiResults = Array.from(seen.values())
     .map((c) => {
-      // Reconstruct full name from firstname+lastname (API sometimes abbreviates: "T. Frank")
       const fullName = buildFullName(c.firstname, c.lastname, c.name)
-
       const profile = getManagerByName(fullName) || getManagerByName(c.name)
 
       return {
@@ -104,7 +113,6 @@ export async function GET(request: NextRequest) {
         hasProfile: !!profile,
       }
     })
-    // Skip any that are already covered by the DB matches (avoid duplicates)
     .filter((c) => !dbMatches.some((m) => m.name.toLowerCase() === c.name.toLowerCase()))
 
   const tmOnlyResults = tmManagers
@@ -126,20 +134,23 @@ export async function GET(request: NextRequest) {
         !apiResults.some((match) => match.name.toLowerCase() === key)
     })
 
-  // Merge: DB matches first (more reliable names), then API results
-  // Final dedup by name — catches cases where two API IDs resolve to the same person
-  const seenNames = new Set<string>()
-  const coaches = [...dbMatches, ...apiResults, ...tmOnlyResults]
-    .filter((c) => {
-      const key = c.name.toLowerCase()
-      if (seenNames.has(key)) return false
-      seenNames.add(key)
-      return true
-    })
-    .slice(0, 10)
+  const coaches = timing.measure('merge_results', () => {
+    const seenNames = new Set<string>()
+    return [...dbMatches, ...apiResults, ...tmOnlyResults]
+      .filter((c) => {
+        const key = c.name.toLowerCase()
+        if (seenNames.has(key)) return false
+        seenNames.add(key)
+        return true
+      })
+      .slice(0, 10)
+  }, 'merge and dedupe manager suggestions')
 
-  return NextResponse.json(
+  const response = NextResponse.json(
     { coaches },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   )
+  timing.end('total', requestStartedAt)
+  timing.apply(response.headers)
+  return response
 }

@@ -3,6 +3,7 @@ import { searchTeams as searchAFTeams, type APITeam } from '@/lib/api-football'
 import { getCanonicalClubLogo } from '@/lib/club-crests'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
 import { searchFDTeams } from '@/lib/football-data'
+import { createServerTiming } from '@/lib/server-timing'
 import { searchLocalTeams } from '@/lib/teams-db'
 import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
 
@@ -228,77 +229,125 @@ function finalizeBucket(bucket: ProviderBucket): TeamSearchResult | null {
   }
 }
 
+function mergeProviderBuckets(
+  query: string,
+  providers: {
+    fdResults?: TeamSearchResult[]
+    afResults?: APITeam[]
+    tmResults?: Awaited<ReturnType<typeof tmSearchClubs>>
+  }
+): TeamSearchResult[] {
+  const buckets = new Map<string, ProviderBucket>()
+
+  ;(providers.fdResults || []).forEach((result, index) => {
+    addCandidate(
+      buckets,
+      'fd',
+      {
+        ...result,
+        team: {
+          ...result.team,
+          country: normalizeCountryDisplayName(result.team.country),
+          logo: getCanonicalClubLogo(result.team.name, nationalTeamFlag(result.team.name) ?? result.team.logo),
+        },
+      },
+      index,
+    )
+  })
+
+  ;(providers.afResults || []).forEach((team, index) => {
+    addCandidate(buckets, 'af', buildAFTeamResult(team), index)
+  })
+
+  ;(providers.tmResults || []).forEach((club, index) => {
+    addCandidate(buckets, 'tm', buildTMTeamResult(club), index)
+  })
+
+  return Array.from(buckets.values())
+    .map((bucket) => finalizeBucket(bucket))
+    .filter((team): team is TeamSearchResult => Boolean(team))
+    .sort((left, right) => {
+      const scoreDiff = scoreTeamQuery(right.team.name, query) - scoreTeamQuery(left.team.name, query)
+      if (scoreDiff !== 0) return scoreDiff
+      return left.team.name.length - right.team.name.length
+    })
+    .slice(0, 8)
+}
+
+function shouldQueryAPIFootball(query: string, teams: TeamSearchResult[]) {
+  if (teams.length === 0) return true
+
+  const topScore = scoreTeamQuery(teams[0].team.name, query)
+  if (topScore >= 95) return false
+
+  return teams.length < 4
+}
+
 export async function GET(request: NextRequest) {
+  const timing = createServerTiming()
+  const requestStartedAt = timing.start()
   const query = request.nextUrl.searchParams.get('q')?.trim()
 
   if (!query || query.length < 2) {
-    return NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
+    const response = NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 
   try {
-    // Fast path: local DB results are already accurate enough for selection and include
-    // the IDs needed to fetch live squad/coach data after the user chooses a team.
-    const localResults = searchLocalTeams(query)
+    const localResults = timing.measure('local_db', () => searchLocalTeams(query), 'local team lookup')
     if (localResults.length > 0) {
-      return NextResponse.json({ teams: localResults.slice(0, 8) })
+      const response = NextResponse.json({ teams: localResults.slice(0, 8) })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
 
-    const cacheKey = normalizeName(query)
-    const cachedResults = getCachedRemoteSearch(cacheKey)
+    const cacheKey = timing.measure('cache_key', () => normalizeName(query))
+    const cachedResults = timing.measure('cache_lookup', () => getCachedRemoteSearch(cacheKey), 'in-memory remote search cache')
     if (cachedResults) {
-      return NextResponse.json({ teams: cachedResults })
+      const response = NextResponse.json({ teams: cachedResults })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
 
-    // Remote fallback only when the local DB misses.
-    // FD keeps the unlimited top-league path stable, AF fills broader global coverage,
-    // and TM closes the remaining identity/logo gaps.
-    const [fdResults, afResults, tmResults] = await Promise.all([
+    const fdTmStartedAt = timing.start()
+    const [fdResults, tmResults] = await Promise.all([
       searchFDTeams(query),
-      searchAFTeams(query),
       tmSearchClubs(query),
     ])
+    timing.end('stage_fd_tm', fdTmStartedAt, `fd:${fdResults.length},tm:${tmResults.length}`)
 
-    const buckets = new Map<string, ProviderBucket>()
+    let teams = timing.measure(
+      'merge_stage1',
+      () => mergeProviderBuckets(query, { fdResults, tmResults }),
+      'merge FD and TM'
+    )
 
-    fdResults.forEach((result, index) => {
-      addCandidate(
-        buckets,
-        'fd',
-        {
-          ...result,
-          team: {
-            ...result.team,
-            country: normalizeCountryDisplayName(result.team.country),
-            logo: getCanonicalClubLogo(result.team.name, nationalTeamFlag(result.team.name) ?? result.team.logo),
-          },
-        },
-        index,
+    if (shouldQueryAPIFootball(query, teams)) {
+      const afStartedAt = timing.start()
+      const afResults = await searchAFTeams(query)
+      timing.end('stage_af', afStartedAt, `af:${afResults.length}`)
+      teams = timing.measure(
+        'merge_stage2',
+        () => mergeProviderBuckets(query, { fdResults, afResults, tmResults }),
+        'merge AF fallback'
       )
-    })
+    }
 
-    afResults.forEach((team, index) => {
-      addCandidate(buckets, 'af', buildAFTeamResult(team), index)
-    })
+    timing.measure('cache_store', () => setCachedRemoteSearch(cacheKey, teams), 'store merged remote results')
 
-    tmResults.forEach((club, index) => {
-      addCandidate(buckets, 'tm', buildTMTeamResult(club), index)
-    })
-
-    const teams = Array.from(buckets.values())
-      .map((bucket) => finalizeBucket(bucket))
-      .filter((team): team is TeamSearchResult => Boolean(team))
-      .sort((left, right) => {
-        const scoreDiff = scoreTeamQuery(right.team.name, query) - scoreTeamQuery(left.team.name, query)
-        if (scoreDiff !== 0) return scoreDiff
-        return left.team.name.length - right.team.name.length
-      })
-      .slice(0, 8)
-
-    setCachedRemoteSearch(cacheKey, teams)
-
-    return NextResponse.json({ teams })
+    const response = NextResponse.json({ teams })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   } catch (error) {
     console.error('Team search error:', error)
-    return NextResponse.json({ error: 'Failed to search teams' }, { status: 500 })
+    const response = NextResponse.json({ error: 'Failed to search teams' }, { status: 500 })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 }

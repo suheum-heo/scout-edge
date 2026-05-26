@@ -48,6 +48,7 @@ import { getClubManager, getClubSquad, searchClub, searchManagerByClub } from '@
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { analyzeSquadGaps } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { buildFullName } from '@/lib/person-names'
 
@@ -239,14 +240,22 @@ function formatTMFallbackSquad(
 }
 
 export async function POST(request: NextRequest) {
+  const timing = createServerTiming()
+  const requestStartedAt = timing.start()
+
   try {
     const body = await request.json()
     const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds } = body
     const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
     if (teamId == null || !teamName) {
-      return NextResponse.json({ error: 'teamId and teamName are required' }, { status: 400 })
+      const response = NextResponse.json({ error: 'teamId and teamName are required' }, { status: 400 })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
+
+    const providerFetchStartedAt = timing.start()
 
     let squadRaw: APIPlayer[] = []
     let fotmobSquad: FotmobAPIPlayer[] = []
@@ -440,14 +449,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    timing.end(
+      'provider_fetch',
+      providerFetchStartedAt,
+      `source:${teamSource ?? 'fd'},squad:${tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length},coach:${coach ? 'yes' : 'no'}`
+    )
+
     const hasSquadData = !!(tmFormattedSquad?.length || fotmobSquad.length || squadRaw.length)
     // National teams (source=tm) may have empty TM squad data — let Claude use own knowledge.
     // All other sources 404 when empty since we expect real data from FD/FotMob/AF/TM.
     if (!hasSquadData && teamSource !== 'tm') {
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: `Could not fetch live squad data for ${teamName} right now. Our squad providers all missed on this request.` },
         { status: 404 }
       )
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
 
     // Resolve manager: manual override > live provider coach data.
@@ -464,6 +482,7 @@ export async function POST(request: NextRequest) {
     const managerNameHint = providerManagerName ?? manager?.name ?? undefined
 
     // Format player stats — use the formatter matching the data source
+    const formatSquadStartedAt = timing.start()
     const squad = tmFormattedSquad
       ? tmFormattedSquad
       : usedFotmob
@@ -489,6 +508,8 @@ export async function POST(request: NextRequest) {
       }))
       .filter((p) => p.playerId && p.name)
 
+    timing.end('format_squad', formatSquadStartedAt, `players:${squadPlayers.length},stats:${hasStats ? 'yes' : 'no'}`)
+
     // Filter excluded players (injured/suspended) before passing to Claude
     const availableSquad = excludedSet.size > 0
       ? squad.filter((p) => p && !excludedSet.has(String((p as { playerId?: number }).playerId ?? '')))
@@ -508,12 +529,15 @@ export async function POST(request: NextRequest) {
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
     const resolvedManager = manager ?? providerManagerProfile
     const factualManagerName = resolvedManager?.name ?? providerManagerName ?? null
+    const managerSnapshotStartedAt = timing.start()
     const liveManagerSnapshot = factualManagerName
       ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
       : null
+    timing.end('manager_snapshot', managerSnapshotStartedAt, factualManagerName ?? 'none')
 
     // Analyze with Claude — null manager triggers Claude's own tactical knowledge
     const allowManagerInference = Boolean(manager || providerManagerName)
+    const claudeStartedAt = timing.start()
     const analysis = await analyzeSquadGaps(
       manager || null,
       availableSquad,
@@ -531,6 +555,8 @@ export async function POST(request: NextRequest) {
           }
         : undefined,
     )
+    timing.end('claude_analysis', claudeStartedAt, 'analyzeSquadGaps')
+
     const inferredManagerName = analysis.managerName?.trim() || null
     const factualManagerVerified = Boolean(factualManagerName)
     const managerSource = managerId
@@ -543,7 +569,7 @@ export async function POST(request: NextRequest) {
       `[analyze] managerResolution team=${teamName} source=${teamSource ?? 'fd'} provider=${providerManagerName ?? 'none'} inferred=${inferredManagerName ?? 'none'} factual=${factualManagerName ?? 'none'} managerSource=${managerSource}`
     )
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       analysis,
       squad: squadPlayers,
       nationalTeamCountry,
@@ -573,9 +599,15 @@ export async function POST(request: NextRequest) {
       squadSize: squad.length,
       managerFromDB: !!resolvedManager,
     })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   } catch (error) {
     console.error('Analysis error:', error)
     const details = getAIErrorDetails(error, 'Analysis failed. Please try again.')
-    return NextResponse.json({ error: details.error }, { status: details.status })
+    const response = NextResponse.json({ error: details.error }, { status: details.status })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 }

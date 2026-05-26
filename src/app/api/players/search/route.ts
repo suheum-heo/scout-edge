@@ -1,21 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createServerTiming } from '@/lib/server-timing'
 import { searchPlayer, searchPlayers } from '@/lib/transfermarkt'
 
 export async function GET(request: NextRequest) {
+  const timing = createServerTiming()
+  const requestStartedAt = timing.start()
   const q = request.nextUrl.searchParams.get('q')?.trim()
+
   if (!q || q.length < 2) {
-    return NextResponse.json({ players: [] })
+    const response = NextResponse.json({ players: [] })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 
-  let results = await searchPlayers(q)
+  let results = await timing.measureAsync('tm_typeahead', () => searchPlayers(q), 'Transfermarkt player search')
   if (results.length === 0) {
-    const bestMatch = await searchPlayer(q)
+    const bestMatch = await timing.measureAsync('tm_best_match', () => searchPlayer(q), 'Transfermarkt single best match fallback')
     if (bestMatch) {
       results = [bestMatch]
     }
   }
 
-  const players = results.map((p) => ({
+  const players = timing.measure('serialize', () => results.map((p) => ({
     id: p.id,
     name: p.name,
     position: p.position,
@@ -23,7 +30,10 @@ export async function GET(request: NextRequest) {
     age: p.age ?? null,
     nationality: p.nationalities?.[0] ?? '',
     marketValue: p.marketValue,
-  }))
+  })))
 
-  return NextResponse.json({ players })
+  const response = NextResponse.json({ players })
+  timing.end('total', requestStartedAt)
+  timing.apply(response.headers)
+  return response
 }
