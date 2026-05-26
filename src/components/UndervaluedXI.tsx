@@ -56,7 +56,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       </div>
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-500 dark:text-slate-400 text-xs">Transfermarkt: {player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
         ) : (
           <a
             href={fallbackSearchUrl}
