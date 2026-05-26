@@ -109,11 +109,11 @@ export default function BuildPage() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/managers')
+    const ids = EXAMPLE_IDS.join(',')
+    fetch(`/api/managers?ids=${encodeURIComponent(ids)}`)
       .then((r) => r.json())
       .then((data) => {
-        const live = (data.managers || []).filter((m: { id: string }) => EXAMPLE_IDS.includes(m.id))
-        setExampleManagers(live)
+        setExampleManagers(data.managers || [])
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps

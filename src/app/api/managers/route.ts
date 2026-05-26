@@ -1,27 +1,63 @@
 import { NextResponse } from 'next/server'
 import { getCoachLiveContext, getLiveCoachByName } from '@/lib/api-football'
 import { normalizeClubDisplayName } from '@/lib/club-names'
-import { getAllManagers } from '@/lib/managers'
+import { getAllManagers, getManagerById } from '@/lib/managers'
 import { createServerTiming } from '@/lib/server-timing'
 import { searchManager } from '@/lib/transfermarkt'
 
 export const dynamic = 'force-dynamic'
 
-let managersCache: { data: object[]; expiresAt: number } | null = null
+type ManagerSummary = {
+  id: string
+  name: string
+  currentClub: string
+  nationality: string
+  formations: string[]
+}
+
+let managersCache = new Map<string, { data: ManagerSummary[]; expiresAt: number }>()
 const MANAGERS_TTL = 15 * 60 * 1000
 
-export async function GET() {
+function parseRequestedIds(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const raw = searchParams.get('ids')
+  if (!raw) return null
+
+  const ids = Array.from(new Set(
+    raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+  ))
+
+  return ids.length > 0 ? ids : null
+}
+
+function makeCacheKey(ids: string[] | null) {
+  if (!ids || ids.length === 0) return 'all'
+  return ids.slice().sort().join(',')
+}
+
+export async function GET(request: Request) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
+  const requestedIds = parseRequestedIds(request)
+  const cacheKey = makeCacheKey(requestedIds)
 
-  if (managersCache && managersCache.expiresAt > Date.now()) {
-    const response = NextResponse.json({ managers: managersCache.data })
-    timing.end('cache_hit', requestStartedAt, 'served enriched managers from process cache')
+  const cached = managersCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    const response = NextResponse.json({ managers: cached.data })
+    timing.end('cache_hit', requestStartedAt, `served ${cached.data.length} managers from process cache`)
     timing.apply(response.headers)
     return response
   }
 
-  const managers = getAllManagers()
+  const managers = timing.measure('select_scope', () => {
+    if (!requestedIds) return getAllManagers()
+    return requestedIds
+      .map((id) => getManagerById(id))
+      .filter((manager): manager is NonNullable<typeof manager> => Boolean(manager))
+  }, requestedIds ? `requested:${requestedIds.length}` : 'requested:all')
 
   const enriched = await timing.measureAsync(
     'enrich_all',
@@ -50,7 +86,7 @@ export async function GET() {
     `enrich ${managers.length} managers with live club data`
   )
 
-  managersCache = { data: enriched, expiresAt: Date.now() + MANAGERS_TTL }
+  managersCache.set(cacheKey, { data: enriched, expiresAt: Date.now() + MANAGERS_TTL })
   const response = NextResponse.json(
     { managers: enriched },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
