@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { ManagerProfile } from './managers'
 import { formatPlayerStats } from './api-football'
+import { normalizePersonName } from './person-names'
 import type { TMPlayerData } from './transfermarkt'
 import type { SquadPlayer } from './role-profiles'
 
@@ -148,7 +149,8 @@ export interface LiveFormationContext {
 
 const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
 const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
-const SQUAD_FIT_BATCH_SIZE = 15
+const SQUAD_FIT_BATCH_SIZE = 12
+const MIN_SQUAD_FIT_BATCH_SIZE = 5
 
 export interface PlayerCompatibilityResult {
   playerName: string
@@ -303,6 +305,186 @@ function normalizeSystemFit(player: SquadPlayer, fit?: Partial<PlayerSystemFit>)
       : `${player.name} needs a manual tactical review for this system.`,
     scoutScore,
     valueLabel,
+  }
+}
+
+function systemFitPlayerKey(
+  value: Pick<SquadPlayer, 'name' | 'position' | 'age'>
+): string {
+  return [
+    normalizePersonName(value.name),
+    normalizePersonName(value.position),
+    String(value.age),
+  ].join('|')
+}
+
+function mapSystemFitsByPlayer(
+  parsed: Array<Partial<PlayerSystemFit>>
+): Map<string, Partial<PlayerSystemFit>> {
+  const mapped = new Map<string, Partial<PlayerSystemFit>>()
+
+  for (const fit of parsed) {
+    if (typeof fit?.playerName !== 'string' || typeof fit?.position !== 'string' || typeof fit?.age !== 'number') {
+      continue
+    }
+
+    mapped.set(systemFitPlayerKey({
+      name: fit.playerName,
+      position: fit.position,
+      age: fit.age,
+    }), fit)
+  }
+
+  return mapped
+}
+
+function buildSquadFitPrompt(
+  chunk: SquadPlayer[],
+  chunkLabel: string,
+  teamName: string,
+  resolvedName: string,
+  currentDate: string
+): string {
+  const playerList = chunk
+    .map((p, index) => `${index + 1}. ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
+    .join('\n')
+
+  return `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
+
+## Squad batch ${chunkLabel} at ${teamName}:
+${playerList}
+
+For EVERY player listed, assess:
+- fitScore (1-10): how well they suit this specific system and playing style
+- fitLabel: exactly one of the five labels below
+- reason: ONE short sentence, maximum 18 words, citing a specific tactical reason
+
+fitLabel rules:
+- "Key Man" (9-10): indispensable to this system, would be a major loss
+- "Good Fit" (7-8): suits the system well, regular starter profile
+- "Rotation" (5-6): fits adequately but not the ideal profile, squad depth role
+- "Poor Fit" (3-4): doesn't suit the system's demands, limited usefulness
+- "Sell Candidate" (1-2): actively misaligned — wrong profile, wasted wages, or blocking development
+
+Be honest — not every team has 11 Key Men. Reference the tactical system specifically.
+
+scoutScore (0-100) is a composite score computed as:
+  - System fit (40 pts max): fitScore × 4
+  - Value efficiency (40 pts max): quality relative to likely market value
+  - Versatility (20 pts max): how many roles can this player credibly fill in this system?
+
+valueLabel rules:
+- "Undervalued": market value is clearly below their output and tactical importance
+- "Overpriced": market value is clearly above their contribution
+- "Fair Value": everything else
+
+Return JSON array, one object per player, in the same order as the input:
+[
+  {
+    "playerName": "Exact name from input",
+    "position": "Their position",
+    "age": 24,
+    "fitScore": 8,
+    "fitLabel": "Good Fit",
+    "reason": "One short tactical sentence",
+    "scoutScore": 74,
+    "valueLabel": "Fair Value"
+  }
+]
+
+No other text. Cover every player.
+Do not rename players. Copy playerName, position, and age exactly from the input list.`
+}
+
+async function analyzeSquadSystemFitChunk(
+  chunk: SquadPlayer[],
+  managerSection: string,
+  teamName: string,
+  resolvedName: string,
+  currentDate: string,
+  chunkLabel: string
+): Promise<PlayerSystemFit[]> {
+  const prompt = buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate)
+  const maxTokens = Math.min(1800, Math.max(1000, 320 + chunk.length * 95))
+
+  const res = await createMessageWithPromptCacheFallback({
+    model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
+    max_tokens: maxTokens,
+    temperature: 0,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = res.content[0].type === 'text' ? res.content[0].text : ''
+  const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
+  const parsedByPlayer = mapSystemFitsByPlayer(parsed)
+  const matchedCount = chunk.reduce((count, player) => (
+    parsedByPlayer.has(systemFitPlayerKey(player)) ? count + 1 : count
+  ), 0)
+  const minimumCoverage = Math.max(chunk.length - 1, Math.ceil(chunk.length * 0.8))
+
+  if (matchedCount < minimumCoverage) {
+    throw new Error(`Squad fit response coverage too low for ${teamName}: matched ${matchedCount}/${chunk.length}`)
+  }
+
+  return chunk.map((player, index) => {
+    const byIdentity = parsedByPlayer.get(systemFitPlayerKey(player))
+    const byIndex = parsed[index]
+    return normalizeSystemFit(player, byIdentity ?? byIndex)
+  })
+}
+
+async function analyzeSquadSystemFitChunkWithRetry(
+  chunk: SquadPlayer[],
+  managerSection: string,
+  teamName: string,
+  resolvedName: string,
+  currentDate: string,
+  chunkLabel: string
+): Promise<PlayerSystemFit[]> {
+  try {
+    return await analyzeSquadSystemFitChunk(
+      chunk,
+      managerSection,
+      teamName,
+      resolvedName,
+      currentDate,
+      chunkLabel
+    )
+  } catch (error) {
+    if (chunk.length <= MIN_SQUAD_FIT_BATCH_SIZE) {
+      console.error(`Squad fit chunk ${chunkLabel} failed for ${teamName}:`, error)
+      return chunk.map((player) => buildFallbackSystemFit(player))
+    }
+
+    const midpoint = Math.ceil(chunk.length / 2)
+    const leftChunk = chunk.slice(0, midpoint)
+    const rightChunk = chunk.slice(midpoint)
+
+    console.warn(
+      `Squad fit chunk ${chunkLabel} failed for ${teamName}; retrying in smaller batches (${leftChunk.length}/${rightChunk.length})`
+    )
+
+    const [leftFits, rightFits] = await Promise.all([
+      analyzeSquadSystemFitChunkWithRetry(
+        leftChunk,
+        managerSection,
+        teamName,
+        resolvedName,
+        currentDate,
+        `${chunkLabel}a`
+      ),
+      analyzeSquadSystemFitChunkWithRetry(
+        rightChunk,
+        managerSection,
+        teamName,
+        resolvedName,
+        currentDate,
+        `${chunkLabel}b`
+      ),
+    ])
+
+    return [...leftFits, ...rightFits]
   }
 }
 
@@ -820,74 +1002,16 @@ ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel})
   const squadChunks = chunkArray(squad, SQUAD_FIT_BATCH_SIZE)
 
   const results = await Promise.all(
-    squadChunks.map(async (chunk, chunkIndex) => {
-      const playerList = chunk
-        .map((p, index) => `${index + 1}. ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
-        .join('\n')
-
-      const prompt = `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
-
-## Squad batch ${chunkIndex + 1} of ${squadChunks.length} at ${teamName}:
-${playerList}
-
-For EVERY player listed, assess:
-- fitScore (1-10): how well they suit this specific system and playing style
-- fitLabel: exactly one of the five labels below
-- reason: ONE short sentence, maximum 18 words, citing a specific tactical reason
-
-fitLabel rules:
-- "Key Man" (9-10): indispensable to this system, would be a major loss
-- "Good Fit" (7-8): suits the system well, regular starter profile
-- "Rotation" (5-6): fits adequately but not the ideal profile, squad depth role
-- "Poor Fit" (3-4): doesn't suit the system's demands, limited usefulness
-- "Sell Candidate" (1-2): actively misaligned — wrong profile, wasted wages, or blocking development
-
-Be honest — not every team has 11 Key Men. Reference the tactical system specifically.
-
-scoutScore (0-100) is a composite score computed as:
-  - System fit (40 pts max): fitScore × 4
-  - Value efficiency (40 pts max): quality relative to likely market value
-  - Versatility (20 pts max): how many roles can this player credibly fill in this system?
-
-valueLabel rules:
-- "Undervalued": market value is clearly below their output and tactical importance
-- "Overpriced": market value is clearly above their contribution
-- "Fair Value": everything else
-
-Return JSON array, one object per player, in the same order as the input:
-[
-  {
-    "playerName": "Exact name from input",
-    "position": "Their position",
-    "age": 24,
-    "fitScore": 8,
-    "fitLabel": "Good Fit",
-    "reason": "One short tactical sentence",
-    "scoutScore": 74,
-    "valueLabel": "Fair Value"
-  }
-]
-
-No other text. Cover every player.
-Do not rename players. Copy playerName, position, and age exactly from the input list.`
-
-      try {
-        const res = await createMessageWithPromptCacheFallback({
-          model: 'claude-sonnet-4-6',
-          system: buildCachedManagerSystemPrompt(managerSection),
-          max_tokens: 1200,
-          temperature: 0,
-          messages: [{ role: 'user', content: prompt }],
-        })
-
-        const text = res.content[0].type === 'text' ? res.content[0].text : ''
-        const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
-        return chunk.map((player, index) => normalizeSystemFit(player, parsed[index]))
-      } catch (error) {
-        console.error(`Squad fit chunk ${chunkIndex + 1} failed for ${teamName}:`, error)
-        return chunk.map((player) => buildFallbackSystemFit(player))
-      }
-    })
+    squadChunks.map((chunk, chunkIndex) =>
+      analyzeSquadSystemFitChunkWithRetry(
+        chunk,
+        managerSection,
+        teamName,
+        resolvedName,
+        currentDate,
+        `${chunkIndex + 1}/${squadChunks.length}`
+      )
+    )
   )
 
   return results.flat()
@@ -1172,9 +1296,11 @@ Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST
 Use unique slot ids for repeated positions, e.g. CB-1 and CB-2, CM-1 and CM-2.
 There must be exactly 11 slots and exactly 2 candidates per slot.`
 
-  const response = await anthropic.messages.create({
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 2200,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 

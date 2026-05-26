@@ -11,10 +11,13 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { createServerTiming } from '@/lib/server-timing'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 7000
-const TM_ENRICHMENT_CONCURRENCY = 6
+const TM_ENRICHMENT_CONCURRENCY = 8
+const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
+const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 
 interface CandidateEvaluation {
   player: UndervaluedPlayer
@@ -40,6 +43,55 @@ interface MaterializedSlotCandidate {
   position: string
   archetypeLabel: string
   player: UndervaluedPlayer
+}
+
+function normalizeCacheValue(value?: string | null): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function getUndervaluedXICacheKey(
+  budget: string,
+  managerId?: string,
+  managerName?: string,
+  teamName?: string,
+  formationContext?: {
+    primaryFormation?: string | null
+    recentFormations?: string[]
+    referenceClub?: string | null
+  }
+): string {
+  return [
+    budget,
+    managerId || 'no-manager-id',
+    normalizeCacheValue(managerName),
+    normalizeCacheValue(teamName),
+    formationContext?.primaryFormation || 'no-formation',
+    (formationContext?.recentFormations || []).join('/'),
+    normalizeCacheValue(formationContext?.referenceClub),
+  ].join('|')
+}
+
+function getCachedUndervaluedXI(cacheKey: string): UndervaluedXIResult | null {
+  const entry = undervaluedXICache.get(cacheKey)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    undervaluedXICache.delete(cacheKey)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedUndervaluedXI(cacheKey: string, data: UndervaluedXIResult) {
+  undervaluedXICache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + UNDERVALUED_XI_TTL_MS,
+  })
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -423,6 +475,9 @@ function withComputedBudget(result: UndervaluedXIResult, players: UndervaluedPla
 }
 
 export async function POST(request: NextRequest) {
+  const timing = createServerTiming()
+  const requestStartedAt = timing.start()
+
   try {
     const body = await request.json()
     const { budget, managerId, managerName, teamName } = body as {
@@ -433,19 +488,45 @@ export async function POST(request: NextRequest) {
     }
 
     if (!budget) {
-      return NextResponse.json({ error: 'budget is required' }, { status: 400 })
+      const response = NextResponse.json({ error: 'budget is required' }, { status: 400 })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
+    const snapshotStartedAt = timing.start()
     const liveManagerSnapshot = factualManagerName
       ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
       : null
+    timing.end('manager_snapshot', snapshotStartedAt, factualManagerName ?? 'none')
     const cap = getBudgetCap(budget)
     const budgetInstructions = cap !== null
       ? buildBudgetInstructions(budget, cap)
       : undefined
+    const cacheKey = getUndervaluedXICacheKey(
+      budget,
+      managerId,
+      factualManagerName ?? undefined,
+      teamName,
+      liveManagerSnapshot
+        ? {
+            primaryFormation: liveManagerSnapshot.primaryFormation,
+            recentFormations: liveManagerSnapshot.recentFormations,
+            referenceClub: liveManagerSnapshot.referenceClub,
+          }
+        : undefined
+    )
+    const cachedResult = getCachedUndervaluedXI(cacheKey)
+    if (cachedResult) {
+      const response = NextResponse.json(cachedResult)
+      timing.end('cache_hit', requestStartedAt, `players:${cachedResult.players.length}`)
+      timing.apply(response.headers)
+      return response
+    }
 
+    const candidatePoolStartedAt = timing.start()
     const pool = await generateUndervaluedXICandidatePool(
       budget,
       manager || null,
@@ -462,12 +543,21 @@ export async function POST(request: NextRequest) {
           }
         : undefined
     )
+    timing.end('candidate_pool', candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
+    const enrichmentStartedAt = timing.start()
     const enrichedSlots = await enrichSlots(pool.slots)
+    timing.end('tm_enrichment', enrichmentStartedAt, `slots:${enrichedSlots.length}`)
+
+    const selectionStartedAt = timing.start()
     const selection = selectPlayersForSlots(enrichedSlots, cap)
+    timing.end('selection', selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
 
     if (selection.chosen.length !== enrichedSlots.length) {
-      return NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
+      const response = NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
     }
 
     const selectedPlayers = selection.chosen.map((candidate) => {
@@ -492,11 +582,18 @@ export async function POST(request: NextRequest) {
       selectedPlayers,
       budget
     )
+    setCachedUndervaluedXI(cacheKey, result)
 
-    return NextResponse.json(result)
+    const response = NextResponse.json(result)
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   } catch (error) {
     console.error('Undervalued XI error:', error)
     const details = getAIErrorDetails(error, 'Failed to generate Undervalued XI')
-    return NextResponse.json({ error: details.error }, { status: details.status })
+    const response = NextResponse.json({ error: details.error }, { status: details.status })
+    timing.end('total', requestStartedAt)
+    timing.apply(response.headers)
+    return response
   }
 }

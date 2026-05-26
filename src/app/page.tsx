@@ -221,6 +221,54 @@ export default function HomePage() {
     }
   }, [selectedManagerId])
 
+  const loadSquadFit = useCallback(async (
+    requestSeq: number,
+    squadInput: SquadPlayer[],
+    managerInput: ManagerResult,
+    teamName: string,
+    options?: { showLoading?: boolean; silent?: boolean }
+  ) => {
+    if (!squadInput.length) return
+
+    if (options?.showLoading) {
+      setIsLoadingFit(true)
+    }
+    if (!options?.silent) {
+      setFitError(null)
+    }
+
+    try {
+      const res = await fetch('/api/squad-fit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          squad: squadInput,
+          managerId: managerInput.id || undefined,
+          managerName: managerInput.name,
+          teamName,
+        }),
+      })
+      const data = await res.json()
+      if (analysisRequestSeq.current !== requestSeq) return
+      if (!res.ok) {
+        if (!options?.silent) {
+          setFitError(data.error || 'Failed to analyse squad fit')
+        }
+        return
+      }
+      setSquadFit(data.fits || [])
+    } catch {
+      if (analysisRequestSeq.current !== requestSeq) return
+      if (!options?.silent) {
+        setFitError('Failed to analyse squad fit')
+      }
+    } finally {
+      if (options?.showLoading && analysisRequestSeq.current === requestSeq) {
+        setIsLoadingFit(false)
+      }
+    }
+  }, [])
+
   const handleAnalyze = async (excludeIds?: Set<string>) => {
     if (!selectedTeam) return
     const isReAnalyse = !!excludeIds
@@ -272,14 +320,25 @@ export default function HomePage() {
       }
 
       const nextAnalysis = data.analysis as SquadAnalysisResult
+      const nextSquad = (data.squad as SquadPlayer[]) || []
+      const nextManager = data.manager as ManagerResult
       setAnalysis(nextAnalysis)
-      setSquad((data.squad as SquadPlayer[]) || [])
-      setManagerResult(data.manager as ManagerResult)
+      setSquad(nextSquad)
+      setManagerResult(nextManager)
       setNationalTeamCountry((data.nationalTeamCountry as string) || null)
       setAnalyzedUnavailableKey(makeAvailabilityKey(excludeIds))
 
       if (nextAnalysis?.detailsStatus === 'partial') {
         void hydrateAnalysisDetails(requestSeq, selectedTeam, excludeIds)
+      }
+      if (nextSquad.length && nextManager?.name) {
+        void loadSquadFit(
+          requestSeq,
+          nextSquad,
+          nextManager,
+          selectedTeam.team.name,
+          { silent: true }
+        )
       }
 
       setTimeout(() => {
@@ -391,30 +450,13 @@ export default function HomePage() {
       return
     }
     if (tab === 'fit' && !squadFit.length && !isLoadingFit && availableSquad.length && managerResult) {
-      setIsLoadingFit(true)
-      setFitError(null)
-      try {
-        const res = await fetch('/api/squad-fit', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            squad: availableSquad,
-            managerId: managerResult.id || undefined,
-            managerName: managerResult.name,
-            teamName: selectedTeam?.team.name,
-          }),
-        })
-        const data = await res.json()
-        if (!res.ok) {
-          setFitError(data.error || 'Failed to analyse squad fit')
-        } else {
-          setSquadFit(data.fits || [])
-        }
-      } catch {
-        setFitError('Failed to analyse squad fit')
-      } finally {
-        setIsLoadingFit(false)
-      }
+      void loadSquadFit(
+        analysisRequestSeq.current,
+        availableSquad,
+        managerResult,
+        selectedTeam?.team.name || '',
+        { showLoading: true }
+      )
     }
   }
 
