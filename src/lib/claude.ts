@@ -1120,6 +1120,7 @@ export interface UndervaluedPlayer {
   whyUndervalued: string     // 2 sentences: why they're a bargain + what they bring tactically
   scoutScore: number         // 0-100
   tmVerified?: boolean
+  transfermarktUrl?: string
 }
 
 export interface UndervaluedXIResult {
@@ -1663,6 +1664,7 @@ export interface IdealPlayer {
   whyIdeal: string        // 2 sentences: why THIS player is the textbook profile for this role in this system
   systemFitScore: number  // 0-100
   tmVerified?: boolean
+  transfermarktUrl?: string
 }
 
 export interface ManagerXIResult {

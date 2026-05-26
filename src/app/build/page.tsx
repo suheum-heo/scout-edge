@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { AlertCircle, Wand2, TriangleAlert } from 'lucide-react'
+import { AlertCircle, ExternalLink, Wand2, TriangleAlert } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { ManagerXIResult, IdealPlayer } from '@/lib/claude'
 
@@ -26,9 +26,15 @@ function fitColor(score: number) {
   return 'text-slate-400 dark:text-slate-500'
 }
 
+function buildTransfermarktSearchUrl(playerName: string): string {
+  return `https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(playerName)}`
+}
+
 function PlayerCard({ player }: { player: IdealPlayer }) {
-  return (
-    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+  const href = player.transfermarktUrl
+  const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
+  const cardContent = (
+    <>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="bg-violet-500/20 border border-violet-500/30 text-violet-500 dark:text-violet-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
@@ -37,7 +43,12 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
       </div>
 
       <div className="flex items-start justify-between gap-2">
-        <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
+        <div className="flex items-start gap-1.5">
+          <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-300 transition-colors">
+            {player.playerName}
+          </span>
+          {href && <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-violet-500 dark:group-hover:text-violet-300 transition-colors flex-shrink-0 mt-0.5" />}
+        </div>
         <div className="flex flex-col items-end flex-shrink-0 leading-none">
           <span className="text-[9px] uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 mb-1">
             Scout Score
@@ -52,10 +63,10 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
 
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">Transfermarkt: {player.currentClub}</span>
         ) : (
           <a
-            href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(player.playerName)}`}
+            href={fallbackSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
@@ -71,6 +82,25 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
       <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
         {player.whyIdeal}
       </p>
+    </>
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group block bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+      >
+        {cardContent}
+      </a>
+    )
+  }
+
+  return (
+    <div className="group bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+      {cardContent}
     </div>
   )
 }

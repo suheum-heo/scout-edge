@@ -16,7 +16,7 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
-import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 4500
 const TM_ENRICHMENT_CONCURRENCY = 6
@@ -646,6 +646,7 @@ function mergeSearchResult(player: IdealPlayer, searchResult: TMPlayerSearchResu
     nationality: searchResult.nationalities?.[0] || player.nationality,
     estimatedFee: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedFee,
     tmVerified: isUsableTMClubName(searchClub),
+    transfermarktUrl: searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name),
   }
 }
 

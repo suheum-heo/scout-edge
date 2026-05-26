@@ -93,6 +93,7 @@ export interface TMPlayerSearchResult {
   age: number | null
   nationalities: string[]
   marketValue: number | null
+  profileUrl?: string
 }
 
 export interface TMPlayerData {
@@ -388,6 +389,15 @@ function stripDiacritics(str: string): string {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
 }
 
+export function buildTMPlayerProfileUrl(tmId: string, playerName?: string | null): string {
+  const slug = stripDiacritics(playerName || '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || '-'
+
+  return `${TM_SITE_BASE}/${slug}/profil/spieler/${encodeURIComponent(tmId)}`
+}
+
 function buildHyphenatedTokenVariants(token: string): string[] {
   const normalized = token.trim()
   if (!normalized || normalized.includes('-')) return []
@@ -631,6 +641,7 @@ export async function searchPlayers(name: string): Promise<TMPlayerSearchResult[
         },
         position: normalizePositionDisplayName(player.position),
         nationalities: (player.nationalities || []).map((country) => normalizeCountryDisplayName(country)),
+        profileUrl: buildTMPlayerProfileUrl(player.id, player.name),
       }))
 
       if (results.length > 0) {

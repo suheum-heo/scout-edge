@@ -13,12 +13,12 @@ import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
-import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v2'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v3'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -301,6 +301,7 @@ function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSear
     nationality: searchResult.nationalities?.[0] || player.nationality,
     estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
     tmVerified: isUsableTMClubName(searchClub),
+    transfermarktUrl: searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name),
   }
 }
 

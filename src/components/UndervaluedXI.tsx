@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Sparkles, TriangleAlert } from 'lucide-react'
+import { ExternalLink, Sparkles, TriangleAlert } from 'lucide-react'
 import { UndervaluedXIResult, UndervaluedPlayer } from '@/lib/claude'
 
 const BUDGETS = ['< €50M', '€50–100M', '€100–150M', '€150–200M']
@@ -15,9 +15,15 @@ function scoreColor(score: number) {
   return 'text-slate-400 dark:text-slate-500'
 }
 
+function buildTransfermarktSearchUrl(playerName: string): string {
+  return `https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(playerName)}`
+}
+
 function PlayerCard({ player }: { player: UndervaluedPlayer }) {
-  return (
-    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+  const href = player.transfermarktUrl
+  const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
+  const cardContent = (
+    <>
       {/* Position + archetype */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
@@ -28,7 +34,12 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
 
       {/* Name + score */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{player.playerName}</span>
+        <div className="flex items-start gap-1.5">
+          <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
+            {player.playerName}
+          </span>
+          {href && <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 dark:group-hover:text-emerald-300 transition-colors flex-shrink-0 mt-0.5" />}
+        </div>
         <div className="flex-shrink-0 text-right">
           <div className="text-slate-400 dark:text-slate-500 text-[9px] font-medium uppercase tracking-wider">
             Scout Score
@@ -45,10 +56,10 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       </div>
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">Transfermarkt: {player.currentClub}</span>
         ) : (
           <a
-            href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(player.playerName)}`}
+            href={fallbackSearchUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
@@ -71,6 +82,25 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
         {player.whyUndervalued}
       </p>
+    </>
+  )
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group block bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
+      >
+        {cardContent}
+      </a>
+    )
+  }
+
+  return (
+    <div className="group bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+      {cardContent}
     </div>
   )
 }
