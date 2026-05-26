@@ -112,6 +112,17 @@ export interface SquadAnalysisResult {
   gaps: SquadGap[]
   squadStrengths: string[]
   squadWeaknesses: string[]
+  detailsStatus?: 'partial' | 'complete'
+}
+
+export type SquadAnalysisCoreResult = Omit<
+  SquadAnalysisResult,
+  'squadStrengths' | 'squadWeaknesses' | 'detailsStatus'
+>
+
+export interface SquadAnalysisDetailsResult {
+  squadStrengths: string[]
+  squadWeaknesses: string[]
 }
 
 export type FitLabel = 'Key Man' | 'Good Fit' | 'Rotation' | 'Poor Fit' | 'Sell Candidate'
@@ -338,13 +349,19 @@ Return [] if no players have a meaningfully different real role. No other text.`
 
 // Analyze a squad against a manager's tactical profile
 // manager can be null — Claude will infer the profile from managerName using its own knowledge
-interface MinimalSquadPlayer {
+export interface MinimalSquadPlayer {
   name: string; position: string; age: number; nationality: string;
   appearances: number; goals: number; assists: number; minutes: number;
   rating: string; tackles?: number; interceptions?: number;
 }
 
-export async function analyzeSquadGaps(
+interface SquadAnalysisPromptContext {
+  resolvedName: string
+  managerSection: string
+  squadSection: string
+}
+
+function buildSquadAnalysisPromptContext(
   manager: ManagerProfile | null,
   squadPlayers: (MinimalSquadPlayer | null)[],
   teamName: string,
@@ -352,17 +369,15 @@ export async function analyzeSquadGaps(
   unavailablePlayers?: { name: string; position: string }[],
   allowManagerInference = true,
   liveFormationContext?: LiveFormationContext,
-): Promise<SquadAnalysisResult> {
+): SquadAnalysisPromptContext {
   const resolvedName = manager?.name || managerName || 'Unknown Manager'
+  const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
-  // hasStats: true if ANY player has appearances, goals, or a real rating
   const hasStats = squadPlayers.some(
     (p) => p && (p.appearances > 0 || p.goals > 0 || parseFloat(p.rating || '0') > 0)
   )
-  // hasFullStats: true only when we have appearances/minutes (older FotMob API or AF data)
   const hasFullStats = squadPlayers.some((p) => p && p.appearances > 0)
 
-  // Sort by minutes desc, then by rating desc as secondary (FotMob has rating but no minutes)
   const sortedPlayers = [...squadPlayers.filter(Boolean)].sort((a, b) => {
     const minsDiff = (b?.minutes ?? 0) - (a?.minutes ?? 0)
     if (minsDiff !== 0) return minsDiff
@@ -416,34 +431,56 @@ ${
     : `Use your knowledge of ${resolvedName}'s tactical system as of today (${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}). ${buildLiveFormationGuidance(liveFormationContext)} Apply their known tactical profile to analyze the squad below.`
 }`
 
-  const currentDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-
-  const prompt = `You are an elite football scout and tactical analyst. Today's date is ${currentDate}. Analyze this squad's fit with the manager's tactical system.
-
-## Current Squad at ${teamName} (as of ${currentDate}):
+  const squadSection = `## Current Squad at ${teamName} (as of ${currentDate}):
 ${squadSummary || `No squad data is available from our providers. Use your own knowledge of ${teamName}'s current roster (as of ${currentDate}) to perform this analysis. Apply the same JSON format — infer the squad composition, identify positional gaps, and assess tactical fit based on your training knowledge.`}
 ${squadSummary && (!hasStats ? '\n*Note: Per-match stats are not available. Use your knowledge of these players to assess their quality and tactical profile — but treat the squad list above as the authoritative current roster. Do NOT flag a positional gap if a player already listed in the squad can credibly fill that role.*' : !hasFullStats ? '\n*Note: Season appearance/minute data is not available, but FotMob ratings, goals, and assists are shown where non-zero. Use these plus your knowledge of each player to judge quality and recent form. The squad list and position data are authoritative.*' : '')}
-${unavailablePlayers?.length ? `\n## UNAVAILABLE PLAYERS (Injured / Suspended):\nThe following players are confirmed UNAVAILABLE and have been intentionally excluded from the squad list above. Treat each of their positions as a genuine gap requiring cover — do NOT assume the team has working depth at these positions:\n${unavailablePlayers.map((p) => `- ${p.name} (${p.position})`).join('\n')}\nThis is not a data error. These are real absences. If all available cover at a position is now gone, flag it as a critical gap.` : ''}
+${unavailablePlayers?.length ? `\n## UNAVAILABLE PLAYERS (Injured / Suspended):\nThe following players are confirmed UNAVAILABLE and have been intentionally excluded from the squad list above. Treat each of their positions as a genuine gap requiring cover — do NOT assume the team has working depth at these positions:\n${unavailablePlayers.map((p) => `- ${p.name} (${p.position})`).join('\n')}\nThis is not a data error. These are real absences. If all available cover at a position is now gone, flag it as a critical gap.` : ''}`
+
+  return {
+    resolvedName,
+    managerSection,
+    squadSection,
+  }
+}
+
+export async function analyzeSquadGapsCore(
+  manager: ManagerProfile | null,
+  squadPlayers: (MinimalSquadPlayer | null)[],
+  teamName: string,
+  managerName?: string,
+  unavailablePlayers?: { name: string; position: string }[],
+  allowManagerInference = true,
+  liveFormationContext?: LiveFormationContext,
+): Promise<SquadAnalysisCoreResult> {
+  const { resolvedName, managerSection, squadSection } = buildSquadAnalysisPromptContext(
+    manager,
+    squadPlayers,
+    teamName,
+    managerName,
+    unavailablePlayers,
+    allowManagerInference,
+    liveFormationContext
+  )
+
+  const prompt = `You are an elite football scout and tactical analyst. Produce the FAST first-pass squad verdict for this manager-team fit.
+
+${squadSection}
 
 ## Your Task:
-Analyze the squad and identify:
-1. Which positions have the RIGHT profile for this system
-2. Which positions are GAPS or MISMATCHES — only flag a gap if NO player currently in the squad can reasonably cover that role
-3. Overall tactical fit score (1-10) for this squad with this manager
+Return only the most important first-pass tactical verdict:
+1. Overall tactical fit score (1-10)
+2. A concise two-sentence assessment
+3. The most urgent tactical gaps or profile mismatches
 
-IMPORTANT: The squad list above is the authoritative source of truth. If your prior knowledge conflicts with the dataset, always trust the dataset — it reflects the most recent transfer activity and may include signings made after your training cutoff. Do not contradict the squad list based on prior knowledge of which club a player belongs to.
+IMPORTANT: The squad list above is the authoritative source of truth. If your prior knowledge conflicts with the dataset, always trust the dataset.
 
-For positional coverage, treat registered positions as starting points only. Use your knowledge of modern tactical roles and each player's career-wide versatility. Specific rule: a player registered as "Center-back" who has regularly played left-back (e.g. as a LCB/LB hybrid) counts as left-back cover — do not flag a LB gap if such a player is in the squad. Similarly, a right-back who inverts can cover attacking midfield, a CM deployed as a #6 covers the holding role, etc. Apply your understanding of modern roles (inverted full-backs, hybrid CBs, half-space runners, pressing triggers) when judging fit. Do not claim a team lacks depth at a position if a versatile senior player in the squad can credibly fill that role. Cross-reference every gap against the actual players listed and their [Note:] annotations before flagging it.
-
-Before flagging a sided-role gap such as left-back, right-back, left wing-back, right wing-back, left wing, or right wing, explicitly scan the squad list for any player whose listed position already matches that side. If a listed player exists, you must discuss that player by name before concluding the role is uncovered or tactically insufficient.
+For positional coverage, treat registered positions as starting points only. Use your knowledge of modern tactical roles and each player's career-wide versatility. Do not call a position a gap if a listed player can credibly cover it. Before flagging a sided role such as LB, RB, LWB, RWB, LW, or RW, explicitly check whether a listed player already matches that side and discuss them by name.
 
 Respond in this exact JSON format:
 {
   "managerName": "Full Name of the current manager, or 'Manager unavailable' if live coach data is unavailable",
-  "overallAssessment": "2-3 sentence overview of how well this squad suits the manager",
+  "overallAssessment": "Exactly 2 concise sentences",
   "tacticalFitScore": 7,
-  "squadStrengths": ["strength 1", "strength 2", "strength 3"],
-  "squadWeaknesses": ["weakness 1", "weakness 2", "weakness 3"],
   "gaps": [
     {
       "position": "Center Back",
@@ -451,41 +488,37 @@ Respond in this exact JSON format:
       "urgency": "critical",
       "needScore": 82,
       "profileLabel": "Pace-First Ball-Playing CB",
-      "reasoning": "Why this is a gap — reference specific players and their stats",
+      "reasoning": "One concise sentence explaining why this is a gap.",
       "keyStatsPriority": ["pace", "pass_accuracy", "interceptions"]
     }
   ]
 }
 
-needScore (0-100) is a composite transfer priority score. Compute it as:
-  starter_weakness (0-30): how absent/weak the ideal starting profile is for this position
-  + depth_weakness (0-20): lack of quality backup options
-  + age_risk (0-20): primary holder is 30+ with no successor, or only unproven youth covers
-  + tactical_mismatch (0-20): players present but wrong profile for this system
-  - hybrid_coverage (0-30): deduct if a versatile player in the squad genuinely covers this role
-Higher needScore = more urgent transfer priority. Sort gaps in your response by needScore descending.
+needScore (0-100) is a composite transfer priority score:
+  starter_weakness (0-30)
+  + depth_weakness (0-20)
+  + age_risk (0-20)
+  + tactical_mismatch (0-20)
+  - hybrid_coverage (0-30)
 
-Be specific and reference actual players from the squad. Urgency levels: critical (major weakness that will hurt results), high (clear need), medium (would help but manageable), low (minor upgrade). Return a maximum of 5 gaps.
-
-## Concision Rules:
-- Keep overallAssessment to exactly 2 sentences
-- Keep each strength and weakness to 24 words max
-- Keep each gap reasoning to 2 sentences and 95 words max
-- Keep keyStatsPriority to at most 5 items
-- Prefer precision over long explanations`
+Rules:
+- Return a maximum of 4 gaps, sorted by needScore descending
+- Keep overallAssessment to exactly 2 sentences and 48 words max
+- Keep each gap reasoning to 1 sentence and 55 words max
+- Keep keyStatsPriority to at most 4 items
+- Prefer the highest-signal issues first`
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: 2400,
+    max_tokens: 1600,
     temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const analysis = extractJSON(text, 'object') as Omit<SquadAnalysisResult, 'teamName'>
+  const analysis = extractJSON(text, 'object') as SquadAnalysisCoreResult
 
-  // When resolvedName is 'Unknown Manager', Claude inferred the actual name unless inference was disabled.
   const finalManagerName =
     resolvedName !== 'Unknown Manager'
       ? resolvedName
@@ -497,6 +530,96 @@ Be specific and reference actual players from the squad. Urgency levels: critica
     ...analysis,
     managerName: finalManagerName,
     teamName,
+  }
+}
+
+export async function analyzeSquadGapDetails(
+  coreAnalysis: SquadAnalysisCoreResult,
+  manager: ManagerProfile | null,
+  squadPlayers: (MinimalSquadPlayer | null)[],
+  teamName: string,
+  managerName?: string,
+  unavailablePlayers?: { name: string; position: string }[],
+  allowManagerInference = true,
+  liveFormationContext?: LiveFormationContext,
+): Promise<SquadAnalysisDetailsResult> {
+  const { managerSection, squadSection } = buildSquadAnalysisPromptContext(
+    manager,
+    squadPlayers,
+    teamName,
+    managerName,
+    unavailablePlayers,
+    allowManagerInference,
+    liveFormationContext
+  )
+
+  const prompt = `You are extending an existing squad analysis with ONLY the supporting detail bullets.
+
+${squadSection}
+
+## Locked Core Analysis:
+${JSON.stringify(coreAnalysis, null, 2)}
+
+Use the locked core analysis above as authoritative. Do not change the manager name, fit score, or listed gaps. Only add supporting bullet-point strengths and weaknesses for the available squad.
+
+Respond in this exact JSON format:
+{
+  "squadStrengths": ["strength 1", "strength 2", "strength 3"],
+  "squadWeaknesses": ["weakness 1", "weakness 2", "weakness 3"]
+}
+
+Rules:
+- Return exactly 3 strengths and 3 weaknesses
+- Each bullet must be 22 words max
+- Keep them specific to the system and current available squad
+- Do not repeat the gap reasoning word-for-word
+- No extra text`
+
+  const response = await createMessageWithPromptCacheFallback({
+    model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
+    max_tokens: 900,
+    temperature: 0,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  return extractJSON(text, 'object') as SquadAnalysisDetailsResult
+}
+
+export async function analyzeSquadGaps(
+  manager: ManagerProfile | null,
+  squadPlayers: (MinimalSquadPlayer | null)[],
+  teamName: string,
+  managerName?: string,
+  unavailablePlayers?: { name: string; position: string }[],
+  allowManagerInference = true,
+  liveFormationContext?: LiveFormationContext,
+): Promise<SquadAnalysisResult> {
+  const core = await analyzeSquadGapsCore(
+    manager,
+    squadPlayers,
+    teamName,
+    managerName,
+    unavailablePlayers,
+    allowManagerInference,
+    liveFormationContext
+  )
+  const details = await analyzeSquadGapDetails(
+    core,
+    manager,
+    squadPlayers,
+    teamName,
+    managerName,
+    unavailablePlayers,
+    allowManagerInference,
+    liveFormationContext
+  )
+
+  return {
+    ...core,
+    ...details,
+    detailsStatus: 'complete',
   }
 }
 

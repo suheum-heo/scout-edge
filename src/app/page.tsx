@@ -12,7 +12,7 @@ import ScenarioCompare from '@/components/ScenarioCompare'
 import UndervaluedXI from '@/components/UndervaluedXI'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ExpandableText from '@/components/ExpandableText'
-import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
+import type { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
 import { searchLocalTeams } from '@/lib/teams-db'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
@@ -58,6 +58,7 @@ export default function HomePage() {
   const [managerDropdownOpen, setManagerDropdownOpen] = useState(false)
 
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isLoadingAnalysisDetails, setIsLoadingAnalysisDetails] = useState(false)
   const [analysis, setAnalysis] = useState<SquadAnalysisResult | null>(null)
   const [managerResult, setManagerResult] = useState<ManagerResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +86,7 @@ export default function HomePage() {
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const searchAbort = useRef<AbortController | null>(null)
+  const analysisRequestSeq = useRef(0)
   const resultsRef = useRef<HTMLDivElement>(null)
   const recsRef = useRef<HTMLDivElement>(null)
 
@@ -136,10 +138,12 @@ export default function HomePage() {
   }, [])
 
   const handleSelectTeam = (team: Team) => {
+    analysisRequestSeq.current += 1
     setSelectedTeam(team)
     setTeamQuery(team.team.name)
     setTeamResults([])
     setAnalysis(null)
+    setIsLoadingAnalysisDetails(false)
     setSquad([])
     setSelectedGap(null)
     setRecommendations([])
@@ -170,10 +174,50 @@ export default function HomePage() {
     setActiveTab('gaps')
   }
 
+  const hydrateAnalysisDetails = useCallback(async (
+    requestSeq: number,
+    team: Team,
+    excludeIds?: Set<string>
+  ) => {
+    setIsLoadingAnalysisDetails(true)
+
+    try {
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          teamId: team.team.id,
+          teamName: team.team.name,
+          managerId: selectedManagerId || undefined,
+          teamSource: team.team.source,
+          fotmobId: team.team.fotmobId,
+          excludedPlayerIds: excludeIds ? [...excludeIds] : undefined,
+          analysisMode: 'details',
+        }),
+      })
+
+      if (!res.ok) return
+      const data = await res.json()
+      if (analysisRequestSeq.current !== requestSeq) return
+      if (data.analysis) {
+        setAnalysis(data.analysis as SquadAnalysisResult)
+      }
+    } catch {
+      // Keep the fast first-pass analysis on screen if detail hydration fails.
+    } finally {
+      if (analysisRequestSeq.current === requestSeq) {
+        setIsLoadingAnalysisDetails(false)
+      }
+    }
+  }, [selectedManagerId])
+
   const handleAnalyze = async (excludeIds?: Set<string>) => {
     if (!selectedTeam) return
     const isReAnalyse = !!excludeIds
+    const requestSeq = analysisRequestSeq.current + 1
+    analysisRequestSeq.current = requestSeq
     setIsAnalyzing(true)
+    setIsLoadingAnalysisDetails(false)
     setError(null)
     setAnalysis(null)
     setSelectedGap(null)
@@ -216,11 +260,16 @@ export default function HomePage() {
         return
       }
 
-      setAnalysis(data.analysis as SquadAnalysisResult)
+      const nextAnalysis = data.analysis as SquadAnalysisResult
+      setAnalysis(nextAnalysis)
       setSquad((data.squad as SquadPlayer[]) || [])
       setManagerResult(data.manager as ManagerResult)
       setNationalTeamCountry((data.nationalTeamCountry as string) || null)
       setAnalyzedUnavailableKey(makeAvailabilityKey(excludeIds))
+
+      if (nextAnalysis?.detailsStatus === 'partial') {
+        void hydrateAnalysisDetails(requestSeq, selectedTeam, excludeIds)
+      }
 
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -573,25 +622,38 @@ export default function HomePage() {
 
             <div className="border-t border-slate-200 dark:border-slate-700 mt-4 pt-4">
               <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed mb-4">{analysis.overallAssessment}</p>
+              {isLoadingAnalysisDetails && (
+                <p className="text-blue-400 text-xs mb-4">
+                  Loading deeper strengths and weaknesses...
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">Strengths</p>
                   <ul className="space-y-1">
-                    {analysis.squadStrengths?.map((s, i) => (
+                    {analysis.squadStrengths?.length ? analysis.squadStrengths.map((s, i) => (
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-green-400/60 mt-0.5">+</span>{s}
                       </li>
-                    ))}
+                    )) : (
+                      <li className="text-slate-500 dark:text-slate-500 text-xs">
+                        {isLoadingAnalysisDetails ? 'Building support notes from the full analysis...' : 'No strengths available yet.'}
+                      </li>
+                    )}
                   </ul>
                 </div>
                 <div>
                   <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-2">Weaknesses</p>
                   <ul className="space-y-1">
-                    {analysis.squadWeaknesses?.map((w, i) => (
+                    {analysis.squadWeaknesses?.length ? analysis.squadWeaknesses.map((w, i) => (
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
                         <span className="text-red-400/60 mt-0.5">−</span>{w}
                       </li>
-                    ))}
+                    )) : (
+                      <li className="text-slate-500 dark:text-slate-500 text-xs">
+                        {isLoadingAnalysisDetails ? 'Loading the detailed risk scan...' : 'No weaknesses available yet.'}
+                      </li>
+                    )}
                   </ul>
                 </div>
               </div>

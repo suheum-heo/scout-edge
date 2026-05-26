@@ -46,7 +46,7 @@ import {
 } from '@/lib/fotmob'
 import { getClubManager, getClubSquad, searchClub, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
-import { analyzeSquadGaps } from '@/lib/claude'
+import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -245,7 +245,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds } = body
+    const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds, analysisMode } = body
     const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
     if (teamId == null || !teamName) {
@@ -556,17 +556,15 @@ export async function POST(request: NextRequest) {
       : null
     timing.end('manager_snapshot', managerSnapshotStartedAt, factualManagerName ?? 'none')
 
-    // Analyze with Claude — null manager triggers Claude's own tactical knowledge
     const allowManagerInference = Boolean(manager || providerManagerName)
-    const claudeStartedAt = timing.start()
-    const analysis = await analyzeSquadGaps(
-      manager || null,
-      availableSquad,
+    const analysisInput = {
+      manager: manager || null,
+      squadPlayers: availableSquad,
       teamName,
-      managerNameHint,
+      managerName: managerNameHint,
       unavailablePlayers,
       allowManagerInference,
-      liveManagerSnapshot
+      liveFormationContext: liveManagerSnapshot
         ? {
             primaryFormation: liveManagerSnapshot.primaryFormation,
             recentFormations: liveManagerSnapshot.recentFormations,
@@ -575,8 +573,32 @@ export async function POST(request: NextRequest) {
             referenceClub: liveManagerSnapshot.referenceClub,
           }
         : undefined,
+    }
+
+    const requestedAnalysisMode = analysisMode === 'details' ? 'details' : 'core'
+    const claudeStartedAt = timing.start()
+    const coreAnalysis = await getCachedSquadAnalysisCore(analysisInput)
+    let analysis
+    if (requestedAnalysisMode === 'details') {
+      const detailsAnalysis = await getCachedSquadAnalysisDetails(analysisInput, coreAnalysis)
+      analysis = {
+        ...coreAnalysis,
+        ...detailsAnalysis,
+        detailsStatus: 'complete' as const,
+      }
+    } else {
+      analysis = {
+        ...coreAnalysis,
+        squadStrengths: [],
+        squadWeaknesses: [],
+        detailsStatus: 'partial' as const,
+      }
+    }
+    timing.end(
+      requestedAnalysisMode === 'details' ? 'claude_analysis_details' : 'claude_analysis_core',
+      claudeStartedAt,
+      requestedAnalysisMode
     )
-    timing.end('claude_analysis', claudeStartedAt, 'analyzeSquadGaps')
 
     const inferredManagerName = analysis.managerName?.trim() || null
     const factualManagerVerified = Boolean(factualManagerName)
