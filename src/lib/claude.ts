@@ -1217,9 +1217,11 @@ Return ONLY this JSON (no other text):
 Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
 Include exactly 11 players covering every position in your chosen formation.`
 
-  const response = await anthropic.messages.create({
+  const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
+    system: buildCachedManagerSystemPrompt(managerSection),
     max_tokens: 3000,
+    temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   })
 

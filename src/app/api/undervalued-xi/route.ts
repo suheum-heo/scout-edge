@@ -4,6 +4,7 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import {
+  generateUndervaluedXI,
   generateUndervaluedXICandidatePool,
   UndervaluedPlayer,
   UndervaluedXIResult,
@@ -289,6 +290,46 @@ function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSear
   }
 }
 
+function hasDuplicateUndervaluedPlayers(players: UndervaluedPlayer[]): boolean {
+  const seen = new Set<string>()
+
+  for (const player of players) {
+    const key = playerKey(player)
+    if (seen.has(key)) return true
+    seen.add(key)
+  }
+
+  return false
+}
+
+function countVerifiedPlayers(players: UndervaluedPlayer[]): number {
+  return players.filter((player) => player.tmVerified !== false).length
+}
+
+async function enrichDirectPlayers(players: UndervaluedPlayer[]): Promise<UndervaluedPlayer[]> {
+  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+
+  return mapWithConcurrency(
+    players,
+    TM_ENRICHMENT_CONCURRENCY,
+    async (player) => {
+      const searchResult = await findSearchResult(player, searchCache)
+      const enriched = searchResult
+        ? mergeSearchResult(player, searchResult)
+        : {
+            ...player,
+            tmVerified: false,
+          }
+
+      return {
+        ...enriched,
+        contractUntil: player.contractUntil || 'Unknown',
+        whyUndervalued: player.whyUndervalued || buildWhyUndervaluedSummary(enriched),
+      }
+    }
+  )
+}
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -526,6 +567,54 @@ export async function POST(request: NextRequest) {
       return response
     }
 
+    const liveFormationContext = liveManagerSnapshot
+      ? {
+          primaryFormation: liveManagerSnapshot.primaryFormation,
+          recentFormations: liveManagerSnapshot.recentFormations,
+          formationSampleSize: liveManagerSnapshot.sampleSize,
+          formationSeason: liveManagerSnapshot.season,
+          referenceClub: liveManagerSnapshot.referenceClub,
+        }
+      : undefined
+
+    const fastPathStartedAt = timing.start()
+    const fastXI = await generateUndervaluedXI(
+      budget,
+      manager || null,
+      managerName,
+      teamName,
+      budgetInstructions,
+      liveFormationContext
+    )
+    timing.end('fast_xi', fastPathStartedAt, `formation:${fastXI.formation},players:${fastXI.players.length}`)
+
+    const fastEnrichmentStartedAt = timing.start()
+    const fastPlayers = await enrichDirectPlayers(fastXI.players)
+    timing.end('fast_tm_enrichment', fastEnrichmentStartedAt, `players:${fastPlayers.length}`)
+
+    const fastResult = withComputedBudget(
+      {
+        ...fastXI,
+        players: fastPlayers,
+      },
+      fastPlayers,
+      budget
+    )
+
+    const fastPathUsable =
+      fastPlayers.length === 11 &&
+      !hasDuplicateUndervaluedPlayers(fastPlayers) &&
+      fastResult.budgetStatus === 'within' &&
+      countVerifiedPlayers(fastPlayers) >= 10
+
+    if (fastPathUsable) {
+      setCachedUndervaluedXI(cacheKey, fastResult)
+      const response = NextResponse.json(fastResult)
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
+    }
+
     const candidatePoolStartedAt = timing.start()
     const pool = await generateUndervaluedXICandidatePool(
       budget,
@@ -533,15 +622,7 @@ export async function POST(request: NextRequest) {
       managerName,
       teamName,
       budgetInstructions,
-      liveManagerSnapshot
-        ? {
-            primaryFormation: liveManagerSnapshot.primaryFormation,
-            recentFormations: liveManagerSnapshot.recentFormations,
-            formationSampleSize: liveManagerSnapshot.sampleSize,
-            formationSeason: liveManagerSnapshot.season,
-            referenceClub: liveManagerSnapshot.referenceClub,
-          }
-        : undefined
+      liveFormationContext
     )
     timing.end('candidate_pool', candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
