@@ -18,7 +18,7 @@ import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/tra
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v1'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v2'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -211,6 +211,15 @@ function buildBudgetInstructions(budget: string, cap: number): string {
   ].join(' ')
 }
 
+function buildVerificationInstructions(): string {
+  return [
+    'Every candidate must be easily verifiable on current Transfermarkt player search with the exact spelling you provide.',
+    'Avoid speculative youth names, uncertain transliterations, obscure loan statuses, and anyone whose current club you are not completely certain about.',
+    'Prefer a slightly more established active first-team player over a clever obscure option if verification is at all doubtful.',
+    'The final XI must be fully club-verifiable by Transfermarkt, not just tactically plausible.',
+  ].join(' ')
+}
+
 function materializeCandidates(slot: UndervaluedXISlot): UndervaluedPlayer[] {
   return slot.candidates.map((candidate) => ({
     ...candidate,
@@ -307,8 +316,13 @@ function hasDuplicateUndervaluedPlayers(players: UndervaluedPlayer[]): boolean {
   return false
 }
 
-function countVerifiedPlayers(players: UndervaluedPlayer[]): number {
-  return players.filter((player) => player.tmVerified !== false).length
+function hasUnverifiedPlayers(players: UndervaluedPlayer[]): boolean {
+  return players.some((player) => player.tmVerified !== true)
+}
+
+function preferVerifiedCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
+  const verified = candidates.filter((candidate) => candidate.player.tmVerified === true)
+  return verified.length > 0 ? verified : candidates
 }
 
 async function enrichDirectPlayers(
@@ -599,9 +613,14 @@ export async function POST(request: NextRequest) {
       : null
     timing.end('manager_snapshot', snapshotStartedAt, factualManagerName ?? 'none')
     const cap = getBudgetCap(budget)
-    const budgetInstructions = cap !== null
-      ? buildBudgetInstructions(budget, cap)
-      : undefined
+    const verificationInstructions = buildVerificationInstructions()
+    const baseInstructions = cap !== null
+      ? `${buildBudgetInstructions(budget, cap)} ${verificationInstructions}`
+      : verificationInstructions
+    const retryInstructions = cap !== null
+      ? `${baseInstructions} Previous attempt included at least one name that could not be verified on Transfermarkt or drifted over budget once live values were applied. Return materially safer exact spellings, more obvious current clubs, and slightly more mainstream first-team options across multiple slots.`
+      : `${baseInstructions} Previous attempt included at least one name that could not be verified on Transfermarkt. Return more mainstream active first-team players with exact current clubs and spellings that are easy to verify.`
+    const instructionPasses = [baseInstructions, retryInstructions]
 
     const liveFormationContext = liveManagerSnapshot
       ? {
@@ -613,142 +632,157 @@ export async function POST(request: NextRequest) {
         }
       : undefined
 
-    const candidatePoolStartedAt = timing.start()
-    const pool = await generateUndervaluedXICandidatePool(
-      budget,
-      manager || null,
-      managerName,
-      teamName,
-      budgetInstructions,
-      liveFormationContext
-    )
-    timing.end('candidate_pool', candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
+    let resolvedResult: UndervaluedXIResult | null = null
+    let resolvedFormation: string | null = null
+    let resolvedSource: 'starter-path' | 'reserve-path' | null = null
+    let attemptsUsed = 0
 
-    const initialSelectionStartedAt = timing.start()
-    const estimatedSlots = buildEstimatedSlots(pool.slots)
-    const initialSelection = selectPlayersForSlots(estimatedSlots, cap)
-    timing.end(
-      'initial_selection',
-      initialSelectionStartedAt,
-      `chosen:${initialSelection.chosen.length},within:${initialSelection.withinBudget ? 'yes' : 'no'}`
-    )
+    for (const [attemptIndex, instructions] of instructionPasses.entries()) {
+      attemptsUsed = attemptIndex + 1
+      const attemptSuffix = attemptIndex === 0 ? '' : `_${attemptIndex + 1}`
 
-    if (initialSelection.chosen.length !== estimatedSlots.length) {
-      const response = NextResponse.json({ error: 'Failed to build an initial XI from the candidate pool' }, { status: 500 })
-      timing.end('total', requestStartedAt)
-      timing.apply(response.headers)
-      return response
-    }
-
-    const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-
-    const starterEnrichmentStartedAt = timing.start()
-    const enrichedStarters = await enrichDirectPlayers(
-      initialSelection.chosen.map((candidate) => candidate.player),
-      searchCache
-    )
-    timing.end('starter_tm_enrichment', starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
-
-    const starterResult = withComputedBudget(
-      {
-        formation: pool.formation,
-        concept: pool.concept,
-        players: enrichedStarters,
-        totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
-      },
-      enrichedStarters,
-      budget
-    )
-
-    const starterPathUsable =
-      enrichedStarters.length === estimatedSlots.length &&
-      !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
-      starterResult.budgetStatus === 'within' &&
-      countVerifiedPlayers(enrichedStarters) >= 10
-
-    if (starterPathUsable) {
-      await persistUndervaluedXIResult(cacheKey, starterResult, {
-        source: 'starter-path',
-        formation: pool.formation,
+      const candidatePoolStartedAt = timing.start()
+      const pool = await generateUndervaluedXICandidatePool(
         budget,
-        managerName: factualManagerName,
+        manager || null,
+        managerName,
         teamName,
-      })
-      const response = NextResponse.json(starterResult)
-      timing.end('total', requestStartedAt)
-      timing.apply(response.headers)
-      return response
-    }
+        instructions,
+        liveFormationContext
+      )
+      timing.end(`candidate_pool${attemptSuffix}`, candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
-    const reserveEntries = getAlternativeEntriesForSelection(
-      pool.slots,
-      initialSelection,
-      enrichedStarters,
-      starterResult
-    )
-    const reserveEnrichmentStartedAt = timing.start()
-    const reserveEvaluations = await mapWithConcurrency(
-      reserveEntries,
-      TM_ENRICHMENT_CONCURRENCY,
-      async (entry) => ({
-        slotId: entry.slotId,
-        candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
-      })
-    )
-    timing.end('reserve_tm_enrichment', reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
+      const initialSelectionStartedAt = timing.start()
+      const estimatedSlots = buildEstimatedSlots(pool.slots)
+      const initialSelection = selectPlayersForSlots(estimatedSlots, cap)
+      timing.end(
+        `initial_selection${attemptSuffix}`,
+        initialSelectionStartedAt,
+        `chosen:${initialSelection.chosen.length},within:${initialSelection.withinBudget ? 'yes' : 'no'}`
+      )
 
-    const reserveCandidatesBySlot = new Map<string, CandidateEvaluation[]>()
-    for (const entry of reserveEvaluations) {
-      const existing = reserveCandidatesBySlot.get(entry.slotId)
-      if (existing) {
-        existing.push(entry.candidate)
-      } else {
-        reserveCandidatesBySlot.set(entry.slotId, [entry.candidate])
+      if (initialSelection.chosen.length !== estimatedSlots.length) {
+        continue
       }
+
+      const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+
+      const starterEnrichmentStartedAt = timing.start()
+      const enrichedStarters = await enrichDirectPlayers(
+        initialSelection.chosen.map((candidate) => candidate.player),
+        searchCache
+      )
+      timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
+
+      const starterResult = withComputedBudget(
+        {
+          formation: pool.formation,
+          concept: pool.concept,
+          players: enrichedStarters,
+          totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
+        },
+        enrichedStarters,
+        budget
+      )
+
+      const starterPathUsable =
+        enrichedStarters.length === estimatedSlots.length &&
+        !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
+        starterResult.budgetStatus === 'within' &&
+        !hasUnverifiedPlayers(enrichedStarters)
+
+      if (starterPathUsable) {
+        resolvedResult = starterResult
+        resolvedFormation = pool.formation
+        resolvedSource = 'starter-path'
+        break
+      }
+
+      const reserveEntries = getAlternativeEntriesForSelection(
+        pool.slots,
+        initialSelection,
+        enrichedStarters,
+        starterResult
+      )
+      const reserveEnrichmentStartedAt = timing.start()
+      const reserveEvaluations = await mapWithConcurrency(
+        reserveEntries,
+        TM_ENRICHMENT_CONCURRENCY,
+        async (entry) => ({
+          slotId: entry.slotId,
+          candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
+        })
+      )
+      timing.end(`reserve_tm_enrichment${attemptSuffix}`, reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
+
+      const reserveCandidatesBySlot = new Map<string, CandidateEvaluation[]>()
+      for (const entry of reserveEvaluations) {
+        const existing = reserveCandidatesBySlot.get(entry.slotId)
+        if (existing) {
+          existing.push(entry.candidate)
+        } else {
+          reserveCandidatesBySlot.set(entry.slotId, [entry.candidate])
+        }
+      }
+
+      const finalSlots = pool.slots.map((slot, slotIndex) => ({
+        slotId: slot.slotId,
+        position: slot.position,
+        archetypeLabel: slot.archetypeLabel,
+        candidates: preferVerifiedCandidates(dedupeCandidates([
+          buildCandidateEvaluationFromPlayer(enrichedStarters[slotIndex]),
+          ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
+        ])),
+      }))
+
+      const selectionStartedAt = timing.start()
+      const selection = selectPlayersForSlots(finalSlots, cap)
+      timing.end(`selection${attemptSuffix}`, selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
+
+      if (selection.chosen.length !== finalSlots.length) {
+        continue
+      }
+
+      const selectedPlayers = buildSelectedPlayers(selection.chosen)
+      if (hasUnverifiedPlayers(selectedPlayers)) {
+        continue
+      }
+
+      resolvedResult = withComputedBudget(
+        {
+          formation: pool.formation,
+          concept: pool.concept,
+          players: selectedPlayers,
+          totalEstimatedCost: `≈${formatCompactEuros(selection.total)}`,
+        },
+        selectedPlayers,
+        budget
+      )
+      resolvedFormation = pool.formation
+      resolvedSource = 'reserve-path'
+      break
     }
 
-    const finalSlots = pool.slots.map((slot, slotIndex) => ({
-      slotId: slot.slotId,
-      position: slot.position,
-      archetypeLabel: slot.archetypeLabel,
-      candidates: dedupeCandidates([
-        buildCandidateEvaluationFromPlayer(enrichedStarters[slotIndex]),
-        ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
-      ]),
-    }))
-
-    const selectionStartedAt = timing.start()
-    const selection = selectPlayersForSlots(finalSlots, cap)
-    timing.end('selection', selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
-
-    if (selection.chosen.length !== finalSlots.length) {
-      const response = NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
+    if (!resolvedResult || !resolvedFormation || !resolvedSource) {
+      const response = NextResponse.json(
+        { error: 'Failed to build a fully verified Undervalued XI. Please try regenerate.' },
+        { status: 500 }
+      )
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
     }
 
-    const selectedPlayers = buildSelectedPlayers(selection.chosen)
-
-    const result = withComputedBudget(
-      {
-        formation: pool.formation,
-        concept: pool.concept,
-        players: selectedPlayers,
-        totalEstimatedCost: `≈${formatCompactEuros(selection.total)}`,
-      },
-      selectedPlayers,
-      budget
-    )
-    await persistUndervaluedXIResult(cacheKey, result, {
-      source: 'reserve-path',
-      formation: pool.formation,
+    await persistUndervaluedXIResult(cacheKey, resolvedResult, {
+      source: resolvedSource,
+      formation: resolvedFormation,
       budget,
       managerName: factualManagerName,
       teamName,
+      attemptsUsed,
     })
 
-    const response = NextResponse.json(result)
+    const response = NextResponse.json(resolvedResult)
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response

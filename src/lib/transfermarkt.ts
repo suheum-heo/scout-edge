@@ -421,6 +421,10 @@ function buildTMPlayerSearchQueries(query: string): string[] {
     queries.add([...tokens].reverse().join(' '))
   }
 
+  if (tokens.length >= 3) {
+    queries.add(`${tokens[0]} ${tokens.at(-1)}`)
+  }
+
   if (tokens.length === 2) {
     const [first, second] = tokens
 
@@ -437,8 +441,8 @@ function buildTMPlayerSearchQueries(query: string): string[] {
 
   const firstToken = tokens[0] || ''
   const lastToken = tokens.at(-1) || ''
-  if (firstToken.length >= 4) queries.add(firstToken)
   if (lastToken.length >= 4) queries.add(lastToken)
+  if (firstToken.length >= 4) queries.add(firstToken)
 
   return Array.from(queries)
     .map((value) => value.trim())
