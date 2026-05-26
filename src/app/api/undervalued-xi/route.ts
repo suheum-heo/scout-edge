@@ -4,7 +4,6 @@ export const maxDuration = 60
 
 import { getManagerById } from '@/lib/managers'
 import {
-  generateUndervaluedXI,
   generateUndervaluedXICandidatePool,
   UndervaluedPlayer,
   UndervaluedXIResult,
@@ -15,10 +14,11 @@ import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { createServerTiming } from '@/lib/server-timing'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
-const TM_SEARCH_TIMEOUT_MS = 7000
+const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
+const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
 interface CandidateEvaluation {
   player: UndervaluedPlayer
@@ -95,8 +95,8 @@ function setCachedUndervaluedXI(cacheKey: string, data: UndervaluedXIResult) {
   })
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))])
+function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
+  return Promise.race([promise, new Promise<T | F>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
 function isUsableTMClubName(clubName?: string | null): clubName is string {
@@ -238,6 +238,13 @@ function candidateCost(candidate: CandidateEvaluation): number {
   return candidate.selectionCost
 }
 
+function buildCandidateEvaluationFromPlayer(player: UndervaluedPlayer): CandidateEvaluation {
+  return {
+    player,
+    selectionCost: playerCost(player),
+  }
+}
+
 function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
   const bestByKey = new Map<string, CandidateEvaluation>()
 
@@ -264,17 +271,6 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
     if (b.player.scoutScore !== a.player.scoutScore) return b.player.scoutScore - a.player.scoutScore
     return candidateCost(a) - candidateCost(b)
   })
-}
-
-function materializeSlotEntries(slots: UndervaluedXISlot[]): MaterializedSlotCandidate[] {
-  return slots.flatMap((slot) =>
-    materializeCandidates(slot).map((player) => ({
-      slotId: slot.slotId,
-      position: slot.position,
-      archetypeLabel: slot.archetypeLabel,
-      player,
-    }))
-  )
 }
 
 function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSearchResult): UndervaluedPlayer {
@@ -306,9 +302,10 @@ function countVerifiedPlayers(players: UndervaluedPlayer[]): number {
   return players.filter((player) => player.tmVerified !== false).length
 }
 
-async function enrichDirectPlayers(players: UndervaluedPlayer[]): Promise<UndervaluedPlayer[]> {
-  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-
+async function enrichDirectPlayers(
+  players: UndervaluedPlayer[],
+  searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+): Promise<UndervaluedPlayer[]> {
   return mapWithConcurrency(
     players,
     TM_ENRICHMENT_CONCURRENCY,
@@ -371,7 +368,12 @@ async function findSearchResult(
 
     for (const hints of attempts) {
       try {
-        const result = await withTimeout(searchPlayer(player.playerName, hints), TM_SEARCH_TIMEOUT_MS, null)
+        const result = await withTimeout(
+          searchPlayer(player.playerName, hints),
+          TM_SEARCH_TIMEOUT_MS,
+          TM_SEARCH_TIMED_OUT
+        )
+        if (result === TM_SEARCH_TIMED_OUT) return null
         if (result) return result
       } catch {
         continue
@@ -396,10 +398,16 @@ function buildCandidateEvaluation(
         tmVerified: false,
       }
 
-  return {
-    player: enrichedPlayer,
-    selectionCost: playerCost(enrichedPlayer),
-  }
+  return buildCandidateEvaluationFromPlayer(enrichedPlayer)
+}
+
+function buildEstimatedSlots(slots: UndervaluedXISlot[]): EnrichedSlot[] {
+  return slots.map((slot) => ({
+    slotId: slot.slotId,
+    position: slot.position,
+    archetypeLabel: slot.archetypeLabel,
+    candidates: dedupeCandidates(materializeCandidates(slot).map((player) => buildCandidateEvaluationFromPlayer(player))),
+  }))
 }
 
 function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
@@ -410,37 +418,50 @@ function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
   return `${player.archetypeLabel} profile ${valueContext} for a ${player.age}-year-old. Built as a value-first fit for this system rather than a prestige signing.`
 }
 
-async function enrichSlots(slots: UndervaluedXISlot[]): Promise<EnrichedSlot[]> {
-  const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-  const materializedEntries = materializeSlotEntries(slots)
-  const evaluatedEntries = await mapWithConcurrency(
-    materializedEntries,
-    TM_ENRICHMENT_CONCURRENCY,
-    async (entry) => ({
-      slotId: entry.slotId,
-      candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
-    })
-  )
+function getAlternativeEntriesForSelection(
+  slots: UndervaluedXISlot[],
+  selection: SelectionSummary,
+  starters: UndervaluedPlayer[],
+  starterResult: UndervaluedXIResult
+): MaterializedSlotCandidate[] {
+  const needsFullReserveScan =
+    starterResult.budgetStatus === 'over' ||
+    hasDuplicateUndervaluedPlayers(starters)
+  const targetSlotIndexes = needsFullReserveScan
+    ? new Set(slots.map((_, index) => index))
+    : new Set(
+        starters.flatMap((player, index) => (
+          player.tmVerified === false ? [index] : []
+        ))
+      )
 
-  const candidatesBySlot = new Map<string, CandidateEvaluation[]>()
-  for (const entry of evaluatedEntries) {
-    const existing = candidatesBySlot.get(entry.slotId)
-    if (existing) {
-      existing.push(entry.candidate)
-    } else {
-      candidatesBySlot.set(entry.slotId, [entry.candidate])
+  return slots.flatMap((slot, slotIndex) => {
+    if (!targetSlotIndexes.has(slotIndex)) return []
+
+    const selectedCandidate = selection.chosen[slotIndex]
+    const selectedKey = selectedCandidate ? playerKey(selectedCandidate.player) : null
+
+    return materializeCandidates(slot)
+      .filter((player) => !selectedKey || playerKey(player) !== selectedKey)
+      .map((player) => ({
+        slotId: slot.slotId,
+        position: slot.position,
+        archetypeLabel: slot.archetypeLabel,
+        player,
+      }))
+  })
+}
+
+function buildSelectedPlayers(chosen: CandidateEvaluation[]): UndervaluedPlayer[] {
+  return chosen.map((candidate) => {
+    const finalizedPlayer = {
+      ...candidate.player,
+      contractUntil: candidate.player.contractUntil || 'Unknown',
     }
-  }
-
-  return slots.map((slot) => {
-    const candidates = candidatesBySlot.get(slot.slotId) ?? []
-    const deduped = dedupeCandidates(candidates)
 
     return {
-      slotId: slot.slotId,
-      position: slot.position,
-      archetypeLabel: slot.archetypeLabel,
-      candidates: deduped.length > 0 ? deduped : candidates,
+      ...finalizedPlayer,
+      whyUndervalued: candidate.player.whyUndervalued || buildWhyUndervaluedSummary(finalizedPlayer),
     }
   })
 }
@@ -577,44 +598,6 @@ export async function POST(request: NextRequest) {
         }
       : undefined
 
-    const fastPathStartedAt = timing.start()
-    const fastXI = await generateUndervaluedXI(
-      budget,
-      manager || null,
-      managerName,
-      teamName,
-      budgetInstructions,
-      liveFormationContext
-    )
-    timing.end('fast_xi', fastPathStartedAt, `formation:${fastXI.formation},players:${fastXI.players.length}`)
-
-    const fastEnrichmentStartedAt = timing.start()
-    const fastPlayers = await enrichDirectPlayers(fastXI.players)
-    timing.end('fast_tm_enrichment', fastEnrichmentStartedAt, `players:${fastPlayers.length}`)
-
-    const fastResult = withComputedBudget(
-      {
-        ...fastXI,
-        players: fastPlayers,
-      },
-      fastPlayers,
-      budget
-    )
-
-    const fastPathUsable =
-      fastPlayers.length === 11 &&
-      !hasDuplicateUndervaluedPlayers(fastPlayers) &&
-      fastResult.budgetStatus === 'within' &&
-      countVerifiedPlayers(fastPlayers) >= 10
-
-    if (fastPathUsable) {
-      setCachedUndervaluedXI(cacheKey, fastResult)
-      const response = NextResponse.json(fastResult)
-      timing.end('total', requestStartedAt)
-      timing.apply(response.headers)
-      return response
-    }
-
     const candidatePoolStartedAt = timing.start()
     const pool = await generateUndervaluedXICandidatePool(
       budget,
@@ -626,32 +609,105 @@ export async function POST(request: NextRequest) {
     )
     timing.end('candidate_pool', candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
-    const enrichmentStartedAt = timing.start()
-    const enrichedSlots = await enrichSlots(pool.slots)
-    timing.end('tm_enrichment', enrichmentStartedAt, `slots:${enrichedSlots.length}`)
+    const initialSelectionStartedAt = timing.start()
+    const estimatedSlots = buildEstimatedSlots(pool.slots)
+    const initialSelection = selectPlayersForSlots(estimatedSlots, cap)
+    timing.end(
+      'initial_selection',
+      initialSelectionStartedAt,
+      `chosen:${initialSelection.chosen.length},within:${initialSelection.withinBudget ? 'yes' : 'no'}`
+    )
+
+    if (initialSelection.chosen.length !== estimatedSlots.length) {
+      const response = NextResponse.json({ error: 'Failed to build an initial XI from the candidate pool' }, { status: 500 })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
+    }
+
+    const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+
+    const starterEnrichmentStartedAt = timing.start()
+    const enrichedStarters = await enrichDirectPlayers(
+      initialSelection.chosen.map((candidate) => candidate.player),
+      searchCache
+    )
+    timing.end('starter_tm_enrichment', starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
+
+    const starterResult = withComputedBudget(
+      {
+        formation: pool.formation,
+        concept: pool.concept,
+        players: enrichedStarters,
+        totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
+      },
+      enrichedStarters,
+      budget
+    )
+
+    const starterPathUsable =
+      enrichedStarters.length === estimatedSlots.length &&
+      !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
+      starterResult.budgetStatus === 'within' &&
+      countVerifiedPlayers(enrichedStarters) >= 10
+
+    if (starterPathUsable) {
+      setCachedUndervaluedXI(cacheKey, starterResult)
+      const response = NextResponse.json(starterResult)
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
+    }
+
+    const reserveEntries = getAlternativeEntriesForSelection(
+      pool.slots,
+      initialSelection,
+      enrichedStarters,
+      starterResult
+    )
+    const reserveEnrichmentStartedAt = timing.start()
+    const reserveEvaluations = await mapWithConcurrency(
+      reserveEntries,
+      TM_ENRICHMENT_CONCURRENCY,
+      async (entry) => ({
+        slotId: entry.slotId,
+        candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
+      })
+    )
+    timing.end('reserve_tm_enrichment', reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
+
+    const reserveCandidatesBySlot = new Map<string, CandidateEvaluation[]>()
+    for (const entry of reserveEvaluations) {
+      const existing = reserveCandidatesBySlot.get(entry.slotId)
+      if (existing) {
+        existing.push(entry.candidate)
+      } else {
+        reserveCandidatesBySlot.set(entry.slotId, [entry.candidate])
+      }
+    }
+
+    const finalSlots = pool.slots.map((slot, slotIndex) => ({
+      slotId: slot.slotId,
+      position: slot.position,
+      archetypeLabel: slot.archetypeLabel,
+      candidates: dedupeCandidates([
+        buildCandidateEvaluationFromPlayer(enrichedStarters[slotIndex]),
+        ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
+      ]),
+    }))
 
     const selectionStartedAt = timing.start()
-    const selection = selectPlayersForSlots(enrichedSlots, cap)
+    const selection = selectPlayersForSlots(finalSlots, cap)
     timing.end('selection', selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
 
-    if (selection.chosen.length !== enrichedSlots.length) {
+    if (selection.chosen.length !== finalSlots.length) {
       const response = NextResponse.json({ error: 'Failed to build a complete XI from the candidate pool' }, { status: 500 })
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
     }
 
-    const selectedPlayers = selection.chosen.map((candidate) => {
-      const finalizedPlayer = {
-        ...candidate.player,
-        contractUntil: 'Unknown',
-      }
-
-      return {
-        ...finalizedPlayer,
-        whyUndervalued: buildWhyUndervaluedSummary(finalizedPlayer),
-      }
-    })
+    const selectedPlayers = buildSelectedPlayers(selection.chosen)
 
     const result = withComputedBudget(
       {
