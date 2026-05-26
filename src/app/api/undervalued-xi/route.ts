@@ -18,13 +18,16 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v3'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v4'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
 interface CandidateEvaluation {
   player: UndervaluedPlayer
   selectionCost: number
+  selectionScore: number
+  positionCompatibilityScore: number
+  positionCompatible: boolean
 }
 
 interface EnrichedSlot {
@@ -47,6 +50,17 @@ interface MaterializedSlotCandidate {
   archetypeLabel: string
   player: UndervaluedPlayer
 }
+
+type SlotFamily =
+  | 'goalkeeper'
+  | 'center-back'
+  | 'fullback'
+  | 'wing-back'
+  | 'holding-midfielder'
+  | 'central-midfielder'
+  | 'attacking-midfielder'
+  | 'winger'
+  | 'striker'
 
 function normalizeCacheValue(value?: string | null): string {
   return String(value || '')
@@ -217,6 +231,9 @@ function buildVerificationInstructions(): string {
     'Avoid speculative youth names, uncertain transliterations, obscure loan statuses, and anyone whose current club you are not completely certain about.',
     'Prefer a slightly more established active first-team player over a clever obscure option if verification is at all doubtful.',
     'The final XI must be fully club-verifiable by Transfermarkt, not just tactically plausible.',
+    'A player must naturally fit the slot with their live Transfermarkt position data.',
+    'Do not use centre-backs as left-backs or right-backs unless Transfermarkt clearly lists them as a full-back or wing-back option.',
+    'Do not use defensive midfielders as centre-backs unless Transfermarkt clearly lists them as centre-backs.',
   ].join(' ')
 }
 
@@ -240,6 +257,125 @@ function normalizeKey(value: string): string {
     .trim()
 }
 
+function normalizeText(value?: string | null): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function includesAny(haystack: string, needles: string[]): boolean {
+  return needles.some((needle) => haystack.includes(needle))
+}
+
+function getSlotFamily(slot: Pick<EnrichedSlot, 'position' | 'archetypeLabel'>): SlotFamily {
+  switch (slot.position) {
+    case 'GK':
+      return 'goalkeeper'
+    case 'CB':
+      return 'center-back'
+    case 'LB':
+    case 'RB':
+      return 'fullback'
+    case 'WB':
+      return 'wing-back'
+    case 'CDM':
+      return 'holding-midfielder'
+    case 'CAM':
+      return 'attacking-midfielder'
+    case 'LW':
+    case 'RW':
+      return 'winger'
+    case 'ST':
+    case 'CF':
+      return 'striker'
+    case 'CM':
+    default:
+      return 'central-midfielder'
+  }
+}
+
+function scorePositionCompatibility(
+  slot: Pick<EnrichedSlot, 'position' | 'archetypeLabel'>,
+  tmPosition?: string | null
+): number {
+  const family = getSlotFamily(slot)
+  const positionText = normalizeText(tmPosition)
+
+  if (!positionText) return 0
+
+  switch (family) {
+    case 'goalkeeper':
+      return includesAny(positionText, ['goalkeeper', 'keeper']) ? 18 : 0
+    case 'center-back':
+      if (includesAny(positionText, ['centre back', 'center back', 'central defender'])) return 18
+      if (positionText.includes('defender')) return 10
+      if (includesAny(positionText, ['left back', 'right back', 'wing back'])) return 6
+      return 0
+    case 'fullback':
+      if (slot.position === 'LB' && includesAny(positionText, ['left back', 'left wing back'])) return 18
+      if (slot.position === 'RB' && includesAny(positionText, ['right back', 'right wing back'])) return 18
+      if (includesAny(positionText, ['full back', 'wing back', 'left back', 'right back'])) return 12
+      if (positionText.includes('defender')) return 6
+      return 0
+    case 'wing-back':
+      if (includesAny(positionText, ['wing back', 'left wing back', 'right wing back'])) return 18
+      if (includesAny(positionText, ['left back', 'right back', 'full back'])) return 10
+      if (positionText.includes('winger')) return 4
+      return 0
+    case 'holding-midfielder':
+      if (includesAny(positionText, ['defensive midfield', 'defensive midfielder'])) return 18
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 14
+      if (positionText.includes('midfield')) return 10
+      return 0
+    case 'central-midfielder':
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 18
+      if (includesAny(positionText, ['defensive midfield', 'attacking midfield'])) return 12
+      if (positionText.includes('midfield')) return 9
+      return 0
+    case 'attacking-midfielder':
+      if (includesAny(positionText, ['attacking midfield', 'attacking midfielder'])) return 18
+      if (includesAny(positionText, ['central midfield', 'central midfielder'])) return 12
+      if (includesAny(positionText, ['winger', 'forward', 'second striker'])) return 8
+      return 0
+    case 'winger':
+      if (slot.position === 'LW' && includesAny(positionText, ['left wing', 'left winger'])) return 18
+      if (slot.position === 'RW' && includesAny(positionText, ['right wing', 'right winger'])) return 18
+      if (includesAny(positionText, ['winger', 'wing', 'wide forward'])) return 14
+      if (includesAny(positionText, ['forward', 'attacking midfield'])) return 8
+      return 0
+    case 'striker':
+      if (includesAny(positionText, ['striker', 'centre forward', 'center forward', 'second striker'])) return 18
+      if (positionText.includes('forward')) return 12
+      if (positionText.includes('winger')) return 4
+      return 0
+  }
+}
+
+function minimumCompatiblePositionScore(slot: Pick<EnrichedSlot, 'position' | 'archetypeLabel'>): number {
+  switch (getSlotFamily(slot)) {
+    case 'goalkeeper':
+      return 18
+    case 'center-back':
+      return 10
+    case 'fullback':
+      return 12
+    case 'wing-back':
+      return 10
+    case 'holding-midfielder':
+      return 10
+    case 'central-midfielder':
+      return 9
+    case 'attacking-midfielder':
+      return 8
+    case 'winger':
+      return 8
+    case 'striker':
+      return 12
+  }
+}
+
 function playerKey(player: UndervaluedPlayer): string {
   return `${normalizeKey(player.playerName)}|${normalizeKey(player.currentClub)}`
 }
@@ -256,10 +392,17 @@ function candidateCost(candidate: CandidateEvaluation): number {
   return candidate.selectionCost
 }
 
+function candidateRank(candidate: CandidateEvaluation): number {
+  return candidate.selectionScore
+}
+
 function buildCandidateEvaluationFromPlayer(player: UndervaluedPlayer): CandidateEvaluation {
   return {
     player,
     selectionCost: playerCost(player),
+    selectionScore: Math.max(0, Math.min(100, player.scoutScore)),
+    positionCompatibilityScore: 0,
+    positionCompatible: true,
   }
 }
 
@@ -278,15 +421,15 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
     const existingCost = candidateCost(existing)
 
     if (
-      candidate.player.scoutScore > existing.player.scoutScore ||
-      (candidate.player.scoutScore === existing.player.scoutScore && currentCost < existingCost)
+      candidateRank(candidate) > candidateRank(existing) ||
+      (candidateRank(candidate) === candidateRank(existing) && currentCost < existingCost)
     ) {
       bestByKey.set(key, candidate)
     }
   }
 
   return Array.from(bestByKey.values()).sort((a, b) => {
-    if (b.player.scoutScore !== a.player.scoutScore) return b.player.scoutScore - a.player.scoutScore
+    if (candidateRank(b) !== candidateRank(a)) return candidateRank(b) - candidateRank(a)
     return candidateCost(a) - candidateCost(b)
   })
 }
@@ -324,6 +467,11 @@ function hasUnverifiedPlayers(players: UndervaluedPlayer[]): boolean {
 function preferVerifiedCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
   const verified = candidates.filter((candidate) => candidate.player.tmVerified === true)
   return verified.length > 0 ? verified : candidates
+}
+
+function preferCompatibleCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
+  const compatible = candidates.filter((candidate) => candidate.positionCompatible)
+  return compatible.length > 0 ? compatible : []
 }
 
 async function enrichDirectPlayers(
@@ -412,6 +560,7 @@ async function findSearchResult(
 }
 
 function buildCandidateEvaluation(
+  slot: Pick<EnrichedSlot, 'position' | 'archetypeLabel'>,
   player: UndervaluedPlayer,
   searchResult: TMPlayerSearchResult | null
 ): CandidateEvaluation {
@@ -421,8 +570,19 @@ function buildCandidateEvaluation(
         ...player,
         tmVerified: false,
       }
+  const positionCompatibilityScore = scorePositionCompatibility(slot, searchResult?.position)
+  const positionCompatible = positionCompatibilityScore >= minimumCompatiblePositionScore(slot)
 
-  return buildCandidateEvaluationFromPlayer(enrichedPlayer)
+  return {
+    player: enrichedPlayer,
+    selectionCost: playerCost(enrichedPlayer),
+    selectionScore: Math.max(
+      1,
+      Math.min(99, Math.round(enrichedPlayer.scoutScore + positionCompatibilityScore - (positionCompatible ? 0 : 35)))
+    ),
+    positionCompatibilityScore,
+    positionCompatible,
+  }
 }
 
 function buildEstimatedSlots(slots: UndervaluedXISlot[]): EnrichedSlot[] {
@@ -445,17 +605,17 @@ function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
 function getAlternativeEntriesForSelection(
   slots: UndervaluedXISlot[],
   selection: SelectionSummary,
-  starters: UndervaluedPlayer[],
+  starterEvaluations: CandidateEvaluation[],
   starterResult: UndervaluedXIResult
 ): MaterializedSlotCandidate[] {
   const needsFullReserveScan =
     starterResult.budgetStatus === 'over' ||
-    hasDuplicateUndervaluedPlayers(starters)
+    hasDuplicateUndervaluedPlayers(starterEvaluations.map((evaluation) => evaluation.player))
   const targetSlotIndexes = needsFullReserveScan
     ? new Set(slots.map((_, index) => index))
     : new Set(
-        starters.flatMap((player, index) => (
-          player.tmVerified === false ? [index] : []
+        starterEvaluations.flatMap((evaluation, index) => (
+          evaluation.player.tmVerified === false || !evaluation.positionCompatible ? [index] : []
         ))
       )
 
@@ -535,7 +695,7 @@ function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): Selec
 
       used.add(key)
       chosen.push(candidate)
-      dfs(index + 1, chosen, used, nextTotal, score + candidate.player.scoutScore)
+      dfs(index + 1, chosen, used, nextTotal, score + candidateRank(candidate))
       chosen.pop()
       used.delete(key)
     }
@@ -669,10 +829,20 @@ export async function POST(request: NextRequest) {
       const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
 
       const starterEnrichmentStartedAt = timing.start()
-      const enrichedStarters = await enrichDirectPlayers(
-        initialSelection.chosen.map((candidate) => candidate.player),
-        searchCache
+      const starterEvaluations = await mapWithConcurrency(
+        initialSelection.chosen,
+        TM_ENRICHMENT_CONCURRENCY,
+        async (candidate, slotIndex) => buildCandidateEvaluation(
+          pool.slots[slotIndex],
+          candidate.player,
+          await findSearchResult(candidate.player, searchCache)
+        )
       )
+      const enrichedStarters = starterEvaluations.map((evaluation) => ({
+        ...evaluation.player,
+        contractUntil: evaluation.player.contractUntil || 'Unknown',
+        whyUndervalued: evaluation.player.whyUndervalued || buildWhyUndervaluedSummary(evaluation.player),
+      }))
       timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
 
       const starterResult = withComputedBudget(
@@ -690,7 +860,8 @@ export async function POST(request: NextRequest) {
         enrichedStarters.length === estimatedSlots.length &&
         !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
         starterResult.budgetStatus === 'within' &&
-        !hasUnverifiedPlayers(enrichedStarters)
+        !hasUnverifiedPlayers(enrichedStarters) &&
+        starterEvaluations.every((evaluation) => evaluation.positionCompatible)
 
       if (starterPathUsable) {
         resolvedResult = starterResult
@@ -702,7 +873,7 @@ export async function POST(request: NextRequest) {
       const reserveEntries = getAlternativeEntriesForSelection(
         pool.slots,
         initialSelection,
-        enrichedStarters,
+        starterEvaluations,
         starterResult
       )
       const reserveEnrichmentStartedAt = timing.start()
@@ -711,7 +882,7 @@ export async function POST(request: NextRequest) {
         TM_ENRICHMENT_CONCURRENCY,
         async (entry) => ({
           slotId: entry.slotId,
-          candidate: buildCandidateEvaluation(entry.player, await findSearchResult(entry.player, searchCache)),
+          candidate: buildCandidateEvaluation(entry, entry.player, await findSearchResult(entry.player, searchCache)),
         })
       )
       timing.end(`reserve_tm_enrichment${attemptSuffix}`, reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
@@ -730,10 +901,10 @@ export async function POST(request: NextRequest) {
         slotId: slot.slotId,
         position: slot.position,
         archetypeLabel: slot.archetypeLabel,
-        candidates: preferVerifiedCandidates(dedupeCandidates([
-          buildCandidateEvaluationFromPlayer(enrichedStarters[slotIndex]),
+        candidates: preferVerifiedCandidates(preferCompatibleCandidates(dedupeCandidates([
+          starterEvaluations[slotIndex],
           ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
-        ])),
+        ]))),
       }))
 
       const selectionStartedAt = timing.start()
@@ -745,7 +916,7 @@ export async function POST(request: NextRequest) {
       }
 
       const selectedPlayers = buildSelectedPlayers(selection.chosen)
-      if (hasUnverifiedPlayers(selectedPlayers)) {
+      if (hasUnverifiedPlayers(selectedPlayers) || selection.chosen.some((candidate) => !candidate.positionCompatible)) {
         continue
       }
 

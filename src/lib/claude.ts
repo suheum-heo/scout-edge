@@ -1272,6 +1272,9 @@ ${extraBudgetInstructions ? `\n## HARD BUDGET GUARDRAIL:\n${extraBudgetInstructi
 - For players on loan: use their CURRENT loan destination as the club
 - If unsure about a player's club, skip them and pick someone else
 - Keep estimated values conservative and realistic for a real transfer discussion
+- Each candidate must naturally fit the slot with their main or common real-world position
+- Do not place centre-backs in full-back or wing-back slots unless they are genuinely used there
+- Do not place defensive midfielders in centre-back slots unless they are genuinely used there
 
 Return ONLY this JSON:
 {
