@@ -13,6 +13,7 @@ import UndervaluedXI from '@/components/UndervaluedXI'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ExpandableText from '@/components/ExpandableText'
 import { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
+import { searchLocalTeams } from '@/lib/teams-db'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
@@ -104,8 +105,16 @@ export default function HomePage() {
 
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
     if (searchAbort.current) searchAbort.current.abort()
+    setIsSearching(false)
+
     if (value.length < 2) {
       setTeamResults([])
+      return
+    }
+
+    const localResults = searchLocalTeams(value)
+    if (localResults.length > 0) {
+      setTeamResults(localResults)
       return
     }
 
