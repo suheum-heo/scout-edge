@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Sparkles, TriangleAlert } from 'lucide-react'
 import { UndervaluedXIResult, UndervaluedPlayer } from '@/lib/claude'
 
@@ -86,25 +86,97 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
   const [result, setResult] = useState<UndervaluedXIResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const prefetchedResultsRef = useRef(new Map<string, UndervaluedXIResult>())
+  const inflightRequestsRef = useRef(new Map<string, Promise<UndervaluedXIResult>>())
+  const contextVersionRef = useRef(0)
+  const generateRequestSeqRef = useRef(0)
+
+  async function requestUndervaluedXI(targetBudget: string): Promise<UndervaluedXIResult> {
+    const cached = prefetchedResultsRef.current.get(targetBudget)
+    if (cached) return cached
+
+    const inflight = inflightRequestsRef.current.get(targetBudget)
+    if (inflight) return inflight
+
+    const contextVersion = contextVersionRef.current
+    const promise = (async () => {
+      const res = await fetch('/api/undervalued-xi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ budget: targetBudget, managerId, managerName, teamName }),
+      })
+
+      let data: unknown = null
+      try {
+        data = await res.json()
+      } catch {
+        data = null
+      }
+
+      if (!res.ok) {
+        const nextError =
+          data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+            ? data.error
+            : 'Failed to generate'
+        throw new Error(nextError)
+      }
+
+      const parsed = data as UndervaluedXIResult
+      if (contextVersion === contextVersionRef.current) {
+        prefetchedResultsRef.current.set(targetBudget, parsed)
+      }
+      return parsed
+    })()
+
+    inflightRequestsRef.current.set(targetBudget, promise)
+
+    try {
+      return await promise
+    } finally {
+      const current = inflightRequestsRef.current.get(targetBudget)
+      if (current === promise) {
+        inflightRequestsRef.current.delete(targetBudget)
+      }
+    }
+  }
+
+  useEffect(() => {
+    contextVersionRef.current += 1
+    prefetchedResultsRef.current.clear()
+    inflightRequestsRef.current.clear()
+    setResult(null)
+    setError(null)
+    setLoading(false)
+  }, [managerId, managerName, teamName])
+
+  useEffect(() => {
+    if (!budget || !teamName) return
+    if (prefetchedResultsRef.current.has(budget)) return
+    if (inflightRequestsRef.current.has(budget)) return
+
+    void requestUndervaluedXI(budget).catch(() => {
+      // Silent prewarm: foreground generate still handles user-visible errors.
+    })
+  }, [budget, managerId, managerName, teamName])
 
   const handleGenerate = async () => {
     if (!budget) return
+    const requestSeq = generateRequestSeqRef.current + 1
+    generateRequestSeqRef.current = requestSeq
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      const res = await fetch('/api/undervalued-xi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ budget, managerId, managerName, teamName }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to generate')
-      setResult(data)
+      const nextResult = await requestUndervaluedXI(budget)
+      if (generateRequestSeqRef.current !== requestSeq) return
+      setResult(nextResult)
     } catch (e) {
+      if (generateRequestSeqRef.current !== requestSeq) return
       setError(e instanceof Error ? e.message : 'Something went wrong')
     } finally {
-      setLoading(false)
+      if (generateRequestSeqRef.current === requestSeq) {
+        setLoading(false)
+      }
     }
   }
 

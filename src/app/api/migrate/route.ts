@@ -31,5 +31,23 @@ export async function GET(request: NextRequest) {
     ON player_role_profiles (team_name)
   `
 
-  return NextResponse.json({ ok: true, message: 'player_role_profiles table ready' })
+  await sql`
+    CREATE TABLE IF NOT EXISTS app_shared_cache (
+      cache_scope TEXT NOT NULL,
+      cache_key TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      expires_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (cache_scope, cache_key)
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_app_shared_cache_expires_at
+    ON app_shared_cache (expires_at)
+  `
+
+  return NextResponse.json({ ok: true, message: 'player_role_profiles and app_shared_cache tables ready' })
 }

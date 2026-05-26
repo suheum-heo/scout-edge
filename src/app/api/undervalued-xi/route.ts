@@ -11,12 +11,14 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
 import { searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v1'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -60,21 +62,13 @@ function getUndervaluedXICacheKey(
   budget: string,
   managerId?: string,
   managerName?: string,
-  teamName?: string,
-  formationContext?: {
-    primaryFormation?: string | null
-    recentFormations?: string[]
-    referenceClub?: string | null
-  }
+  teamName?: string
 ): string {
   return [
     budget,
     managerId || 'no-manager-id',
     normalizeCacheValue(managerName),
     normalizeCacheValue(teamName),
-    formationContext?.primaryFormation || 'no-formation',
-    (formationContext?.recentFormations || []).join('/'),
-    normalizeCacheValue(formationContext?.referenceClub),
   ].join('|')
 }
 
@@ -93,6 +87,21 @@ function setCachedUndervaluedXI(cacheKey: string, data: UndervaluedXIResult) {
     data,
     expiresAt: Date.now() + UNDERVALUED_XI_TTL_MS,
   })
+}
+
+async function persistUndervaluedXIResult(
+  cacheKey: string,
+  result: UndervaluedXIResult,
+  metadata?: Record<string, unknown>
+) {
+  setCachedUndervaluedXI(cacheKey, result)
+  await setSharedCacheEntry(
+    UNDERVALUED_XI_CACHE_SCOPE,
+    cacheKey,
+    result,
+    UNDERVALUED_XI_TTL_MS,
+    metadata
+  )
 }
 
 function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
@@ -558,6 +567,32 @@ export async function POST(request: NextRequest) {
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
+    const cacheKey = getUndervaluedXICacheKey(
+      budget,
+      managerId,
+      factualManagerName ?? undefined,
+      teamName
+    )
+    const cachedResult = getCachedUndervaluedXI(cacheKey)
+    if (cachedResult) {
+      const response = NextResponse.json(cachedResult)
+      timing.end('cache_hit', requestStartedAt, `source:memory,players:${cachedResult.players.length}`)
+      timing.apply(response.headers)
+      return response
+    }
+
+    const sharedCachedResult = await getSharedCacheEntry<UndervaluedXIResult>(
+      UNDERVALUED_XI_CACHE_SCOPE,
+      cacheKey
+    )
+    if (sharedCachedResult) {
+      setCachedUndervaluedXI(cacheKey, sharedCachedResult)
+      const response = NextResponse.json(sharedCachedResult)
+      timing.end('cache_hit', requestStartedAt, `source:shared,players:${sharedCachedResult.players.length}`)
+      timing.apply(response.headers)
+      return response
+    }
+
     const snapshotStartedAt = timing.start()
     const liveManagerSnapshot = factualManagerName
       ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
@@ -567,26 +602,6 @@ export async function POST(request: NextRequest) {
     const budgetInstructions = cap !== null
       ? buildBudgetInstructions(budget, cap)
       : undefined
-    const cacheKey = getUndervaluedXICacheKey(
-      budget,
-      managerId,
-      factualManagerName ?? undefined,
-      teamName,
-      liveManagerSnapshot
-        ? {
-            primaryFormation: liveManagerSnapshot.primaryFormation,
-            recentFormations: liveManagerSnapshot.recentFormations,
-            referenceClub: liveManagerSnapshot.referenceClub,
-          }
-        : undefined
-    )
-    const cachedResult = getCachedUndervaluedXI(cacheKey)
-    if (cachedResult) {
-      const response = NextResponse.json(cachedResult)
-      timing.end('cache_hit', requestStartedAt, `players:${cachedResult.players.length}`)
-      timing.apply(response.headers)
-      return response
-    }
 
     const liveFormationContext = liveManagerSnapshot
       ? {
@@ -652,7 +667,13 @@ export async function POST(request: NextRequest) {
       countVerifiedPlayers(enrichedStarters) >= 10
 
     if (starterPathUsable) {
-      setCachedUndervaluedXI(cacheKey, starterResult)
+      await persistUndervaluedXIResult(cacheKey, starterResult, {
+        source: 'starter-path',
+        formation: pool.formation,
+        budget,
+        managerName: factualManagerName,
+        teamName,
+      })
       const response = NextResponse.json(starterResult)
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
@@ -719,7 +740,13 @@ export async function POST(request: NextRequest) {
       selectedPlayers,
       budget
     )
-    setCachedUndervaluedXI(cacheKey, result)
+    await persistUndervaluedXIResult(cacheKey, result, {
+      source: 'reserve-path',
+      formation: pool.formation,
+      budget,
+      managerName: factualManagerName,
+      teamName,
+    })
 
     const response = NextResponse.json(result)
     timing.end('total', requestStartedAt)
