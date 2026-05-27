@@ -14,8 +14,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-2">
-          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center lg:gap-4">
-            <div className="flex items-center justify-start">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:items-center xl:gap-4">
+            <div className="flex items-center justify-start xl:justify-self-start">
               <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity">
                 <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
                   <Search className="w-4 h-4 text-white" />
@@ -27,24 +27,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
 
-            <div className="flex items-center justify-center gap-1.5 flex-wrap lg:flex-nowrap lg:justify-self-center">
-              <Link href="/" className={navLinkClassName}>
-                {t('nav.squadAnalysis')}
-              </Link>
-              <Link href="/player-check" className={navLinkClassName}>
-                {t('nav.playerCheck')}
-              </Link>
-              <Link href="/verdict" className={navLinkClassName}>
-                {t('nav.verdict')}
-              </Link>
-              <Link href="/build" className={navLinkClassName}>
-                {t('nav.buildXi')}
-              </Link>
-            </div>
+            <div className="flex flex-col items-center gap-2 sm:ml-auto sm:w-max sm:items-start xl:contents">
+              <div className="flex items-center justify-center gap-1.5 flex-wrap sm:justify-start xl:flex-nowrap xl:justify-self-center">
+                <Link href="/" className={navLinkClassName}>
+                  {t('nav.squadAnalysis')}
+                </Link>
+                <Link href="/player-check" className={navLinkClassName}>
+                  {t('nav.playerCheck')}
+                </Link>
+                <Link href="/verdict" className={navLinkClassName}>
+                  {t('nav.verdict')}
+                </Link>
+                <Link href="/build" className={navLinkClassName}>
+                  {t('nav.buildXi')}
+                </Link>
+              </div>
 
-            <div className="flex items-center justify-center gap-2 sm:justify-end lg:justify-self-end">
-              <LanguageSelector />
-              <ThemeToggle />
+              <div className="flex items-center justify-center gap-2 sm:justify-start xl:justify-self-end">
+                <LanguageSelector />
+                <ThemeToggle />
+              </div>
             </div>
           </div>
         </div>
