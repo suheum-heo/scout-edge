@@ -13,11 +13,12 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const MESSAGE_SCOPE = 'runtime-i18n-catalog-v3'
+const MESSAGE_SCOPE = 'runtime-i18n-catalog-v4'
 const MANAGER_SCOPE = 'runtime-i18n-manager-v1'
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MANAGER_TTL_MS = 30 * 24 * 60 * 60 * 1000
-const MESSAGE_CHUNK_SIZE = 36
+const MESSAGE_CHUNK_SIZE = 24
+const RETRY_MESSAGE_CHUNK_SIZE = 8
 
 const messageMemoryCache = new Map<string, Record<string, string>>()
 const managerMemoryCache = new Map<string, ManagerProfile>()
@@ -127,11 +128,37 @@ function splitMessageCatalog(sourceMessages: Record<string, string>): Array<Reco
   return chunks
 }
 
+function getMeaningfulUntranslatedKeys(sourceMessages: Record<string, string>, candidate: Record<string, string>): string[] {
+  return Object.entries(sourceMessages)
+    .filter(([key, value]) => {
+      if (candidate[key] !== value) return false
+      const normalized = value.trim()
+      if (normalized.length < 8) return false
+      if (!/[a-z]/i.test(normalized)) return false
+      return /[a-z]{3,}/i.test(normalized)
+    })
+    .map(([key]) => key)
+}
+
+function splitSubset(sourceMessages: Record<string, string>, keys: string[], chunkSize: number): Array<Record<string, string>> {
+  const chunks: Array<Record<string, string>> = []
+
+  for (let index = 0; index < keys.length; index += chunkSize) {
+    const subsetKeys = keys.slice(index, index + chunkSize)
+    chunks.push(
+      Object.fromEntries(subsetKeys.map((key) => [key, sourceMessages[key]]))
+    )
+  }
+
+  return chunks
+}
+
 async function translateMessageCatalogChunk(
   sourceMessages: Record<string, string>,
   language: LanguageCode,
   chunkIndex: number,
-  totalChunks: number
+  totalChunks: number,
+  strict = false
 ): Promise<Record<string, string>> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
@@ -148,6 +175,7 @@ Rules:
 - Keep player, club, and manager proper names in their official spelling.
 - Return JSON only, with no markdown fences and no commentary.
 - This is chunk ${chunkIndex} of ${totalChunks}; translate all keys in this chunk.
+${strict ? '- Do not leave ordinary UI copy in English. If a value is a sentence, heading, label, placeholder, or helper text, translate it unless it is a brand name or football code.' : ''}
 
 ${JSON.stringify(sourceMessages)}`,
     }],
@@ -162,12 +190,51 @@ ${JSON.stringify(sourceMessages)}`,
   )
 }
 
+async function retryUntranslatedMessageKeys(
+  sourceMessages: Record<string, string>,
+  normalizedChunk: Record<string, string>,
+  language: LanguageCode,
+  chunkIndex: number,
+  totalChunks: number
+): Promise<Record<string, string>> {
+  const retryKeys = getMeaningfulUntranslatedKeys(sourceMessages, normalizedChunk)
+  if (retryKeys.length === 0) return normalizedChunk
+
+  console.warn(
+    `[i18n] runtime catalog chunk ${chunkIndex}/${totalChunks} for ${language} kept ${retryKeys.length} meaningful values in English; retrying`,
+    { retryKeys: retryKeys.slice(0, 8) }
+  )
+
+  const retryChunks = splitSubset(sourceMessages, retryKeys, RETRY_MESSAGE_CHUNK_SIZE)
+  const retriedEntries = await Promise.all(
+    retryChunks.map((chunk, retryIndex) =>
+      translateMessageCatalogChunk(chunk, language, retryIndex + 1, retryChunks.length, true)
+        .catch((error) => {
+          console.error(
+            `[i18n] retry chunk ${retryIndex + 1}/${retryChunks.length} failed for ${language} (parent chunk ${chunkIndex}/${totalChunks}):`,
+            error
+          )
+          return chunk
+        })
+    )
+  )
+
+  const retryMerged = Object.assign({}, ...retriedEntries) as Record<string, string>
+  return {
+    ...normalizedChunk,
+    ...retryMerged,
+  }
+}
+
 async function translateMessageCatalog(language: LanguageCode): Promise<Record<string, string>> {
   const sourceMessages = getEnglishMessages()
   const chunks = splitMessageCatalog(sourceMessages)
   const translatedChunks = await Promise.all(
     chunks.map((chunk, index) =>
       translateMessageCatalogChunk(chunk, language, index + 1, chunks.length)
+        .then((normalizedChunk) =>
+          retryUntranslatedMessageKeys(chunk, normalizedChunk, language, index + 1, chunks.length)
+        )
         .catch((error) => {
           console.error(`[i18n] runtime catalog chunk ${index + 1}/${chunks.length} failed for ${language}:`, error)
           return chunk
