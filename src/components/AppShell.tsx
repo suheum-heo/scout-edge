@@ -7,48 +7,45 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage()
+  const navLinkClassName =
+    'whitespace-nowrap text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors'
 
   return (
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 min-h-14 py-2 flex items-center justify-between gap-3">
-          <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-            <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
-              <Search className="w-4 h-4 text-white" />
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-2">
+          <div className="flex flex-col gap-2 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center lg:gap-4">
+            <div className="flex items-center justify-start">
+              <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity">
+                <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
+                  <Search className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-bold text-slate-900 dark:text-white tracking-tight">ScoutEdge</span>
+                <span className="hidden sm:inline-flex shrink-0 items-center whitespace-nowrap text-slate-400 dark:text-slate-500 text-xs border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded">
+                  {t('nav.beta')}
+                </span>
+              </Link>
             </div>
-            <span className="font-bold text-slate-900 dark:text-white tracking-tight">ScoutEdge</span>
-            <span className="hidden sm:inline text-slate-400 dark:text-slate-500 text-xs border border-slate-300 dark:border-slate-700 px-1.5 py-0.5 rounded">
-              {t('nav.beta')}
-            </span>
-          </Link>
 
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            <Link
-              href="/"
-              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors"
-            >
-              {t('nav.squadAnalysis')}
-            </Link>
-            <Link
-              href="/player-check"
-              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors"
-            >
-              {t('nav.playerCheck')}
-            </Link>
-            <Link
-              href="/verdict"
-              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors"
-            >
-              {t('nav.verdict')}
-            </Link>
-            <Link
-              href="/build"
-              className="text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors"
-            >
-              {t('nav.buildXi')}
-            </Link>
-            <LanguageSelector />
-            <ThemeToggle />
+            <div className="flex items-center justify-center gap-1.5 flex-wrap lg:flex-nowrap lg:justify-self-center">
+              <Link href="/" className={navLinkClassName}>
+                {t('nav.squadAnalysis')}
+              </Link>
+              <Link href="/player-check" className={navLinkClassName}>
+                {t('nav.playerCheck')}
+              </Link>
+              <Link href="/verdict" className={navLinkClassName}>
+                {t('nav.verdict')}
+              </Link>
+              <Link href="/build" className={navLinkClassName}>
+                {t('nav.buildXi')}
+              </Link>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 sm:justify-end lg:justify-self-end">
+              <LanguageSelector />
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </nav>

@@ -143,8 +143,8 @@ export function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage()
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">
-      <span className="hidden sm:inline">{t('nav.language')}</span>
+    <div className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <span className="hidden whitespace-nowrap sm:inline">{t('nav.language')}</span>
       <div className="flex items-center gap-1">
         {SUPPORTED_LANGUAGES.map((option) => {
           const isActive = language === option.code
@@ -167,7 +167,7 @@ export function LanguageSelector() {
               aria-pressed={isActive}
               aria-label={option.label}
             >
-              {shortLabel}
+              <span className="whitespace-nowrap">{shortLabel}</span>
             </button>
           )
         })}
