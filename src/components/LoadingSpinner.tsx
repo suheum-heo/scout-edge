@@ -55,7 +55,7 @@ export default function LoadingSpinner({
           </div>
         )}
         {resolvedDurationHint && (
-          <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 max-w-md">
+          <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 max-w-xl text-pretty">
             {resolvedDurationHint}
           </p>
         )}

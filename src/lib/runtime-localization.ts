@@ -13,10 +13,11 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const MESSAGE_SCOPE = 'runtime-i18n-catalog-v1'
+const MESSAGE_SCOPE = 'runtime-i18n-catalog-v2'
 const MANAGER_SCOPE = 'runtime-i18n-manager-v1'
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MANAGER_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const MESSAGE_CHUNK_SIZE = 36
 
 const messageMemoryCache = new Map<string, Record<string, string>>()
 const managerMemoryCache = new Map<string, ManagerProfile>()
@@ -71,11 +72,26 @@ function mergeMessageCatalog(candidate: Record<string, unknown> | null | undefin
   return resolved
 }
 
-async function translateMessageCatalog(language: LanguageCode): Promise<Record<string, string>> {
-  const sourceMessages = getEnglishMessages()
+function splitMessageCatalog(sourceMessages: Record<string, string>): Array<Record<string, string>> {
+  const entries = Object.entries(sourceMessages)
+  const chunks: Array<Record<string, string>> = []
+
+  for (let index = 0; index < entries.length; index += MESSAGE_CHUNK_SIZE) {
+    chunks.push(Object.fromEntries(entries.slice(index, index + MESSAGE_CHUNK_SIZE)))
+  }
+
+  return chunks
+}
+
+async function translateMessageCatalogChunk(
+  sourceMessages: Record<string, string>,
+  language: LanguageCode,
+  chunkIndex: number,
+  totalChunks: number
+): Promise<Record<string, string>> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
-    max_tokens: 14000,
+    max_tokens: 4000,
     messages: [{
       role: 'user',
       content: `Translate every VALUE in this JSON object from English to ${languageNames[language]}.
@@ -87,12 +103,29 @@ Rules:
 - Keep football tactical codes such as GK, CB, CAM, RB, LB, ST, CF, 4-4-2, 3-2-4-1, API names, ScoutEdge, Claude AI, and euro figures unchanged unless grammar requires a nearby word change.
 - Keep player, club, and manager proper names in their official spelling.
 - Return JSON only, with no markdown fences and no commentary.
+- This is chunk ${chunkIndex} of ${totalChunks}; translate all keys in this chunk.
 
 ${JSON.stringify(sourceMessages)}`,
     }],
   })
 
   return mergeMessageCatalog(extractJsonObject(extractFirstText(response)))
+}
+
+async function translateMessageCatalog(language: LanguageCode): Promise<Record<string, string>> {
+  const sourceMessages = getEnglishMessages()
+  const chunks = splitMessageCatalog(sourceMessages)
+  const translatedChunks = await Promise.all(
+    chunks.map((chunk, index) =>
+      translateMessageCatalogChunk(chunk, language, index + 1, chunks.length)
+        .catch((error) => {
+          console.error(`[i18n] runtime catalog chunk ${index + 1}/${chunks.length} failed for ${language}:`, error)
+          return chunk
+        })
+    )
+  )
+
+  return mergeMessageCatalog(Object.assign({}, ...translatedChunks))
 }
 
 interface LocalizedManagerPayload {
