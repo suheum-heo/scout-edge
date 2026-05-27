@@ -45,10 +45,16 @@ function makeAvailabilityKey(ids?: Iterable<string>): string {
   return ids ? [...ids].sort().join('|') : ''
 }
 
+function makeTeamKey(team?: Team | null): string {
+  return team ? `${team.team.source || 'af'}:${team.team.id}` : ''
+}
+
 export default function HomePage() {
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
+  const [analyzedTeam, setAnalyzedTeam] = useState<Team | null>(null)
+  const [highlightedTeamIndex, setHighlightedTeamIndex] = useState(-1)
   const [isSearching, setIsSearching] = useState(false)
 
   // Manager override (secondary, collapsed by default)
@@ -105,6 +111,7 @@ export default function HomePage() {
   const handleTeamSearch = useCallback((value: string) => {
     setTeamQuery(value)
     setSelectedTeam(null)
+    setHighlightedTeamIndex(-1)
 
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
     if (searchAbort.current) searchAbort.current.abort()
@@ -118,6 +125,7 @@ export default function HomePage() {
     const localResults = searchLocalTeams(value)
     if (localResults.length > 0) {
       setTeamResults(localResults)
+      setHighlightedTeamIndex(0)
       return
     }
 
@@ -128,10 +136,13 @@ export default function HomePage() {
       try {
         const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}`, { signal: controller.signal })
         const data = await res.json()
-        setTeamResults(data.teams || [])
+        const nextTeams = data.teams || []
+        setTeamResults(nextTeams)
+        setHighlightedTeamIndex(nextTeams.length > 0 ? 0 : -1)
       } catch (e) {
         if (e instanceof Error && e.name === 'AbortError') return
         setTeamResults([])
+        setHighlightedTeamIndex(-1)
       } finally {
         setIsSearching(false)
       }
@@ -139,23 +150,50 @@ export default function HomePage() {
   }, [])
 
   const handleSelectTeam = (team: Team) => {
-    analysisRequestSeq.current += 1
     setSelectedTeam(team)
     setTeamQuery(team.team.name)
     setTeamResults([])
-    setAnalysis(null)
-    setIsLoadingAnalysisDetails(false)
-    setAnalysisDetailsError(null)
-    setSquad([])
-    setSelectedGap(null)
-    setRecommendations([])
-    setSquadFit([])
-    setScenarios([])
-    setCompareIds(null)
-    setUnavailableIds(new Set())
-    setAnalyzedUnavailableKey('')
-    setActiveTab('gaps')
+    setHighlightedTeamIndex(-1)
     setError(null)
+  }
+
+  const handleTeamInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const navigableTeamResults = teamResults.slice(0, 6)
+
+    if (e.key === 'ArrowDown' && navigableTeamResults.length > 0) {
+      e.preventDefault()
+      setHighlightedTeamIndex((prev) => (prev < 0 ? 0 : (prev + 1) % navigableTeamResults.length))
+      return
+    }
+
+    if (e.key === 'ArrowUp' && navigableTeamResults.length > 0) {
+      e.preventDefault()
+      setHighlightedTeamIndex((prev) => (prev <= 0 ? navigableTeamResults.length - 1 : prev - 1))
+      return
+    }
+
+    if (e.key === 'Escape' && navigableTeamResults.length > 0) {
+      e.preventDefault()
+      setTeamResults([])
+      setHighlightedTeamIndex(-1)
+      return
+    }
+
+    if (e.key === 'Enter') {
+      if (navigableTeamResults.length > 0) {
+        e.preventDefault()
+        const highlightedTeam = navigableTeamResults[highlightedTeamIndex >= 0 ? highlightedTeamIndex : 0]
+        if (highlightedTeam) {
+          handleSelectTeam(highlightedTeam)
+        }
+        return
+      }
+
+      if (selectedTeam) {
+        e.preventDefault()
+        void handleAnalyze()
+      }
+    }
   }
 
   const handleToggleUnavailable = (playerId: string) => {
@@ -269,8 +307,10 @@ export default function HomePage() {
     }
   }, [])
 
-  const handleAnalyze = async (excludeIds?: Set<string>) => {
-    if (!selectedTeam) return
+  const handleAnalyze = async (options?: { excludeIds?: Set<string>; team?: Team | null }) => {
+    const teamToAnalyze = options?.team ?? selectedTeam
+    const excludeIds = options?.excludeIds
+    if (!teamToAnalyze) return
     const isReAnalyse = !!excludeIds
     const requestSeq = analysisRequestSeq.current + 1
     analysisRequestSeq.current = requestSeq
@@ -297,11 +337,11 @@ export default function HomePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          teamId: selectedTeam.team.id,
-          teamName: selectedTeam.team.name,
+          teamId: teamToAnalyze.team.id,
+          teamName: teamToAnalyze.team.name,
           managerId: selectedManagerId || undefined,
-          teamSource: selectedTeam.team.source,
-          fotmobId: selectedTeam.team.fotmobId,
+          teamSource: teamToAnalyze.team.source,
+          fotmobId: teamToAnalyze.team.fotmobId,
           excludedPlayerIds: excludeIds ? [...excludeIds] : undefined,
         }),
       })
@@ -322,6 +362,7 @@ export default function HomePage() {
       const nextAnalysis = data.analysis as SquadAnalysisResult
       const nextSquad = (data.squad as SquadPlayer[]) || []
       const nextManager = data.manager as ManagerResult
+      setAnalyzedTeam(teamToAnalyze)
       setAnalysis(nextAnalysis)
       setSquad(nextSquad)
       setManagerResult(nextManager)
@@ -329,14 +370,14 @@ export default function HomePage() {
       setAnalyzedUnavailableKey(makeAvailabilityKey(excludeIds))
 
       if (nextAnalysis?.detailsStatus === 'partial') {
-        void hydrateAnalysisDetails(requestSeq, selectedTeam, excludeIds)
+        void hydrateAnalysisDetails(requestSeq, teamToAnalyze, excludeIds)
       }
       if (nextSquad.length && nextManager?.name) {
         void loadSquadFit(
           requestSeq,
           nextSquad,
           nextManager,
-          selectedTeam.team.name,
+          teamToAnalyze.team.name,
           { silent: true }
         )
       }
@@ -362,7 +403,7 @@ export default function HomePage() {
   }
 
   const handleSelectBudget = async (budget: string) => {
-    if (!selectedGap || !selectedTeam || !managerResult) return
+    if (!selectedGap || !analyzedTeam || !managerResult) return
     if (availabilityDirty) {
       setRecsError('Re-analyse the squad after updating availability before requesting transfer targets.')
       setRecommendations([])
@@ -381,7 +422,7 @@ export default function HomePage() {
           gap: selectedGap,
           managerId: managerResult.id || undefined,
           managerName: managerResult.name,
-          teamName: selectedTeam.team.name,
+          teamName: analyzedTeam.team.name,
           budget,
           squad: availableSquad,
           nationalTeamCountry: nationalTeamCountry || undefined,
@@ -402,7 +443,7 @@ export default function HomePage() {
   }
 
   const handleRunScenario = async (out: ScenarioOutPlayer[], inn: ScenarioInPlayer[]) => {
-    if (!availableSquad.length || !managerResult || !selectedTeam) return
+    if (!availableSquad.length || !managerResult || !analyzedTeam) return
     setIsRunningScenario(true)
     setScenarioError(null)
     try {
@@ -415,7 +456,7 @@ export default function HomePage() {
           playersIn: inn,
           managerId: managerResult.id || undefined,
           managerName: managerResult.name,
-          teamName: selectedTeam.team.name,
+          teamName: analyzedTeam.team.name,
         }),
       })
       const data = await res.json()
@@ -454,7 +495,7 @@ export default function HomePage() {
         analysisRequestSeq.current,
         availableSquad,
         managerResult,
-        selectedTeam?.team.name || '',
+        analyzedTeam?.team.name || analysis?.teamName || '',
         { showLoading: true }
       )
     }
@@ -480,6 +521,11 @@ export default function HomePage() {
     ? ` +${unavailablePlayers.length - 4} more`
     : ''
   const analysisDetailsPending = analysis?.detailsStatus === 'partial'
+  const hasPendingTeamSelection =
+    !!analysis &&
+    !!selectedTeam &&
+    !!analyzedTeam &&
+    makeTeamKey(selectedTeam) !== makeTeamKey(analyzedTeam)
   const analysisDetailsHeadline = analysisDetailsError
     ? 'Detailed strengths and weaknesses did not finish loading.'
     : isLoadingAnalysisDetails
@@ -491,8 +537,8 @@ export default function HomePage() {
     ? 'ScoutEdge shows the core verdict first for speed. The support bullets usually arrive within 5-8 seconds.'
     : 'If the support bullets do not appear after a few seconds, use Retry details to request the follow-up pass again.'
   const handleRetryAnalysisDetails = () => {
-    if (!selectedTeam || !analysis || isLoadingAnalysisDetails) return
-    void hydrateAnalysisDetails(analysisRequestSeq.current, selectedTeam, analyzedUnavailableIds)
+    if (!analyzedTeam || !analysis || isLoadingAnalysisDetails) return
+    void hydrateAnalysisDetails(analysisRequestSeq.current, analyzedTeam, analyzedUnavailableIds)
   }
 
   return (
@@ -522,7 +568,7 @@ export default function HomePage() {
               type="text"
               value={teamQuery}
               onChange={(e) => handleTeamSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && selectedTeam && handleAnalyze()}
+              onKeyDown={handleTeamInputKeyDown}
               placeholder="Search for a club... (e.g. Tottenham, Bayern München)"
               className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm"
             />
@@ -534,11 +580,16 @@ export default function HomePage() {
           {/* Team results dropdown */}
           {teamResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-xl z-20">
-              {teamResults.slice(0, 6).map((team) => (
+              {teamResults.slice(0, 6).map((team, index) => (
                 <button
                   key={team.team.id}
                   onClick={() => handleSelectTeam(team)}
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-left"
+                  onMouseEnter={() => setHighlightedTeamIndex(index)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-left ${
+                    highlightedTeamIndex === index
+                      ? 'bg-[#EEF2F7] dark:bg-slate-800'
+                      : 'hover:bg-[#EEF2F7] dark:hover:bg-slate-800'
+                  }`}
                 >
                   {team.team.logo && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -618,9 +669,15 @@ export default function HomePage() {
           </div>
         )}
 
+        {hasPendingTeamSelection && selectedTeam && analyzedTeam && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+            Current results are still for {analyzedTeam.team.name}. Click Analyse Squad to refresh them for {selectedTeam.team.name}.
+          </div>
+        )}
+
         {/* Analyze button */}
         <button
-          onClick={() => handleAnalyze()}
+          onClick={() => void handleAnalyze()}
           disabled={!selectedTeam || isAnalyzing}
           className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
@@ -803,7 +860,7 @@ export default function HomePage() {
               )}
               {unavailableIds.size > 0 && (
                 <button
-                  onClick={() => handleAnalyze(unavailableIds)}
+                  onClick={() => void handleAnalyze({ excludeIds: unavailableIds, team: analyzedTeam })}
                   disabled={isAnalyzing}
                   className="w-full mb-5 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-600/80 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors"
                 >
@@ -1050,7 +1107,7 @@ export default function HomePage() {
               <UndervaluedXI
                 managerId={managerResult?.id}
                 managerName={managerResult?.name ?? undefined}
-                teamName={analysis?.teamName}
+                teamName={analyzedTeam?.team.name || analysis?.teamName}
               />
             )}
           </div>
