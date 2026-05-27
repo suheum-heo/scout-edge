@@ -1064,7 +1064,7 @@ Quality bar:
 - Do NOT include a player just because they are cheap or available if their primary tactical identity clashes with the role.
 - Avoid “stretch” options who would need a position change or major tactical accommodation unless they are already proven in a closely related role.
 
-Use your knowledge of player market values, contract situations, and playing styles. Be realistic — don't suggest €100M players on a €20M budget. Rank by tactical fit.
+Use your knowledge of player market values, contract situations, and playing styles. Treat the selected budget as a hard ceiling, not a vague tier. If your best estimate puts a player outside the stated bracket, skip them and choose someone else. Rank by tactical fit.
 
 IMPORTANT — accuracy rules:
 - Only recommend currently ACTIVE professional players. Never recommend retired players.

@@ -1009,7 +1009,7 @@ export default function HomePage() {
                   {selectedGap && !isLoadingRecs && selectedBudget && recommendations.length === 0 && !recsError && (
                     <div className="bg-[#EEF2F7] dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center">
                       <p className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-1">No players found in this range</p>
-                      <p className="text-slate-400 dark:text-slate-600 text-xs">Try a different budget — verified market values may not match the selected tier</p>
+                      <p className="text-slate-400 dark:text-slate-600 text-xs">Try a different budget — players now have to pass the selected live Transfermarkt value bracket before we show them.</p>
                     </div>
                   )}
                 </div>

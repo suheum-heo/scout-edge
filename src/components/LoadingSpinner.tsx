@@ -11,9 +11,10 @@ interface LoadingSpinnerProps {
 }
 
 function formatElapsedTime(totalSeconds: number): string {
+  if (totalSeconds < 60) return `${totalSeconds}s`
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
-  return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+  return `${minutes}m ${seconds}s`
 }
 
 export default function LoadingSpinner({

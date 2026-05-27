@@ -19,6 +19,49 @@ function budgetRange(budget: string): { min: number; max: number } | null {
   return null // Loan / Free agent — no price filter
 }
 
+function parseEstimatedFee(value?: string | null): number | null {
+  if (!value) return null
+
+  const normalized = value
+    .replace(/[–—]/g, '-')
+    .replace(/≈|~/g, '')
+    .trim()
+    .toLowerCase()
+
+  if (!normalized || normalized.includes('free agent') || normalized === 'loan') return 0
+
+  const matches = Array.from(normalized.matchAll(/(\d+(?:\.\d+)?)\s*([mbk]?)/g))
+  if (!matches.length) return null
+
+  const values = matches
+    .map((match) => {
+      const amount = Number.parseFloat(match[1] || '')
+      if (!Number.isFinite(amount)) return null
+
+      const unit = (match[2] || '').toLowerCase()
+      if (unit === 'b') return amount * 1_000_000_000
+      if (unit === 'm') return amount * 1_000_000
+      if (unit === 'k') return amount * 1_000
+      return amount
+    })
+    .filter((amount): amount is number => amount !== null)
+
+  if (!values.length) return null
+  return Math.max(...values)
+}
+
+function isWithinBudgetBracket(target: TransferTarget, budget: string): boolean {
+  const range = budgetRange(budget)
+  if (!range) return true
+
+  const estimatedFee = parseEstimatedFee(target.estimatedFee)
+  if (estimatedFee === null) return false
+  if (estimatedFee < range.min) return false
+  if (Number.isFinite(range.max) && estimatedFee > range.max) return false
+
+  return true
+}
+
 const TM_SEARCH_TIMEOUT_MS = 10000
 const TM_PROFILE_TIMEOUT_MS = 10000
 
@@ -156,7 +199,6 @@ export async function POST(request: NextRequest) {
     // Enrich with live Transfermarkt data (current club, real market value, contract)
     const enriched = await enrichWithTM(targets)
 
-    const range = budgetRange(budget)
     const teamNorm = teamName.toLowerCase()
 
     const filtered = enriched.filter((t) => {
@@ -164,13 +206,9 @@ export async function POST(request: NextRequest) {
       const clubNorm = t.currentClub.toLowerCase()
       if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
 
-      // Only filter out players clearly below the minimum — Claude is already constrained by budget
-      // in the prompt, so upper-bound filtering causes more false negatives than it prevents.
-      // TM market values ≠ transfer fees and often overstate what a club would actually pay.
-      if (range && range.min > 0) {
-        const mv = parseFloat(t.estimatedFee.replace(/[^0-9.]/g, '')) * (t.estimatedFee.includes('M') ? 1_000_000 : t.estimatedFee.includes('K') ? 1_000 : 1)
-        if (!isNaN(mv) && mv < range.min * 0.5) return false
-      }
+      // Numeric budget brackets should be enforced by the server, not only hinted in the prompt.
+      // If the live TM-enriched price lands outside the selected bracket, don't show the player.
+      if (!isWithinBudgetBracket(t, budget)) return false
 
       return true
     })
