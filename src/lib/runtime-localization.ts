@@ -13,7 +13,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const MESSAGE_SCOPE = 'runtime-i18n-catalog-v4'
+const MESSAGE_SCOPE = 'runtime-i18n-catalog-v5'
 const MANAGER_SCOPE = 'runtime-i18n-manager-v1'
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MANAGER_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -220,10 +220,49 @@ async function retryUntranslatedMessageKeys(
   )
 
   const retryMerged = Object.assign({}, ...retriedEntries) as Record<string, string>
-  return {
+  const merged = {
     ...normalizedChunk,
     ...retryMerged,
   }
+
+  const finalRetryKeys = getMeaningfulUntranslatedKeys(sourceMessages, merged)
+  if (finalRetryKeys.length === 0) {
+    return merged
+  }
+
+  console.warn(
+    `[i18n] runtime catalog chunk ${chunkIndex}/${totalChunks} for ${language} still has ${finalRetryKeys.length} meaningful English values after grouped retry; retrying individually`,
+    { finalRetryKeys: finalRetryKeys.slice(0, 8) }
+  )
+
+  const individualEntries = await Promise.all(
+    finalRetryKeys.map((key) =>
+      translateMessageCatalogChunk({ [key]: sourceMessages[key] }, language, 1, 1, true)
+        .catch((error) => {
+          console.error(
+            `[i18n] individual retry failed for ${language} key=${key} (parent chunk ${chunkIndex}/${totalChunks}):`,
+            error
+          )
+          return { [key]: sourceMessages[key] }
+        })
+    )
+  )
+
+  const individualMerged = Object.assign({}, ...individualEntries) as Record<string, string>
+  const finalMerged = {
+    ...merged,
+    ...individualMerged,
+  }
+  const unresolvedKeys = getMeaningfulUntranslatedKeys(sourceMessages, finalMerged)
+
+  if (unresolvedKeys.length > 0) {
+    console.warn(
+      `[i18n] runtime catalog chunk ${chunkIndex}/${totalChunks} for ${language} still has unresolved English values after individual retries`,
+      { unresolvedKeys: unresolvedKeys.slice(0, 8) }
+    )
+  }
+
+  return finalMerged
 }
 
 async function translateMessageCatalog(language: LanguageCode): Promise<Record<string, string>> {
