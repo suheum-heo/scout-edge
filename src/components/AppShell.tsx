@@ -30,8 +30,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="flex w-full flex-col items-center gap-3 lg:ml-auto lg:max-w-[860px] lg:items-stretch lg:pt-1">
-              <div className="flex w-full items-center justify-center gap-1.5 flex-wrap lg:flex-nowrap lg:justify-between">
+            <div className="flex w-full flex-col items-center gap-3 md:ml-auto md:w-max md:items-stretch lg:pt-1">
+              <div className="flex w-full items-center justify-center gap-1.5 flex-wrap md:flex-nowrap md:justify-between">
                 <Link href="/" className={navLinkClassName}>
                   {t('nav.squadAnalysis')}
                 </Link>
@@ -46,7 +46,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               </div>
 
-              <div className="w-full">
+              <div className="flex justify-center md:justify-start">
                 <LanguageSelector />
               </div>
             </div>
