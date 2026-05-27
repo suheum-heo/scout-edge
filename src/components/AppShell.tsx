@@ -8,14 +8,14 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage()
   const navLinkClassName =
-    'whitespace-nowrap text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors lg:px-0'
+    'whitespace-nowrap text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors md:px-0'
 
   return (
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-2">
-          <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[auto_1fr] lg:grid-rows-[auto_auto] lg:items-start lg:gap-x-8 lg:gap-y-2">
-            <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity lg:col-start-1 lg:row-start-1">
+          <div className="flex flex-col gap-4 md:grid md:grid-cols-[auto_1fr] md:grid-rows-[auto_auto] md:items-start md:gap-x-8 md:gap-y-2">
+            <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity md:col-start-1 md:row-start-1">
               <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
                 <Search className="w-4 h-4 text-white" />
               </div>
@@ -25,11 +25,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
 
-            <div className="lg:col-start-1 lg:row-start-2 lg:ml-[38px]">
+            <div className="md:col-start-1 md:row-start-2 md:ml-[38px]">
               <ThemeToggle />
             </div>
 
-            <div className="flex w-full items-center justify-center gap-1.5 flex-wrap md:ml-auto md:w-max md:flex-nowrap md:justify-between lg:col-start-2 lg:row-start-1 lg:justify-self-end">
+            <div className="flex w-full items-center justify-center gap-1.5 flex-wrap md:col-start-2 md:row-start-1 md:ml-auto md:w-max md:flex-nowrap md:justify-between md:justify-self-end">
               <Link href="/" className={navLinkClassName}>
                 {t('nav.squadAnalysis')}
               </Link>
@@ -44,7 +44,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
 
-            <div className="flex justify-center md:ml-auto md:w-max md:justify-start lg:col-start-2 lg:row-start-2 lg:justify-self-end">
+            <div className="flex justify-center md:col-start-2 md:row-start-2 md:ml-auto md:w-max md:justify-start md:justify-self-end">
               <LanguageSelector />
             </div>
           </div>
