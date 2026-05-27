@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useLanguage } from '@/components/LanguageProvider'
+import { formatElapsedTime } from '@/lib/i18n'
 
 interface LoadingSpinnerProps {
   message?: string
@@ -11,13 +12,6 @@ interface LoadingSpinnerProps {
   compact?: boolean
 }
 
-function formatElapsedTime(totalSeconds: number): string {
-  if (totalSeconds < 60) return `${totalSeconds}s`
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}m ${seconds}s`
-}
-
 export default function LoadingSpinner({
   message,
   submessage,
@@ -25,7 +19,7 @@ export default function LoadingSpinner({
   showElapsed = true,
   compact = false,
 }: LoadingSpinnerProps) {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const resolvedMessage = message || t('loading.defaultMessage')
   const resolvedDurationHint = durationHint ?? t('loading.defaultHint')
@@ -57,7 +51,7 @@ export default function LoadingSpinner({
         {submessage && <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">{submessage}</p>}
         {showElapsed && (
           <div className="mt-3 inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400">
-            {t('loading.workingFor', { value: formatElapsedTime(elapsedSeconds) })}
+            {t('loading.workingFor', { value: formatElapsedTime(language, elapsedSeconds) })}
           </div>
         )}
         {resolvedDurationHint && (

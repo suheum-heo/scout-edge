@@ -5,7 +5,9 @@ import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   SUPPORTED_LANGUAGES,
+  type MessageCatalog,
   type LanguageCode,
+  hasStaticMessages,
   normalizeLanguage,
   pluralSuffix,
   translate,
@@ -32,6 +34,7 @@ const LanguageContext = createContext<LanguageContextValue | null>(null)
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(DEFAULT_LANGUAGE)
+  const [runtimeCatalog, setRuntimeCatalog] = useState<MessageCatalog | null>(null)
 
   useEffect(() => {
     try {
@@ -51,17 +54,51 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.lang = language
   }, [language])
 
+  useEffect(() => {
+    let cancelled = false
+
+    if (hasStaticMessages(language)) {
+      setRuntimeCatalog(null)
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setRuntimeCatalog(null)
+
+    void fetch(`/api/i18n?language=${encodeURIComponent(language)}`)
+      .then(async (response) => {
+        if (!response.ok) return null
+        const data = await response.json() as { messages?: MessageCatalog }
+        return data.messages || null
+      })
+      .then((messages) => {
+        if (!cancelled) {
+          setRuntimeCatalog(messages)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRuntimeCatalog(null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [language])
+
   const value = useMemo<LanguageContextValue>(() => ({
     language,
     setLanguage,
-    t: (key, values) => translate(language, key, values),
+    t: (key, values) => translate(language, key, values, runtimeCatalog),
     translatePosition: (position) => translatePosition(language, position),
-    translateFitLabel: (label) => translateFitLabel(language, label),
-    translateValueLabel: (label) => translateValueLabel(language, label),
-    translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label),
-    translateVerdictLabel: (label) => translateVerdictLabel(language, label),
+    translateFitLabel: (label) => translateFitLabel(language, label, runtimeCatalog),
+    translateValueLabel: (label) => translateValueLabel(language, label, runtimeCatalog),
+    translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label, runtimeCatalog),
+    translateVerdictLabel: (label) => translateVerdictLabel(language, label, runtimeCatalog),
     pluralSuffix: (count) => pluralSuffix(language, count),
-  }), [language])
+  }), [language, runtimeCatalog])
 
   return (
     <LanguageContext.Provider value={value}>
@@ -87,7 +124,11 @@ export function LanguageSelector() {
       <div className="flex items-center gap-1">
         {SUPPORTED_LANGUAGES.map((option) => {
           const isActive = language === option.code
-          const shortLabel = option.code === 'en' ? 'EN' : option.code === 'ko' ? '한국어' : 'ES'
+          const shortLabel = option.code === 'ko'
+            ? '한국어'
+            : option.code === 'ja'
+            ? '日本語'
+            : option.code.toUpperCase()
 
           return (
             <button

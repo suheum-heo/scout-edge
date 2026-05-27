@@ -2,16 +2,25 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'ko', label: '한국어' },
   { code: 'es', label: 'Español' },
+  { code: 'pt', label: 'Português' },
+  { code: 'nl', label: 'Nederlands' },
+  { code: 'it', label: 'Italiano' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'fr', label: 'Français' },
+  { code: 'ja', label: '日本語' },
 ] as const
 
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]['code']
+export type MessageCatalog = Record<string, string>
 
 export const DEFAULT_LANGUAGE: LanguageCode = 'en'
 export const LANGUAGE_STORAGE_KEY = 'scoutedge-language'
 
 type MessageValues = Record<string, string | number>
+const STATIC_MESSAGE_LANGUAGES = ['en', 'ko', 'es'] as const
+type StaticMessageLanguageCode = (typeof STATIC_MESSAGE_LANGUAGES)[number]
 
-const messages: Record<LanguageCode, Record<string, string>> = {
+const messages: Record<StaticMessageLanguageCode, MessageCatalog> = {
   en: {
     'nav.squadAnalysis': 'Squad Analysis',
     'nav.playerCheck': 'Player Check',
@@ -805,6 +814,240 @@ const positionTranslations: Record<LanguageCode, Record<string, string>> = {
     'wing-back': 'Carrilero',
     'full-back': 'Lateral',
   },
+  pt: {
+    'gk': 'GR',
+    'rb': 'LD',
+    'lb': 'LE',
+    'cb': 'ZAG',
+    'lcb': 'ZAG esquerdo',
+    'rcb': 'ZAG direito',
+    'wb': 'ALA',
+    'lwb': 'ALA esquerdo',
+    'rwb': 'ALA direito',
+    'cdm': 'VOL',
+    'cm': 'MC',
+    'cam': 'MEI',
+    'rw': 'PD',
+    'lw': 'PE',
+    'cf': 'CA',
+    'st': 'ATA',
+    'goalkeeper': 'Goleiro',
+    'right back': 'Lateral-direito',
+    'left back': 'Lateral-esquerdo',
+    'centre back': 'Zagueiro',
+    'center back': 'Zagueiro',
+    'defensive mid': 'Volante',
+    'defensive midfielder': 'Volante',
+    'central mid': 'Meio-campista central',
+    'central midfielder': 'Meio-campista central',
+    'attacking mid': 'Meia-atacante',
+    'attacking midfielder': 'Meia-atacante',
+    'right wing': 'Ponta direita',
+    'left wing': 'Ponta esquerda',
+    'striker': 'Atacante',
+    'center forward': 'Centroavante',
+    'centre forward': 'Centroavante',
+    'defender': 'Defensor',
+    'midfielder': 'Meio-campista',
+    'attacker': 'Atacante',
+    'wing-back': 'Ala',
+    'full-back': 'Lateral',
+  },
+  nl: {
+    'gk': 'GK',
+    'rb': 'RB',
+    'lb': 'LB',
+    'cb': 'CV',
+    'lcb': 'LCV',
+    'rcb': 'RCV',
+    'wb': 'WB',
+    'lwb': 'LWB',
+    'rwb': 'RWB',
+    'cdm': 'CVM',
+    'cm': 'CM',
+    'cam': 'CAM',
+    'rw': 'RV',
+    'lw': 'LV',
+    'cf': 'SP',
+    'st': 'SP',
+    'goalkeeper': 'Doelman',
+    'right back': 'Rechtsback',
+    'left back': 'Linksback',
+    'centre back': 'Centrale verdediger',
+    'center back': 'Centrale verdediger',
+    'defensive mid': 'Verdedigende middenvelder',
+    'defensive midfielder': 'Verdedigende middenvelder',
+    'central mid': 'Centrale middenvelder',
+    'central midfielder': 'Centrale middenvelder',
+    'attacking mid': 'Aanvallende middenvelder',
+    'attacking midfielder': 'Aanvallende middenvelder',
+    'right wing': 'Rechtsbuiten',
+    'left wing': 'Linksbuiten',
+    'striker': 'Spits',
+    'center forward': 'Centrumspits',
+    'centre forward': 'Centrumspits',
+    'defender': 'Verdediger',
+    'midfielder': 'Middenvelder',
+    'attacker': 'Aanvaller',
+    'wing-back': 'Wingback',
+    'full-back': 'Back',
+  },
+  it: {
+    'gk': 'POR',
+    'rb': 'TD',
+    'lb': 'TS',
+    'cb': 'DC',
+    'lcb': 'DC sinistro',
+    'rcb': 'DC destro',
+    'wb': 'Esterno',
+    'lwb': 'Esterno sinistro',
+    'rwb': 'Esterno destro',
+    'cdm': 'MED',
+    'cm': 'CC',
+    'cam': 'TRQ',
+    'rw': 'AD',
+    'lw': 'AS',
+    'cf': 'ATT',
+    'st': 'PUN',
+    'goalkeeper': 'Portiere',
+    'right back': 'Terzino destro',
+    'left back': 'Terzino sinistro',
+    'centre back': 'Difensore centrale',
+    'center back': 'Difensore centrale',
+    'defensive mid': 'Mediano',
+    'defensive midfielder': 'Mediano',
+    'central mid': 'Centrocampista centrale',
+    'central midfielder': 'Centrocampista centrale',
+    'attacking mid': 'Trequartista',
+    'attacking midfielder': 'Trequartista',
+    'right wing': 'Ala destra',
+    'left wing': 'Ala sinistra',
+    'striker': 'Attaccante',
+    'center forward': 'Centravanti',
+    'centre forward': 'Centravanti',
+    'defender': 'Difensore',
+    'midfielder': 'Centrocampista',
+    'attacker': 'Attaccante',
+    'wing-back': 'Esterno a tutta fascia',
+    'full-back': 'Terzino',
+  },
+  de: {
+    'gk': 'TW',
+    'rb': 'RV',
+    'lb': 'LV',
+    'cb': 'IV',
+    'lcb': 'LIV',
+    'rcb': 'RIV',
+    'wb': 'WB',
+    'lwb': 'LWB',
+    'rwb': 'RWB',
+    'cdm': 'DM',
+    'cm': 'ZM',
+    'cam': 'OM',
+    'rw': 'RA',
+    'lw': 'LA',
+    'cf': 'MS',
+    'st': 'ST',
+    'goalkeeper': 'Torwart',
+    'right back': 'Rechter Verteidiger',
+    'left back': 'Linker Verteidiger',
+    'centre back': 'Innenverteidiger',
+    'center back': 'Innenverteidiger',
+    'defensive mid': 'Defensiver Mittelfeldspieler',
+    'defensive midfielder': 'Defensiver Mittelfeldspieler',
+    'central mid': 'Zentraler Mittelfeldspieler',
+    'central midfielder': 'Zentraler Mittelfeldspieler',
+    'attacking mid': 'Offensiver Mittelfeldspieler',
+    'attacking midfielder': 'Offensiver Mittelfeldspieler',
+    'right wing': 'Rechter Flügel',
+    'left wing': 'Linker Flügel',
+    'striker': 'Stürmer',
+    'center forward': 'Mittelstürmer',
+    'centre forward': 'Mittelstürmer',
+    'defender': 'Verteidiger',
+    'midfielder': 'Mittelfeldspieler',
+    'attacker': 'Angreifer',
+    'wing-back': 'Schienenspieler',
+    'full-back': 'Außenverteidiger',
+  },
+  fr: {
+    'gk': 'GB',
+    'rb': 'DD',
+    'lb': 'DG',
+    'cb': 'DC',
+    'lcb': 'DC gauche',
+    'rcb': 'DC droit',
+    'wb': 'Piston',
+    'lwb': 'Piston gauche',
+    'rwb': 'Piston droit',
+    'cdm': 'MDF',
+    'cm': 'MC',
+    'cam': 'MOC',
+    'rw': 'AD',
+    'lw': 'AG',
+    'cf': 'AC',
+    'st': 'BU',
+    'goalkeeper': 'Gardien',
+    'right back': 'Arrière droit',
+    'left back': 'Arrière gauche',
+    'centre back': 'Défenseur central',
+    'center back': 'Défenseur central',
+    'defensive mid': 'Milieu défensif',
+    'defensive midfielder': 'Milieu défensif',
+    'central mid': 'Milieu central',
+    'central midfielder': 'Milieu central',
+    'attacking mid': 'Milieu offensif',
+    'attacking midfielder': 'Milieu offensif',
+    'right wing': 'Ailier droit',
+    'left wing': 'Ailier gauche',
+    'striker': 'Attaquant',
+    'center forward': 'Avant-centre',
+    'centre forward': 'Avant-centre',
+    'defender': 'Défenseur',
+    'midfielder': 'Milieu',
+    'attacker': 'Attaquant',
+    'wing-back': 'Piston',
+    'full-back': 'Latéral',
+  },
+  ja: {
+    'gk': 'GK',
+    'rb': 'RB',
+    'lb': 'LB',
+    'cb': 'CB',
+    'lcb': 'LCB',
+    'rcb': 'RCB',
+    'wb': 'WB',
+    'lwb': 'LWB',
+    'rwb': 'RWB',
+    'cdm': 'CDM',
+    'cm': 'CM',
+    'cam': 'CAM',
+    'rw': 'RW',
+    'lw': 'LW',
+    'cf': 'CF',
+    'st': 'ST',
+    'goalkeeper': 'ゴールキーパー',
+    'right back': '右サイドバック',
+    'left back': '左サイドバック',
+    'centre back': 'センターバック',
+    'center back': 'センターバック',
+    'defensive mid': '守備的ミッドフィルダー',
+    'defensive midfielder': '守備的ミッドフィルダー',
+    'central mid': 'セントラルミッドフィルダー',
+    'central midfielder': 'セントラルミッドフィルダー',
+    'attacking mid': '攻撃的ミッドフィルダー',
+    'attacking midfielder': '攻撃的ミッドフィルダー',
+    'right wing': '右ウイング',
+    'left wing': '左ウイング',
+    'striker': 'ストライカー',
+    'center forward': 'センターフォワード',
+    'centre forward': 'センターフォワード',
+    'defender': 'ディフェンダー',
+    'midfielder': 'ミッドフィルダー',
+    'attacker': 'アタッカー',
+    'wing-back': 'ウイングバック',
+    'full-back': 'フルバック',
+  },
 }
 
 const fitLabelKeys = {
@@ -847,41 +1090,87 @@ export function normalizeLanguage(value: string | null | undefined): LanguageCod
   return isSupportedLanguage(value) ? value : DEFAULT_LANGUAGE
 }
 
-export function translate(language: LanguageCode, key: string, values?: MessageValues): string {
-  const template = messages[language]?.[key] || messages.en[key] || key
+export function hasStaticMessages(language: LanguageCode): language is StaticMessageLanguageCode {
+  return STATIC_MESSAGE_LANGUAGES.includes(language as StaticMessageLanguageCode)
+}
+
+export function needsRuntimeMessages(language: LanguageCode): boolean {
+  return !hasStaticMessages(language)
+}
+
+export function getStaticMessages(language: LanguageCode): MessageCatalog | null {
+  return hasStaticMessages(language) ? messages[language] : null
+}
+
+export function getEnglishMessages(): MessageCatalog {
+  return messages.en
+}
+
+export function translate(
+  language: LanguageCode,
+  key: string,
+  values?: MessageValues,
+  catalog?: MessageCatalog | null
+): string {
+  const template = catalog?.[key] || getStaticMessages(language)?.[key] || messages.en[key] || key
   return interpolate(template, values)
 }
 
 export function translatePosition(language: LanguageCode, position: string): string {
-  const translated = positionTranslations[language][position.toLowerCase()]
+  const translated = positionTranslations[language]?.[position.toLowerCase()]
   return translated || position
 }
 
-export function translateFitLabel(language: LanguageCode, label: keyof typeof fitLabelKeys): string {
-  return translate(language, fitLabelKeys[label])
+export function translateFitLabel(
+  language: LanguageCode,
+  label: keyof typeof fitLabelKeys,
+  catalog?: MessageCatalog | null
+): string {
+  return translate(language, fitLabelKeys[label], undefined, catalog)
 }
 
-export function translateValueLabel(language: LanguageCode, label: keyof typeof valueLabelKeys): string {
-  return translate(language, valueLabelKeys[label])
+export function translateValueLabel(
+  language: LanguageCode,
+  label: keyof typeof valueLabelKeys,
+  catalog?: MessageCatalog | null
+): string {
+  return translate(language, valueLabelKeys[label], undefined, catalog)
 }
 
-export function translateAvailabilityLabel(language: LanguageCode, label: keyof typeof availabilityLabelKeys): string {
-  return translate(language, availabilityLabelKeys[label])
+export function translateAvailabilityLabel(
+  language: LanguageCode,
+  label: keyof typeof availabilityLabelKeys,
+  catalog?: MessageCatalog | null
+): string {
+  return translate(language, availabilityLabelKeys[label], undefined, catalog)
 }
 
 export function pluralSuffix(language: LanguageCode, count: number): string {
-  if (language === 'en' || language === 'es') return count === 1 ? '' : 's'
+  if (language === 'ko' || language === 'ja') return ''
+  if (language === 'en' || language === 'es' || language === 'pt' || language === 'nl' || language === 'it' || language === 'de' || language === 'fr') {
+    return count === 1 ? '' : 's'
+  }
   return ''
 }
 
-export function translateVerdictLabel(language: LanguageCode, label: keyof typeof verdictLabelKeys): string {
-  return translate(language, verdictLabelKeys[label])
+export function translateVerdictLabel(
+  language: LanguageCode,
+  label: keyof typeof verdictLabelKeys,
+  catalog?: MessageCatalog | null
+): string {
+  return translate(language, verdictLabelKeys[label], undefined, catalog)
 }
 
 const aiLanguageNames: Record<LanguageCode, string> = {
   en: 'English',
   ko: 'Korean',
   es: 'Spanish',
+  pt: 'Portuguese',
+  nl: 'Dutch',
+  it: 'Italian',
+  de: 'German',
+  fr: 'French',
+  ja: 'Japanese',
 }
 
 export function buildAIOutputLanguageInstruction(language: LanguageCode): string {
@@ -890,4 +1179,19 @@ export function buildAIOutputLanguageInstruction(language: LanguageCode): string
   }
 
   return `Write all free-text explanations, summaries, and bullet points in ${aiLanguageNames[language]}. Keep JSON keys, explicit enum values, tactical codes (for example GK, CB, 4-3-3), and any labels the schema says must be exact in English. Keep player, club, and manager proper names in their official spelling.`
+}
+
+export function formatElapsedTime(language: LanguageCode, totalSeconds: number): string {
+  if (totalSeconds < 60) {
+    if (language === 'ko') return `${totalSeconds}초`
+    if (language === 'ja') return `${totalSeconds}秒`
+    return `${totalSeconds}s`
+  }
+
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+
+  if (language === 'ko') return `${minutes}분 ${seconds}초`
+  if (language === 'ja') return `${minutes}分 ${seconds}秒`
+  return `${minutes}m ${seconds}s`
 }

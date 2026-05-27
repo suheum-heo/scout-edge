@@ -41,6 +41,7 @@ interface ManagerResult {
   source?: 'override' | 'provider' | 'unverified'
   verified?: boolean
   transfermarktUrl?: string | null
+  photoUrl?: string | null
 }
 
 function makeAvailabilityKey(ids?: Iterable<string>): string {
@@ -732,9 +733,19 @@ export default function HomePage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                    {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
-                  </div>
+                  {managerResult.photoUrl ? (
+                    <img
+                      src={managerResult.photoUrl}
+                      alt={managerResult.name ?? t('home.managerUnavailable')}
+                      className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                      {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                    </div>
+                  )}
                   <div>
                     {managerResult.transfermarktUrl ? (
                       <a

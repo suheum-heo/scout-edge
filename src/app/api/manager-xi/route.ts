@@ -17,6 +17,7 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 4500
@@ -628,6 +629,22 @@ function buildWhyIdeal(
   return `${intro} ${detail}`.trim()
 }
 
+function getOutputRequirement(
+  manager: ManagerProfile | null,
+  outputManager: ManagerProfile | null,
+  requirement: PositionalRequirement | null
+): PositionalRequirement | null {
+  if (!manager || !outputManager || !requirement) return requirement
+
+  const index = manager.positionalRequirements.findIndex((candidate) =>
+    candidate.position === requirement.position &&
+    candidate.positionCode === requirement.positionCode &&
+    candidate.profileLabel === requirement.profileLabel
+  )
+
+  return index >= 0 ? outputManager.positionalRequirements[index] ?? requirement : requirement
+}
+
 function materializeCandidates(slot: ManagerXISlot, language: LanguageCode): IdealPlayer[] {
   return slot.candidates
     .filter((candidate) => Boolean(candidate.playerName?.trim()))
@@ -741,6 +758,7 @@ function buildCandidateEvaluation(
   player: IdealPlayer,
   searchResult: TMPlayerSearchResult | null,
   manager: ManagerProfile | null,
+  outputManager: ManagerProfile | null,
   managerName: string,
   cap: number | null,
   language: LanguageCode
@@ -753,6 +771,7 @@ function buildCandidateEvaluation(
       }
 
   const requirement = findBestRequirement(manager, slot)
+  const outputRequirement = getOutputRequirement(manager, outputManager, requirement)
   const positionScore = scorePositionCompatibility(slot, searchResult?.position)
   const archetypeScore = scoreArchetypeAlignment(slot, searchResult?.position)
   const ageScore = scoreAgeFit(slot, enrichedPlayer.age, manager)
@@ -772,7 +791,7 @@ function buildCandidateEvaluation(
   )
   const scoredPlayer = {
     ...enrichedPlayer,
-    whyIdeal: buildWhyIdeal(enrichedPlayer, slot, managerName, requirement, searchResult, cap, language),
+    whyIdeal: buildWhyIdeal(enrichedPlayer, slot, managerName, outputRequirement, searchResult, cap, language),
     systemFitScore: selectionScore,
   }
 
@@ -817,6 +836,7 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
 async function enrichSlots(
   slots: ManagerXISlot[],
   manager: ManagerProfile | null,
+  outputManager: ManagerProfile | null,
   managerName: string,
   cap: number | null,
   language: LanguageCode
@@ -836,6 +856,7 @@ async function enrichSlots(
             player,
             await findSearchResult(player, searchCache),
             manager,
+            outputManager,
             managerName,
             cap,
             language
@@ -962,10 +983,11 @@ async function resolveCandidatePool(
   pool: ManagerXICandidatePool,
   budget: string,
   manager: ManagerProfile | null,
+  outputManager: ManagerProfile | null,
   language: LanguageCode
 ): Promise<ManagerXIResult | null> {
   const cap = getBudgetCap(budget)
-  const candidateSlots = await enrichSlots(pool.slots, manager, pool.managerName, cap, language)
+  const candidateSlots = await enrichSlots(pool.slots, manager, outputManager, pool.managerName, cap, language)
   const selection = selectPlayersForSlots(candidateSlots, cap, budget)
 
   if (selection.chosen.length !== pool.slots.length) {
@@ -999,6 +1021,7 @@ async function buildBudgetAwareManagerXI(
   language: LanguageCode = 'en'
 ): Promise<ManagerXIResult> {
   const manager = managerId ? (getManagerById(managerId) || null) : null
+  const outputManager = manager ? await localizeManagerProfile(manager, language).catch(() => manager) : null
   const liveManagerName = manager?.name || managerName || null
   const liveManagerSnapshot = liveManagerName
     ? await getLiveManagerSnapshot(liveManagerName, { maxMatches: 20 }).catch(() => null)
@@ -1037,7 +1060,7 @@ async function buildBudgetAwareManagerXI(
         : undefined,
       language
     )
-    const resolved = await resolveCandidatePool(pool, budget, manager, language)
+    const resolved = await resolveCandidatePool(pool, budget, manager, outputManager, language)
     if (!resolved) throw new Error(translate(language, 'build.failed'))
     return resolved
   }
@@ -1063,7 +1086,7 @@ async function buildBudgetAwareManagerXI(
         : undefined,
       language
     )
-    const resolved = await resolveCandidatePool(pool, budget, manager, language)
+    const resolved = await resolveCandidatePool(pool, budget, manager, outputManager, language)
     if (!resolved) continue
     lastResolved = resolved
     if (resolved.budgetStatus !== 'over') return resolved

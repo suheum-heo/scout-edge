@@ -50,6 +50,7 @@ import { getClubManager, getClubSquad, searchClub, searchManager, searchManagerB
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { buildFullName, personNameTokens } from '@/lib/person-names'
@@ -325,6 +326,7 @@ interface CachedAnalyzeProviderContext {
   squad: AnalyzeSquadRow[]
   squadPlayers: SquadPlayer[]
   providerManagerName: string | null
+  providerManagerPhoto: string | null
 }
 
 const ANALYZE_PROVIDER_TTL_MS = 10 * 60 * 1000
@@ -386,6 +388,7 @@ export async function POST(request: NextRequest) {
     let squad: AnalyzeSquadRow[] = cachedProviderContext?.squad ?? []
     let squadPlayers: SquadPlayer[] = cachedProviderContext?.squadPlayers ?? []
     let providerManagerName: string | null = cachedProviderContext?.providerManagerName ?? null
+    let providerManagerPhoto: string | null = cachedProviderContext?.providerManagerPhoto ?? null
 
     if (cachedProviderContext) {
       const cachedHasStats = squad.some((p) => (p.appearances ?? 0) > 0 || parseFloat(p.rating || '0') > 0)
@@ -593,6 +596,7 @@ export async function POST(request: NextRequest) {
       }
 
       providerManagerName = getCoachDisplayName(coach)
+      providerManagerPhoto = coach?.photo?.trim() || null
       let resolvedSquad: AnalyzeSquadRow[] = []
       if (tmFormattedSquad) {
         resolvedSquad = tmFormattedSquad
@@ -633,6 +637,7 @@ export async function POST(request: NextRequest) {
         squad,
         squadPlayers,
         providerManagerName,
+        providerManagerPhoto,
       })
 
       timing.end(
@@ -753,12 +758,11 @@ export async function POST(request: NextRequest) {
       ? 'provider'
       : 'unverified'
 
-    const tmManagerByClub = !managerId
-      ? await searchManagerByClub(teamName).catch(() => null)
-      : null
-    const tmManagerByName = factualManagerName
-      ? await searchManager(factualManagerName).catch(() => null)
-      : null
+    const [tmManagerByClub, tmManagerByName, localizedManager] = await Promise.all([
+      !managerId ? searchManagerByClub(teamName).catch(() => null) : Promise.resolve(null),
+      factualManagerName ? searchManager(factualManagerName).catch(() => null) : Promise.resolve(null),
+      resolvedManager ? localizeManagerProfile(resolvedManager, language).catch(() => resolvedManager) : Promise.resolve(null),
+    ])
     const managerTransfermarktUrl =
       (tmManagerByClub && managerNamesLikelyMatch(tmManagerByClub.name, factualManagerName)
         ? tmManagerByClub.profileUrl
@@ -769,6 +773,7 @@ export async function POST(request: NextRequest) {
       tmManagerByClub?.profileUrl ||
       tmManagerByName?.profileUrl ||
       null
+    const managerPhotoUrl = providerManagerPhoto || null
 
     console.log(
       `[analyze] managerResolution team=${teamName} source=${teamSource ?? 'fd'} provider=${providerManagerName ?? 'none'} inferred=${inferredManagerName ?? 'none'} factual=${factualManagerName ?? 'none'} managerSource=${managerSource}`
@@ -780,16 +785,17 @@ export async function POST(request: NextRequest) {
       nationalTeamCountry,
       manager: resolvedManager
         ? {
-            id: resolvedManager.id,
-            name: resolvedManager.name,
+            id: localizedManager?.id ?? resolvedManager.id,
+            name: localizedManager?.name ?? resolvedManager.name,
             currentClub: teamName,
             formations: liveManagerSnapshot?.recentFormations || [],
             style: resolvedManager.style,
-            tacticalSummary: resolvedManager.tacticalSummary,
-            keyPrinciples: resolvedManager.keyPrinciples,
+            tacticalSummary: localizedManager?.tacticalSummary ?? resolvedManager.tacticalSummary,
+            keyPrinciples: localizedManager?.keyPrinciples ?? resolvedManager.keyPrinciples,
             source: managerSource,
             verified: factualManagerVerified,
             transfermarktUrl: managerTransfermarktUrl,
+            photoUrl: managerPhotoUrl,
           }
         : {
             id: null,
@@ -802,6 +808,7 @@ export async function POST(request: NextRequest) {
             source: managerSource,
             verified: factualManagerVerified,
             transfermarktUrl: managerTransfermarktUrl,
+            photoUrl: managerPhotoUrl,
           },
       squadSize: squad.length,
       managerFromDB: !!resolvedManager,
