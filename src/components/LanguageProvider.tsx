@@ -143,9 +143,9 @@ export function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage()
 
   return (
-    <div className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <div className="flex w-full shrink-0 items-center justify-between gap-3 rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-1.5 text-xs text-slate-500 dark:text-slate-400">
       <span className="hidden whitespace-nowrap sm:inline">{t('nav.language')}</span>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center justify-end gap-1 sm:gap-1.5">
         {SUPPORTED_LANGUAGES.map((option) => {
           const isActive = language === option.code
           const shortLabel = option.code === 'ko'
@@ -159,7 +159,7 @@ export function LanguageSelector() {
               key={option.code}
               type="button"
               onClick={() => setLanguage(option.code)}
-              className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+              className={`rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors sm:px-2 ${
                 isActive
                   ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
                   : 'text-slate-500 hover:bg-slate-200/70 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'

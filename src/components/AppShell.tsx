@@ -8,14 +8,14 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage()
   const navLinkClassName =
-    'whitespace-nowrap text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors'
+    'whitespace-nowrap text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-sm px-3 py-1.5 rounded-lg hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors lg:px-0'
 
   return (
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start xl:grid xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] xl:items-center xl:gap-4">
-            <div className="flex items-center justify-start xl:justify-self-start">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex shrink-0 flex-col items-start gap-2">
               <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity">
                 <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
                   <Search className="w-4 h-4 text-white" />
@@ -25,10 +25,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   {t('nav.beta')}
                 </span>
               </Link>
+              <div className="lg:ml-[38px]">
+                <ThemeToggle />
+              </div>
             </div>
 
-            <div className="flex flex-col items-center gap-2 sm:ml-auto sm:w-max sm:items-start xl:contents">
-              <div className="flex items-center justify-center gap-1.5 flex-wrap sm:justify-start xl:flex-nowrap xl:justify-self-center">
+            <div className="flex w-full flex-col items-center gap-3 lg:ml-auto lg:max-w-[860px] lg:items-stretch lg:pt-1">
+              <div className="flex w-full items-center justify-center gap-1.5 flex-wrap lg:flex-nowrap lg:justify-between">
                 <Link href="/" className={navLinkClassName}>
                   {t('nav.squadAnalysis')}
                 </Link>
@@ -43,9 +46,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               </div>
 
-              <div className="flex items-center justify-center gap-2 sm:justify-start xl:justify-self-end">
+              <div className="w-full">
                 <LanguageSelector />
-                <ThemeToggle />
               </div>
             </div>
           </div>
