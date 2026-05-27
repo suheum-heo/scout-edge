@@ -1,5 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -152,11 +153,13 @@ export async function POST(request: NextRequest) {
       budget: string
       squad?: SquadPlayer[]
       nationalTeamCountry?: string
+      language?: string
     }
 
     if (!gap || !teamName || !budget) {
       return NextResponse.json({ error: 'gap, teamName, and budget are required' }, { status: 400 })
     }
+    const language = normalizeLanguage(body.language)
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
@@ -193,7 +196,8 @@ export async function POST(request: NextRequest) {
             formationSeason: liveManagerSnapshot.season,
             referenceClub: liveManagerSnapshot.referenceClub,
           }
-        : undefined
+        : undefined,
+      language
     )
 
     // Enrich with live Transfermarkt data (current club, real market value, contract)

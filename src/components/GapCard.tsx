@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { SquadGap } from '@/lib/claude'
 import { getUrgencyColor } from '@/lib/utils'
 import { ChevronRight } from 'lucide-react'
@@ -25,6 +26,7 @@ function getNeedScoreBar(score: number): string {
 }
 
 export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
+  const { t, translatePosition } = useLanguage()
   const needScore = gap.needScore ?? 0
 
   return (
@@ -40,11 +42,11 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${getUrgencyColor(gap.urgency)}`}>
-              {gap.urgency}
+              {t(`urgency.${gap.urgency}`)}
             </span>
             <span className="text-slate-500 dark:text-slate-400 text-xs">{gap.positionCode}</span>
           </div>
-          <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{gap.position}</h3>
+          <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{translatePosition(gap.position)}</h3>
           <p className="text-blue-500 dark:text-blue-400 text-xs font-medium mt-0.5">{gap.profileLabel}</p>
           <p className={`text-slate-500 dark:text-slate-400 text-xs leading-relaxed mt-2 ${isSelected ? '' : 'line-clamp-2'}`}>
             {gap.reasoning}
@@ -56,7 +58,7 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
           <span className={`text-lg font-bold leading-none ${getNeedScoreColor(needScore)}`}>
             {needScore}
           </span>
-          <span className="text-slate-400 dark:text-slate-600 text-[10px] uppercase tracking-wide">need</span>
+          <span className="text-slate-400 dark:text-slate-600 text-[10px] uppercase tracking-wide">{t('common.need')}</span>
           <div className="w-10 h-1 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${getNeedScoreBar(needScore)}`}

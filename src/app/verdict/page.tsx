@@ -1,16 +1,17 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState, useEffect, useRef } from 'react'
 import { Search, AlertCircle, Zap } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import { TransferVerdictResult, VerdictLabel } from '@/lib/claude'
 import type { TMPlayerData } from '@/lib/transfermarkt'
 
-const VERDICT_CONFIG: Record<VerdictLabel, { bg: string; border: string; text: string; label: string }> = {
-  'Do it':       { bg: 'bg-emerald-500/15', border: 'border-emerald-500/40', text: 'text-emerald-400', label: 'DO IT' },
-  'Consider it': { bg: 'bg-blue-500/15',    border: 'border-blue-500/40',    text: 'text-blue-400',    label: 'CONSIDER IT' },
-  'Risky':       { bg: 'bg-amber-500/15',   border: 'border-amber-500/40',   text: 'text-amber-400',   label: 'RISKY' },
-  'Avoid':       { bg: 'bg-red-500/15',     border: 'border-red-500/40',     text: 'text-red-400',     label: 'AVOID' },
+const VERDICT_CONFIG: Record<VerdictLabel, { bg: string; border: string; text: string }> = {
+  'Do it':       { bg: 'bg-emerald-500/15', border: 'border-emerald-500/40', text: 'text-emerald-400' },
+  'Consider it': { bg: 'bg-blue-500/15',    border: 'border-blue-500/40',    text: 'text-blue-400' },
+  'Risky':       { bg: 'bg-amber-500/15',   border: 'border-amber-500/40',   text: 'text-amber-400' },
+  'Avoid':       { bg: 'bg-red-500/15',     border: 'border-red-500/40',     text: 'text-red-400' },
 }
 
 interface Team {
@@ -38,6 +39,7 @@ const EXAMPLES: { player: string; team: Team }[] = [
 ]
 
 export default function VerdictPage() {
+  const { language, t, translatePosition, translateVerdictLabel } = useLanguage()
   const [playerQuery, setPlayerQuery] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerResult[]>([])
@@ -126,15 +128,16 @@ export default function VerdictPage() {
           teamName: resolvedTeam.name,
           teamSource: resolvedTeam.source,
           fotmobId: resolvedTeam.fotmobId,
+          language,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Analysis failed')
+      if (!res.ok) throw new Error(data.error || t('error.analysisFailed'))
       setResult(data.verdict)
       setTmPlayer(data.player || null)
       setDetectedManager(data.detectedManager || null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong')
+      setError(e instanceof Error ? e.message : t('loading.defaultMessage'))
     } finally {
       setIsChecking(false)
     }
@@ -153,13 +156,13 @@ export default function VerdictPage() {
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium px-3 py-1.5 rounded-full mb-4">
           <Zap className="w-3 h-3" />
-          Transfer Verdict
+          {t('verdict.badge')}
         </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
-          Should they sign him?
+          {t('verdict.title')}
         </h1>
         <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Any player, any club — rumour, hypothetical, or wishlist. We detect the manager and give you an instant scout verdict.
+          {t('verdict.subtitle')}
         </p>
       </div>
 
@@ -172,18 +175,18 @@ export default function VerdictPage() {
             <input type="text" value={playerQuery} onChange={(e) => handlePlayerInput(e.target.value)}
               onFocus={() => playerSuggestions.length > 0 && setPlayerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-              placeholder="Player name (e.g. Victor Osimhen)" className={inputText} />
+              placeholder={t('verdict.playerPlaceholder')} className={inputText} />
             {isSearchingPlayer && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-green-400 rounded-full animate-spin flex-shrink-0" />}
             {selectedPlayer && !isSearchingPlayer && <span className="text-green-400 text-xs flex-shrink-0">&#10003;</span>}
           </div>
           {playerDropdownOpen && (playerSuggestions.length > 0 || isSearchingPlayer) && (
             <div className={`${dropdownBase} max-h-64`}>
               {isSearchingPlayer && playerSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : playerSuggestions.map((p) => (
                     <button key={p.id} onMouseDown={() => { setPlayerQuery(p.name); setSelectedPlayer(p); setPlayerDropdownOpen(false) }} className={dropdownItem}>
                       <div><span className="font-medium">{p.name}</span><span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{p.club}</span></div>
-                      <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{p.position}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{translatePosition(p.position)}</span>
                     </button>
                   ))
               }
@@ -193,7 +196,7 @@ export default function VerdictPage() {
 
         <div className="flex items-center justify-center gap-2 text-slate-400 dark:text-slate-600">
           <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
-          <span className="text-xs">to</span>
+          <span className="text-xs">{t('common.to')}</span>
           <div className="flex-1 h-px bg-slate-200 dark:bg-slate-800" />
         </div>
 
@@ -204,14 +207,14 @@ export default function VerdictPage() {
             <input type="text" value={clubQuery} onChange={(e) => handleClubInput(e.target.value)}
               onFocus={() => clubSuggestions.length > 0 && setClubDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-              placeholder="Target club (e.g. Arsenal)" className={inputText} />
+              placeholder={t('verdict.clubPlaceholder')} className={inputText} />
             {isSearchingClub && <div className="w-3 h-3 border border-slate-300 dark:border-slate-600 border-t-slate-400 rounded-full animate-spin flex-shrink-0" />}
             {selectedTeam && !isSearchingClub && <span className="text-amber-400 text-xs flex-shrink-0">&#10003; {selectedTeam.name}</span>}
           </div>
           {clubDropdownOpen && (clubSuggestions.length > 0 || isSearchingClub) && (
             <div className={`${dropdownBase} max-h-48`}>
               {isSearchingClub && clubSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : clubSuggestions.map((club) => (
                     <button key={club.id} onMouseDown={() => { setClubQuery(club.name); setSelectedTeam(club); setClubDropdownOpen(false); setClubSuggestions([]) }} className={dropdownItem}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -228,7 +231,7 @@ export default function VerdictPage() {
         <button onClick={() => handleCheck()}
           disabled={!playerQuery.trim() || !selectedTeam || isChecking}
           className="w-full bg-amber-600 hover:bg-amber-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed">
-          {isChecking ? 'Running scout analysis...' : 'Get Verdict'}
+          {isChecking ? t('verdict.loadingButton') : t('verdict.button')}
         </button>
       </div>
 
@@ -241,9 +244,9 @@ export default function VerdictPage() {
 
       {isChecking && (
         <LoadingSpinner
-          message="Running scout analysis..."
-          submessage="Fetching player data and analysing tactical fit"
-          durationHint="Verdict checks can take up to about a minute when live market data and fit analysis both need to refresh."
+          message={t('verdict.loadingTitle')}
+          submessage={t('verdict.loadingSub')}
+          durationHint={t('verdict.loadingHint')}
         />
       )}
 
@@ -261,15 +264,15 @@ export default function VerdictPage() {
                   <div>
                     <p className="text-slate-900 dark:text-white font-semibold">{tmPlayer.name}</p>
                     <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer.currentClub}</p>
-                    <p className="text-slate-400 dark:text-slate-500 text-xs">{tmPlayer.position}{tmPlayer.age !== null ? ` · Age ${tmPlayer.age}` : ''} · {tmPlayer.nationality}</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs">{translatePosition(tmPlayer.position)}{tmPlayer.age !== null ? ` · ${t('common.ageLabel', { age: tmPlayer.age })}` : ''} · {tmPlayer.nationality}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 flex-wrap">
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.goals, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Goals</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.assists, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Assists</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.appearances, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Apps</p></div>
-                  <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Value</p></div>
-                  <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Contract</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.goals, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.goals')}</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.assists, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.assists')}</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.appearances, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.apps')}</p></div>
+                  <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.value')}</p></div>
+                  <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.contract')}</p></div>
                 </div>
               </div>
             </div>
@@ -280,11 +283,11 @@ export default function VerdictPage() {
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
                 <div className="flex items-center gap-3 mb-2">
-                  <span className={`text-3xl font-black tracking-tight ${cfg.text}`}>{cfg.label}</span>
-                  <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">{result.fitScore}/10 tactical fit</span>
+                  <span className={`text-3xl font-black tracking-tight ${cfg.text}`}>{translateVerdictLabel(result.verdictLabel)}</span>
+                  <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">{t('verdict.fitScore', { score: result.fitScore })}</span>
                 </div>
                 <p className="text-slate-900 dark:text-white font-medium leading-snug">{result.headline}</p>
-                {detectedManager && <p className="text-slate-400 dark:text-slate-500 text-xs mt-1.5">Manager detected: {detectedManager}</p>}
+                {detectedManager && <p className="text-slate-400 dark:text-slate-500 text-xs mt-1.5">{t('common.managerDetected', { name: detectedManager })}</p>}
               </div>
             </div>
           </div>
@@ -293,7 +296,7 @@ export default function VerdictPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {result.whyItWorks.length > 0 && (
               <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4">
-                <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3">Why it works</p>
+                <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-3">{t('verdict.whyItWorks')}</p>
                 <ul className="space-y-2">
                   {result.whyItWorks.map((w, i) => (
                     <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
@@ -305,7 +308,7 @@ export default function VerdictPage() {
             )}
             {result.whyItDoesnt.length > 0 && (
               <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4">
-                <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-3">Concerns</p>
+                <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-3">{t('verdict.concerns')}</p>
                 <ul className="space-y-2">
                   {result.whyItDoesnt.map((w, i) => (
                     <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
@@ -320,19 +323,19 @@ export default function VerdictPage() {
           {/* Details */}
           <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4 space-y-3">
             <div>
-              <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">Role in system</p>
+              <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.roleInSystem')}</p>
               <p className="text-slate-600 dark:text-slate-300 text-sm">{result.roleInSystem}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200/50 dark:border-slate-700/50">
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">Need</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.needAssessment}</p></div>
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">Value</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.valueAssessment}</p></div>
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">Timing</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.timing}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.need')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.needAssessment}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.value')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.valueAssessment}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.timing')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.timing}</p></div>
             </div>
           </div>
 
           {/* Scout verdict */}
           <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4">
-            <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-2">Scout verdict</p>
+            <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-2">{t('verdict.scoutVerdict')}</p>
             <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{result.scoutVerdict}&rdquo;</p>
           </div>
 
@@ -340,7 +343,7 @@ export default function VerdictPage() {
           <div className="pt-2 text-center">
             <button onClick={() => { setResult(null); setTmPlayer(null); setPlayerQuery(''); setSelectedPlayer(null); setClubQuery(''); setSelectedTeam(null) }}
               className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-sm transition-colors">
-              Check another &#8594;
+              {t('verdict.checkAnother')}
             </button>
           </div>
         </div>
@@ -349,7 +352,7 @@ export default function VerdictPage() {
       {/* Examples */}
       {!result && !isChecking && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">Try these hypotheticals</p>
+          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">{t('verdict.tryThese')}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {EXAMPLES.map(({ player, team }) => (
               <button key={player + team.name}

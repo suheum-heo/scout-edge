@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState } from 'react'
 import { TransferTarget } from '@/lib/claude'
 import { getScoreColor } from '@/lib/utils'
@@ -35,10 +36,21 @@ function rankStyle(rank: number): { ring: string; text: string; label: string } 
 }
 
 export default function TransferTargetCard({ target, rank }: TransferTargetCardProps) {
+  const { t, translateAvailabilityLabel, translatePosition } = useLanguage()
   const [expanded, setExpanded] = useState(rank === 1)
   const score = target.tacticalFitScore
   const badge = getMarketBadge(target)
   const rs = rankStyle(rank)
+  const localizedBadge = badge
+    ? {
+        ...badge,
+        label: badge.label === 'Free Agent'
+          ? t('market.freeAgent')
+          : badge.label === 'Contract Expiring'
+          ? t('market.contractExpiring')
+          : t('market.available'),
+      }
+    : null
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-colors ${
@@ -58,9 +70,9 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-slate-900 dark:text-white font-semibold text-sm">{target.playerName}</span>
-              {badge && (
-                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${badge.className}`}>
-                  {badge.label}
+              {localizedBadge && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${localizedBadge.className}`}>
+                  {localizedBadge.label}
                 </span>
               )}
             </div>
@@ -75,11 +87,11 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
                     className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
                   >
                     <TriangleAlert className="w-2.5 h-2.5 flex-shrink-0" />
-                    Club unverified — check TM
+                    {t('common.clubUnverifiedCheckTm')}
                   </a>
               }
               <span className="text-slate-300 dark:text-slate-700 text-xs">·</span>
-              <span className="text-slate-400 dark:text-slate-500 text-xs">Age {target.age}</span>
+              <span className="text-slate-400 dark:text-slate-500 text-xs">{t('common.ageLabel', { age: target.age })}</span>
               <span className="text-slate-300 dark:text-slate-700 text-xs">·</span>
               <span className="flex items-center gap-1 text-blue-500/80 dark:text-blue-400/80 text-xs">
                 <Tag className="w-2.5 h-2.5" />
@@ -97,7 +109,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               <div className={`text-lg font-bold leading-none ${getScoreColor(score)}`}>
                 {score}<span className="text-xs text-slate-400 dark:text-slate-500">/10</span>
               </div>
-              <div className="text-slate-400 dark:text-slate-600 text-[10px]">fit</div>
+              <div className="text-slate-400 dark:text-slate-600 text-[10px]">{t('home.tacticalFit').toLowerCase()}</div>
             </div>
             <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform ${expanded ? 'rotate-180' : ''}`} />
           </button>
@@ -117,7 +129,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
             {target.contractUntil && target.contractUntil !== 'Unknown' && (
               <span className="flex items-center gap-1 bg-slate-200/50 dark:bg-slate-700/50 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 text-xs px-2 py-1 rounded-full">
                 <Clock className="w-3 h-3" />
-                Contract to {target.contractUntil}
+                {t('common.untilYear', { year: target.contractUntil })}
               </span>
             )}
             <span className={`flex items-center gap-1 border text-xs px-2 py-1 rounded-full ${
@@ -127,10 +139,10 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
                 ? 'bg-red-500/10 border-red-500/20 text-red-400'
                 : 'bg-yellow-500/10 border-yellow-500/20 text-yellow-400'
             }`}>
-              {target.availability}
+              {translateAvailabilityLabel(target.availability)}
             </span>
             <span className="text-slate-400 dark:text-slate-500 text-xs px-1 py-1">
-              {target.position} · {target.nationality}
+              {translatePosition(target.position)} · {target.nationality}
             </span>
           </div>
 
@@ -158,7 +170,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
           {rank === 1 && (
             <div className="flex items-center gap-1.5 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2 mt-1">
               <Star className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-              <span className="text-amber-400/90 text-xs font-medium">Top recommendation for this gap</span>
+              <span className="text-amber-400/90 text-xs font-medium">{t('transfer.topRecommendation')}</span>
             </div>
           )}
         </div>

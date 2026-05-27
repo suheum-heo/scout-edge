@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { type LanguageCode, normalizeLanguage, translate } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -20,6 +21,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 
 const TM_SEARCH_TIMEOUT_MS = 4500
 const TM_ENRICHMENT_CONCURRENCY = 6
+const LIVE_FORMATION_ERROR_PREFIX = 'LIVE_FORMATION_UNAVAILABLE::'
 
 interface CandidateEvaluation {
   player: IdealPlayer
@@ -543,8 +545,10 @@ function lowercaseFirst(value: string): string {
   return value ? value.charAt(0).toLowerCase() + value.slice(1) : value
 }
 
-function joinWithAnd(parts: string[]): string {
+function joinWithAnd(parts: string[], language: LanguageCode): string {
   if (parts.length <= 1) return parts[0] || ''
+  if (language === 'ko') return `${parts[0]} 및 ${parts[1]}`
+  if (language === 'es') return `${parts[0]} y ${parts[1]}`
   return `${parts[0]} and ${parts[1]}`
 }
 
@@ -590,13 +594,14 @@ function buildWhyIdeal(
   managerName: string,
   requirement: PositionalRequirement | null,
   searchResult: TMPlayerSearchResult | null,
-  cap: number | null
+  cap: number | null,
+  language: LanguageCode
 ): string {
   const slotLabel = toProsePositionCode(slot.position)
   const tmRoleLabel = toTMPositionCode(searchResult?.position)
   const intro = player.tmVerified
-    ? `${player.playerName} gives this XI a verified club-backed option for the ${slotLabel} role in the ${slot.archetypeLabel} brief.`
-    : `${player.playerName} projects as a strong option for the ${slotLabel} role in the ${slot.archetypeLabel} brief.`
+    ? translate(language, 'build.whyIdealVerifiedIntro', { player: player.playerName, slot: slotLabel, archetype: slot.archetypeLabel })
+    : translate(language, 'build.whyIdealProjectedIntro', { player: player.playerName, slot: slotLabel, archetype: slot.archetypeLabel })
 
   const mustHaves = requirement?.mustHave
     .slice(0, 2)
@@ -604,21 +609,26 @@ function buildWhyIdeal(
     .filter(Boolean) || []
 
   const roleContext = tmRoleLabel && tmRoleLabel !== slotLabel
-    ? ` TM lists him closest to ${tmRoleLabel}, but the selector still rated him as a credible fit in this slot.`
+    ? translate(language, 'build.whyIdealRoleContext', { role: tmRoleLabel })
     : ''
 
   const budgetLine = cap !== null && player.estimatedFee && player.estimatedFee !== 'Unknown'
-    ? ` ${player.estimatedFee} keeps this role workable inside the ${formatCompactEuros(cap)} build.`
+    ? translate(language, 'build.whyIdealBudgetLine', { fee: player.estimatedFee, budget: formatCompactEuros(cap) })
     : ''
 
   const detail = mustHaves.length
-    ? `${managerName}'s setup asks for ${joinWithAnd(mustHaves)}.${roleContext}${budgetLine}`
-    : `He rated best once tactical fit, live price, and squad-building balance were scored together.${roleContext}${budgetLine}`
+    ? translate(language, 'build.whyIdealRequirementDetail', {
+        manager: managerName,
+        traits: joinWithAnd(mustHaves, language),
+        roleContext,
+        budgetLine,
+      })
+    : translate(language, 'build.whyIdealSelectionDetail', { roleContext, budgetLine })
 
   return `${intro} ${detail}`.trim()
 }
 
-function materializeCandidates(slot: ManagerXISlot): IdealPlayer[] {
+function materializeCandidates(slot: ManagerXISlot, language: LanguageCode): IdealPlayer[] {
   return slot.candidates
     .filter((candidate) => Boolean(candidate.playerName?.trim()))
     .map((candidate) => ({
@@ -630,7 +640,10 @@ function materializeCandidates(slot: ManagerXISlot): IdealPlayer[] {
       currentClub: candidate.currentClub || '',
       estimatedFee: candidate.estimatedFee || 'Unknown',
       contractUntil: 'Unknown',
-      whyIdeal: `Shortlisted as a possible ${slot.archetypeLabel.toLowerCase()} option for this ${slot.position} role.`,
+      whyIdeal: translate(language, 'build.shortlistedFallback', {
+        archetype: slot.archetypeLabel.toLowerCase(),
+        position: slot.position,
+      }),
       systemFitScore: candidate.systemFitScore,
       tmVerified: false,
     }))
@@ -707,10 +720,11 @@ async function findSearchResult(
 
 async function warmTransfermarktSearch(
   slots: ManagerXISlot[],
-  searchCache: Map<string, Promise<TMPlayerSearchResult | null>>
+  searchCache: Map<string, Promise<TMPlayerSearchResult | null>>,
+  language: LanguageCode
 ): Promise<void> {
   for (const slot of slots) {
-    const firstCandidate = materializeCandidates(slot)[0]
+    const firstCandidate = materializeCandidates(slot, language)[0]
     if (!firstCandidate) continue
 
     try {
@@ -728,7 +742,8 @@ function buildCandidateEvaluation(
   searchResult: TMPlayerSearchResult | null,
   manager: ManagerProfile | null,
   managerName: string,
-  cap: number | null
+  cap: number | null,
+  language: LanguageCode
 ): CandidateEvaluation {
   const enrichedPlayer = searchResult
     ? mergeSearchResult(player, searchResult)
@@ -757,7 +772,7 @@ function buildCandidateEvaluation(
   )
   const scoredPlayer = {
     ...enrichedPlayer,
-    whyIdeal: buildWhyIdeal(enrichedPlayer, slot, managerName, requirement, searchResult, cap),
+    whyIdeal: buildWhyIdeal(enrichedPlayer, slot, managerName, requirement, searchResult, cap, language),
     systemFitScore: selectionScore,
   }
 
@@ -803,16 +818,17 @@ async function enrichSlots(
   slots: ManagerXISlot[],
   manager: ManagerProfile | null,
   managerName: string,
-  cap: number | null
+  cap: number | null,
+  language: LanguageCode
 ): Promise<EnrichedSlot[]> {
   const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-  await warmTransfermarktSearch(slots, searchCache)
+  await warmTransfermarktSearch(slots, searchCache, language)
   const evaluatedSlots = await mapWithConcurrency(
     slots,
     TM_ENRICHMENT_CONCURRENCY,
     async (slot) => {
       const candidates = await mapWithConcurrency(
-        materializeCandidates(slot),
+        materializeCandidates(slot, language),
         TM_ENRICHMENT_CONCURRENCY,
         async (player) =>
           buildCandidateEvaluation(
@@ -821,7 +837,8 @@ async function enrichSlots(
             await findSearchResult(player, searchCache),
             manager,
             managerName,
-            cap
+            cap,
+            language
           )
       )
 
@@ -944,10 +961,11 @@ function withComputedBudget(
 async function resolveCandidatePool(
   pool: ManagerXICandidatePool,
   budget: string,
-  manager: ManagerProfile | null
+  manager: ManagerProfile | null,
+  language: LanguageCode
 ): Promise<ManagerXIResult | null> {
   const cap = getBudgetCap(budget)
-  const candidateSlots = await enrichSlots(pool.slots, manager, pool.managerName, cap)
+  const candidateSlots = await enrichSlots(pool.slots, manager, pool.managerName, cap, language)
   const selection = selectPlayersForSlots(candidateSlots, cap, budget)
 
   if (selection.chosen.length !== pool.slots.length) {
@@ -977,7 +995,8 @@ async function resolveCandidatePool(
 async function buildBudgetAwareManagerXI(
   budget: string,
   managerName?: string,
-  managerId?: string
+  managerId?: string,
+  language: LanguageCode = 'en'
 ): Promise<ManagerXIResult> {
   const manager = managerId ? (getManagerById(managerId) || null) : null
   const liveManagerName = manager?.name || managerName || null
@@ -986,7 +1005,7 @@ async function buildBudgetAwareManagerXI(
     : null
   if (!liveManagerSnapshot?.primaryFormation) {
     const resolvedName = manager?.name || managerName || 'This manager'
-    throw new Error(`Live formation data is unavailable for ${resolvedName} right now. Build XI currently requires a recent verified shape from live lineup data.`)
+    throw new Error(`${LIVE_FORMATION_ERROR_PREFIX}${translate(language, 'build.liveFormationUnavailable', { manager: resolvedName })}`)
   }
   const cap = getBudgetCap(budget)
   const verificationInstructions = buildVerificationInstructions()
@@ -1015,10 +1034,11 @@ async function buildBudgetAwareManagerXI(
             referenceClub: liveManagerSnapshot.referenceClub,
             recentFormations: liveManagerSnapshot.recentFormations,
           }
-        : undefined
+        : undefined,
+      language
     )
-    const resolved = await resolveCandidatePool(pool, budget, manager)
-    if (!resolved) throw new Error('Failed to build a valid XI from the candidate pool.')
+    const resolved = await resolveCandidatePool(pool, budget, manager, language)
+    if (!resolved) throw new Error(translate(language, 'build.failed'))
     return resolved
   }
 
@@ -1040,39 +1060,43 @@ async function buildBudgetAwareManagerXI(
             referenceClub: liveManagerSnapshot.referenceClub,
             recentFormations: liveManagerSnapshot.recentFormations,
           }
-        : undefined
+        : undefined,
+      language
     )
-    const resolved = await resolveCandidatePool(pool, budget, manager)
+    const resolved = await resolveCandidatePool(pool, budget, manager, language)
     if (!resolved) continue
     lastResolved = resolved
     if (resolved.budgetStatus !== 'over') return resolved
   }
 
   if (lastResolved) return lastResolved
-  throw new Error('Failed to build a valid XI from the candidate pool.')
+  throw new Error(translate(language, 'build.failed'))
 }
 
 export async function POST(request: NextRequest) {
+  let language: LanguageCode = 'en'
   try {
     const body = await request.json()
     const { budget, managerId, managerName } = body as {
       budget: string
       managerId?: string
       managerName?: string
+      language?: string
     }
+    language = normalizeLanguage(body.language)
 
     if (!budget || (!managerId && !managerName)) {
-      return NextResponse.json({ error: 'budget and manager are required' }, { status: 400 })
+      return NextResponse.json({ error: translate(language, 'build.invalidInput') }, { status: 400 })
     }
 
-    const result = await buildBudgetAwareManagerXI(budget, managerName, managerId)
+    const result = await buildBudgetAwareManagerXI(budget, managerName, managerId, language)
     return NextResponse.json(result)
   } catch (error) {
     console.error('Manager XI error:', error)
-    if (error instanceof Error && error.message.startsWith('Live formation data is unavailable')) {
-      return NextResponse.json({ error: error.message }, { status: 503 })
+    if (error instanceof Error && error.message.startsWith(LIVE_FORMATION_ERROR_PREFIX)) {
+      return NextResponse.json({ error: error.message.slice(LIVE_FORMATION_ERROR_PREFIX.length) }, { status: 503 })
     }
-    const details = getAIErrorDetails(error, 'Failed to build XI. Please try again.')
+    const details = getAIErrorDetails(error, translate(language, 'build.failed'))
     return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

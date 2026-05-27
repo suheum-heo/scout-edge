@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Search, Zap, AlertCircle, ChevronDown, Settings2, Sparkles } from 'lucide-react'
 import GapCard from '@/components/GapCard'
@@ -39,6 +40,7 @@ interface ManagerResult {
   keyPrinciples: string[]
   source?: 'override' | 'provider' | 'unverified'
   verified?: boolean
+  transfermarktUrl?: string | null
 }
 
 function makeAvailabilityKey(ids?: Iterable<string>): string {
@@ -50,6 +52,7 @@ function makeTeamKey(team?: Team | null): string {
 }
 
 export default function HomePage() {
+  const { language, t, pluralSuffix, translatePosition } = useLanguage()
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
@@ -235,11 +238,12 @@ export default function HomePage() {
           fotmobId: team.team.fotmobId,
           excludedPlayerIds: excludeIds ? [...excludeIds] : undefined,
           analysisMode: 'details',
+          language,
         }),
       })
 
       if (!res.ok) {
-        setAnalysisDetailsError('Detailed strengths and weaknesses could not be loaded. Try again.')
+        setAnalysisDetailsError(t('home.detailsFailedMessage'))
         return
       }
       const data = await res.json()
@@ -250,14 +254,14 @@ export default function HomePage() {
       }
     } catch {
       if (analysisRequestSeq.current === requestSeq) {
-        setAnalysisDetailsError('Detailed strengths and weaknesses could not be loaded. Try again.')
+        setAnalysisDetailsError(t('home.detailsFailedMessage'))
       }
     } finally {
       if (analysisRequestSeq.current === requestSeq) {
         setIsLoadingAnalysisDetails(false)
       }
     }
-  }, [selectedManagerId])
+  }, [language, selectedManagerId, t])
 
   const loadSquadFit = useCallback(async (
     requestSeq: number,
@@ -284,13 +288,14 @@ export default function HomePage() {
           managerId: managerInput.id || undefined,
           managerName: managerInput.name,
           teamName,
+          language,
         }),
       })
       const data = await res.json()
       if (analysisRequestSeq.current !== requestSeq) return
       if (!res.ok) {
         if (!options?.silent) {
-          setFitError(data.error || 'Failed to analyse squad fit')
+          setFitError(data.error || t('home.fitLoadingTitle'))
         }
         return
       }
@@ -298,14 +303,14 @@ export default function HomePage() {
     } catch {
       if (analysisRequestSeq.current !== requestSeq) return
       if (!options?.silent) {
-        setFitError('Failed to analyse squad fit')
+        setFitError(t('home.fitLoadingTitle'))
       }
     } finally {
       if (options?.showLoading && analysisRequestSeq.current === requestSeq) {
         setIsLoadingFit(false)
       }
     }
-  }, [])
+  }, [language, t])
 
   const handleAnalyze = async (options?: { excludeIds?: Set<string>; team?: Team | null }) => {
     const teamToAnalyze = options?.team ?? selectedTeam
@@ -343,6 +348,7 @@ export default function HomePage() {
           teamSource: teamToAnalyze.team.source,
           fotmobId: teamToAnalyze.team.fotmobId,
           excludedPlayerIds: excludeIds ? [...excludeIds] : undefined,
+          language,
         }),
       })
 
@@ -350,12 +356,12 @@ export default function HomePage() {
       try {
         data = await res.json()
       } catch {
-        setError('Server timed out — the first request after inactivity can take 10–15s. Please try again.')
+        setError(t('home.timeout'))
         return
       }
 
       if (!res.ok) {
-        setError((data.error as string) || 'Analysis failed')
+        setError((data.error as string) || t('error.analysisFailed'))
         return
       }
 
@@ -386,7 +392,7 @@ export default function HomePage() {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }, 100)
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError(t('loading.defaultMessage'))
     } finally {
       setIsAnalyzing(false)
     }
@@ -405,7 +411,7 @@ export default function HomePage() {
   const handleSelectBudget = async (budget: string) => {
     if (!selectedGap || !analyzedTeam || !managerResult) return
     if (availabilityDirty) {
-      setRecsError('Re-analyse the squad after updating availability before requesting transfer targets.')
+      setRecsError(t('home.reanalyseAvailabilityFirst'))
       setRecommendations([])
       return
     }
@@ -426,17 +432,18 @@ export default function HomePage() {
           budget,
           squad: availableSquad,
           nationalTeamCountry: nationalTeamCountry || undefined,
+          language,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) {
-        setRecsError(data.error || 'Failed to load recommendations')
+        setRecsError(data.error || t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) }))
       } else {
         setRecommendations(data.recommendations || [])
       }
     } catch {
-      setRecsError('Failed to load recommendations')
+      setRecsError(t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) }))
     } finally {
       setIsLoadingRecs(false)
     }
@@ -457,18 +464,19 @@ export default function HomePage() {
           managerId: managerResult.id || undefined,
           managerName: managerResult.name,
           teamName: analyzedTeam.team.name,
+          language,
         }),
       })
       const data = await res.json()
       if (!res.ok) {
-        setScenarioError(data.error || 'Scenario analysis failed')
+        setScenarioError(data.error || t('scenario.loadingTitle'))
         return
       }
       const letter = String.fromCharCode(65 + scenarios.length) // A, B, C...
-      const labeled: ScenarioResult = { ...data.result, label: `Scenario ${letter}` }
+      const labeled: ScenarioResult = { ...data.result, label: t('scenario.label', { letter }) }
       setScenarios((prev) => [labeled, ...prev])
     } catch {
-      setScenarioError('Something went wrong. Please try again.')
+      setScenarioError(t('loading.defaultMessage'))
     } finally {
       setIsRunningScenario(false)
     }
@@ -518,7 +526,7 @@ export default function HomePage() {
     .map((player) => player.name)
     .join(', ')
   const unavailableOverflow = unavailablePlayers.length > 4
-    ? ` +${unavailablePlayers.length - 4} more`
+    ? ` ${t('common.moreCount', { count: unavailablePlayers.length - 4 })}`
     : ''
   const analysisDetailsPending = analysis?.detailsStatus === 'partial'
   const hasPendingTeamSelection =
@@ -527,15 +535,15 @@ export default function HomePage() {
     !!analyzedTeam &&
     makeTeamKey(selectedTeam) !== makeTeamKey(analyzedTeam)
   const analysisDetailsHeadline = analysisDetailsError
-    ? 'Detailed strengths and weaknesses did not finish loading.'
+    ? t('home.detailsFailedHeadline')
     : isLoadingAnalysisDetails
-    ? 'Detailed strengths and weaknesses are loading now.'
-    : 'Core analysis is ready. The deeper support notes are still on the way.'
+    ? t('home.detailsLoadingHeadline')
+    : t('home.detailsReadyHeadline')
   const analysisDetailsMessage = analysisDetailsError
-    ? 'The follow-up detail pass failed on this attempt. Retry it here to fill in the strengths and weaknesses.'
+    ? t('home.detailsFailedMessage')
     : isLoadingAnalysisDetails
-    ? 'ScoutEdge shows the core verdict first for speed. The support bullets usually arrive within 5-8 seconds.'
-    : 'If the support bullets do not appear after a few seconds, use Retry details to request the follow-up pass again.'
+    ? t('home.detailsLoadingMessage')
+    : t('home.detailsReadyMessage')
   const handleRetryAnalysisDetails = () => {
     if (!analyzedTeam || !analysis || isLoadingAnalysisDetails) return
     void hydrateAnalysisDetails(analysisRequestSeq.current, analyzedTeam, analyzedUnavailableIds)
@@ -547,14 +555,14 @@ export default function HomePage() {
       <div className="text-center mb-12">
         <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium px-3 py-1.5 rounded-full mb-4">
           <Zap className="w-3 h-3" />
-          AI-Powered Tactical Intelligence
+          {t('home.heroBadge')}
         </div>
         <h1 className="text-4xl sm:text-5xl font-bold text-slate-900 dark:text-white tracking-tight mb-4">
-          Find the exact players<br />
-          <span className="text-blue-400">your system demands</span>
+          {t('home.heroTitleLine1')}<br />
+          <span className="text-blue-400">{t('home.heroTitleLine2')}</span>
         </h1>
         <p className="text-slate-600 dark:text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
-          Search any club — we auto-detect the manager and analyse the squad for transfer window gaps.
+          {t('home.heroSubtitle')}
         </p>
       </div>
 
@@ -569,7 +577,7 @@ export default function HomePage() {
               value={teamQuery}
               onChange={(e) => handleTeamSearch(e.target.value)}
               onKeyDown={handleTeamInputKeyDown}
-              placeholder="Search for a club... (e.g. Tottenham, Bayern München)"
+              placeholder={t('home.searchPlaceholder')}
               className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm"
             />
             {isSearching && (
@@ -617,8 +625,8 @@ export default function HomePage() {
             >
               <Settings2 className="w-3 h-3" />
               {selectedManagerId
-                ? `Manager override: ${selectedManagerOverride?.name}`
-                : 'Override manager (optional)'}
+                ? t('home.overrideSelected', { name: selectedManagerOverride?.name || '' })
+                : t('home.overrideOptional')}
               <ChevronDown className={`w-3 h-3 transition-transform ${overrideOpen ? 'rotate-180' : ''}`} />
             </button>
 
@@ -631,7 +639,7 @@ export default function HomePage() {
                   <span className={`text-sm ${selectedManagerOverride ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                     {selectedManagerOverride
                       ? `${selectedManagerOverride.name} · ${selectedManagerOverride.currentClub}`
-                      : 'Select a manager to override auto-detection'}
+                      : t('home.overrideSelectManager')}
                   </span>
                   <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${managerDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -645,7 +653,7 @@ export default function HomePage() {
                       }}
                       className="w-full px-4 py-2.5 text-left text-slate-400 dark:text-slate-500 text-sm hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors border-b border-slate-100 dark:border-slate-800"
                     >
-                      Auto-detect from team
+                      {t('home.autoDetectFromTeam')}
                     </button>
                     {managers.map((m) => (
                       <button
@@ -671,7 +679,7 @@ export default function HomePage() {
 
         {hasPendingTeamSelection && selectedTeam && analyzedTeam && (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-            Current results are still for {analyzedTeam.team.name}. Click Analyse Squad to refresh them for {selectedTeam.team.name}.
+            {t('home.pendingTeamSwitch', { currentTeam: analyzedTeam.team.name, nextTeam: selectedTeam.team.name })}
           </div>
         )}
 
@@ -681,7 +689,7 @@ export default function HomePage() {
           disabled={!selectedTeam || isAnalyzing}
           className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-100 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
-          {isAnalyzing ? 'Analysing Squad...' : 'Analyse Squad'}
+          {isAnalyzing ? t('home.analyzingButton') : t('home.analyseButton')}
         </button>
       </div>
 
@@ -695,9 +703,9 @@ export default function HomePage() {
 
       {isAnalyzing && (
         <LoadingSpinner
-          message="Analysing squad..."
-          submessage="Fetching squad data and running tactical analysis with Claude AI"
-          durationHint="Squad analysis can take up to about a minute when live squad data and deeper tactical reasoning are both running. Stay on this page and the report will appear automatically."
+          message={t('home.analysisLoadingTitle')}
+          submessage={t('home.analysisLoadingSub')}
+          durationHint={t('home.analysisLoadingHint')}
         />
       )}
 
@@ -713,13 +721,24 @@ export default function HomePage() {
                     {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
                   <div>
-                    <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? 'Manager unavailable'}</h2>
+                    {managerResult.transfermarktUrl ? (
+                      <a
+                        href={managerResult.transfermarktUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-slate-900 dark:text-white font-bold hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
+                      >
+                        {managerResult.name ?? t('home.managerUnavailable')}
+                      </a>
+                    ) : (
+                      <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? t('home.managerUnavailable')}</h2>
+                    )}
                     <p className="text-slate-600 text-xs">{managerResult.currentClub}</p>
                   </div>
                 </div>
                 {managerResult.verified === false && (
                   <p className="text-amber-500 text-xs mt-2 ml-11">
-                    Live manager data is unavailable for this club right now. Use the manager override if needed.
+                    {t('home.managerUnverified')}
                   </p>
                 )}
                 {managerResult.formations.length > 0 && (
@@ -745,7 +764,7 @@ export default function HomePage() {
                   {analysis.tacticalFitScore}
                   <span className="text-base text-slate-600">/10</span>
                 </div>
-                <div className="text-slate-600 text-xs">Tactical Fit</div>
+                <div className="text-slate-600 text-xs">{t('home.tacticalFit')}</div>
               </div>
             </div>
 
@@ -781,13 +800,13 @@ export default function HomePage() {
                     disabled={isLoadingAnalysisDetails}
                     className="text-xs px-2.5 py-1 rounded-full border border-blue-500/20 text-blue-300 hover:bg-blue-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isLoadingAnalysisDetails ? 'Loading details…' : 'Retry details'}
+                    {isLoadingAnalysisDetails ? t('home.loadingDetails') : t('home.retryDetails')}
                   </button>
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">Strengths</p>
+                  <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-2">{t('home.strengths')}</p>
                   <ul className="space-y-1">
                     {analysis.squadStrengths?.length ? analysis.squadStrengths.map((s, i) => (
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
@@ -806,13 +825,13 @@ export default function HomePage() {
                       ))
                     ) : (
                       <li className="text-slate-500 dark:text-slate-500 text-xs">
-                        No strengths available yet.
+                        {t('home.noStrengths')}
                       </li>
                     )}
                   </ul>
                 </div>
                 <div>
-                  <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-2">Weaknesses</p>
+                  <p className="text-red-400 text-xs font-semibold uppercase tracking-wider mb-2">{t('home.weaknesses')}</p>
                   <ul className="space-y-1">
                     {analysis.squadWeaknesses?.length ? analysis.squadWeaknesses.map((w, i) => (
                       <li key={i} className="text-slate-600 dark:text-slate-400 text-xs flex items-start gap-1.5">
@@ -831,7 +850,7 @@ export default function HomePage() {
                       ))
                     ) : (
                       <li className="text-slate-500 dark:text-slate-500 text-xs">
-                        No weaknesses available yet.
+                        {t('home.noWeaknesses')}
                       </li>
                     )}
                   </ul>
@@ -855,8 +874,8 @@ export default function HomePage() {
                     : 'bg-blue-500/10 border-blue-500/20 text-blue-300'
                 }`}>
                   {availabilityDirty
-                    ? `Availability changed: re-analyse to refresh the gap list and transfer target logic without ${unavailableSummary}${unavailableOverflow}.`
-                    : `Manager availability mode is active: Squad Fit, coverage checks, and scenarios are using the currently available squad without ${unavailableSummary}${unavailableOverflow}.`}
+                    ? t('availability.changed', { players: `${unavailableSummary}${unavailableOverflow}` })
+                    : t('availability.activeMode', { players: `${unavailableSummary}${unavailableOverflow}` })}
                 </div>
               )}
               {unavailableIds.size > 0 && (
@@ -865,7 +884,9 @@ export default function HomePage() {
                   disabled={isAnalyzing}
                   className="w-full mb-5 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-amber-600/80 hover:bg-amber-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors"
                 >
-                  {isAnalyzing ? 'Re-analysing…' : `Re-analyse without ${unavailableIds.size} unavailable player${unavailableIds.size > 1 ? 's' : ''}`}
+                  {isAnalyzing
+                    ? t('home.analyzingButton')
+                    : t('availability.reanalyse', { count: unavailableIds.size, suffix: pluralSuffix(unavailableIds.size) })}
                 </button>
               )}
             </div>
@@ -882,7 +903,7 @@ export default function HomePage() {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Transfer Gaps
+                {t('home.transferGaps')}
               </button>
               <button
                 onClick={() => handleSwitchTab('fit')}
@@ -892,7 +913,7 @@ export default function HomePage() {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Squad Fit Map
+                {t('home.squadFitMap')}
               </button>
               <button
                 onClick={() => handleSwitchTab('scenario')}
@@ -902,7 +923,7 @@ export default function HomePage() {
                     : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                Scenarios
+                {t('home.scenarios')}
                 {scenarios.length > 0 && (
                   <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
                     {scenarios.length}
@@ -918,7 +939,7 @@ export default function HomePage() {
                 }`}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Undervalued XI
+                {t('home.undervaluedXi')}
               </button>
             </div>
 
@@ -944,7 +965,7 @@ export default function HomePage() {
                       <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3">
                         <Search className="w-5 h-5 text-slate-400 dark:text-slate-600" />
                       </div>
-                      <p className="text-slate-600 text-sm">Select a gap to find transfer targets</p>
+                      <p className="text-slate-600 text-sm">{t('home.selectGap')}</p>
                     </div>
                   )}
 
@@ -952,10 +973,10 @@ export default function HomePage() {
                   {selectedGap && !isLoadingRecs && (
                     <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mb-4">
                       <p className="text-slate-900 dark:text-white font-semibold text-sm mb-1">
-                        {selectedGap.position} — choose your budget
+                        {t('home.chooseBudgetTitle', { position: translatePosition(selectedGap.position) })}
                       </p>
                       <p className="text-slate-600 text-xs mb-3">
-                        Claude will find real players that fit within this range
+                        {t('home.chooseBudgetSubtitle')}
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {['Loan', 'Free agent', '< €20M', '€20–50M', '€50–100M', '€100M+'].map((b) => (
@@ -977,9 +998,9 @@ export default function HomePage() {
 
                   {selectedGap && isLoadingRecs && (
                     <LoadingSpinner
-                      message={`Finding ${selectedGap.position} targets...`}
-                      submessage="Claude is scanning the transfer market"
-                      durationHint="Transfer target discovery can take up to about a minute because live market checks and tactical ranking run together."
+                      message={t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) })}
+                      submessage={t('home.recsLoadingSub')}
+                      durationHint={t('home.recsLoadingHint')}
                     />
                   )}
 
@@ -994,10 +1015,12 @@ export default function HomePage() {
                     <div className={`space-y-3 transition-opacity ${!selectedBudget ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
                       <div className="flex items-center justify-between">
                         <h3 className="text-slate-900 dark:text-white font-semibold">
-                          {selectedGap?.position} Targets
+                          {t('home.targetsTitle', { position: translatePosition(selectedGap?.position || '') })}
                         </h3>
                         <span className="text-slate-600 text-xs">
-                          {selectedBudget ? `${selectedBudget} · ${recommendations.length} players` : 'Select a budget above'}
+                          {selectedBudget
+                            ? t('home.targetsCount', { budget: selectedBudget, count: recommendations.length })
+                            : t('home.selectBudgetAbove')}
                         </span>
                       </div>
                       {recommendations.map((rec, i) => (
@@ -1008,8 +1031,8 @@ export default function HomePage() {
 
                   {selectedGap && !isLoadingRecs && selectedBudget && recommendations.length === 0 && !recsError && (
                     <div className="bg-[#EEF2F7] dark:bg-slate-800/30 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center">
-                      <p className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-1">No players found in this range</p>
-                      <p className="text-slate-400 dark:text-slate-600 text-xs">Try a different budget — players now have to pass the selected live Transfermarkt value bracket before we show them.</p>
+                      <p className="text-slate-600 dark:text-slate-400 text-sm font-medium mb-1">{t('home.noPlayersFound')}</p>
+                      <p className="text-slate-400 dark:text-slate-600 text-xs">{t('home.noPlayersFoundDetail')}</p>
                     </div>
                   )}
                 </div>
@@ -1021,9 +1044,9 @@ export default function HomePage() {
               <div>
                 {isLoadingFit && (
                   <LoadingSpinner
-                    message="Analysing squad fit..."
-                    submessage="Claude is rating each player against the tactical system"
-                    durationHint="Squad Fit Map can take up to about a minute because every player is scored against the current system."
+                    message={t('home.fitLoadingTitle')}
+                    submessage={t('home.fitLoadingSub')}
+                    durationHint={t('home.fitLoadingHint')}
                   />
                 )}
                 {fitError && (
@@ -1044,9 +1067,9 @@ export default function HomePage() {
                 {/* Builder */}
                 <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
                   <div className="mb-4">
-                    <h3 className="text-slate-900 dark:text-white font-semibold text-sm">Build a Transfer Scenario</h3>
+                    <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{t('scenario.buildTitle')}</h3>
                     <p className="text-slate-600 text-xs mt-0.5">
-                      Select players leaving and add incoming signings — Claude will recalculate how the currently available squad changes.
+                      {t('scenario.buildSubtitle')}
                     </p>
                   </div>
                   <ScenarioBuilder
@@ -1058,9 +1081,9 @@ export default function HomePage() {
                   {isRunningScenario && (
                     <LoadingSpinner
                       compact
-                      message="Running transfer scenario..."
-                      submessage="Recalculating depth, balance, and tactical trade-offs"
-                      durationHint="Scenario simulations can take up to about a minute when multiple squad dimensions need to be recomputed."
+                      message={t('scenario.loadingTitle')}
+                      submessage={t('scenario.loadingSub')}
+                      durationHint={t('scenario.loadingHint')}
                     />
                   )}
                   {scenarioError && (
@@ -1083,10 +1106,10 @@ export default function HomePage() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-slate-900 dark:text-white font-semibold text-sm">
-                        {scenarios.length} {scenarios.length === 1 ? 'Scenario' : 'Scenarios'}
+                        {t('scenario.count', { count: scenarios.length, suffix: pluralSuffix(scenarios.length) })}
                       </h3>
                       {scenarios.length >= 2 && !compareIds && (
-                        <p className="text-slate-600 text-xs">Click Compare on two scenarios to compare them</p>
+                        <p className="text-slate-600 text-xs">{t('scenario.compareHint')}</p>
                       )}
                     </div>
                     {scenarios.map((s) => {
@@ -1107,7 +1130,7 @@ export default function HomePage() {
 
                 {scenarios.length === 0 && !isRunningScenario && (
                   <div className="text-center py-8">
-                    <p className="text-slate-600 text-sm">Run your first scenario above to see results</p>
+                    <p className="text-slate-600 text-sm">{t('scenario.empty')}</p>
                   </div>
                 )}
               </div>
@@ -1119,6 +1142,7 @@ export default function HomePage() {
                 managerId={managerResult?.id}
                 managerName={managerResult?.name ?? undefined}
                 teamName={analyzedTeam?.team.name || analysis?.teamName}
+                language={language}
               />
             )}
           </div>
@@ -1129,24 +1153,24 @@ export default function HomePage() {
       {!analysis && !isAnalyzing && (
         <div className="max-w-3xl mx-auto mt-16">
           <h2 className="text-center text-slate-500 dark:text-slate-500 text-sm font-medium uppercase tracking-wider mb-8">
-            How it works
+            {t('home.howItWorks')}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {[
               {
                 step: '01',
-                title: 'Search any club',
-                desc: 'We auto-detect the current manager and their tactical system — no setup required.',
+                title: t('home.step1Title'),
+                desc: t('home.step1Desc'),
               },
               {
                 step: '02',
-                title: 'AI analyses the squad',
-                desc: "Claude identifies which positions are gaps or mismatches for the manager's system.",
+                title: t('home.step2Title'),
+                desc: t('home.step2Desc'),
               },
               {
                 step: '03',
-                title: 'Get transfer targets',
-                desc: 'Click any gap for real, available players ranked by tactical fit with scout-level reasoning.',
+                title: t('home.step3Title'),
+                desc: t('home.step3Desc'),
               },
             ].map(({ step, title, desc }) => (
               <div key={step} className="text-center">

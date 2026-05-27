@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState, useEffect, useRef } from 'react'
 import { Search, AlertCircle, GitCompare } from 'lucide-react'
 import CompatibilityReport from '@/components/CompatibilityReport'
@@ -26,6 +27,7 @@ interface PlayerResult {
 }
 
 export default function PlayerCheckPage() {
+  const { language, t, translatePosition } = useLanguage()
   const [clubQuery, setClubQuery] = useState('')
   const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; country: string; logo: string }>>([])
   const [isSearchingClub, setIsSearchingClub] = useState(false)
@@ -147,14 +149,15 @@ export default function PlayerCheckPage() {
           managerId: selectedManager?.profileId || undefined,
           managerName: selectedManager?.profileId ? undefined : managerQuery.trim(),
           targetTeam: clubQuery.trim() || undefined,
+          language,
         }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Analysis failed'); return }
+      if (!res.ok) { setError(data.error || t('loading.defaultMessage')); return }
       setResult(data.compatibility)
       setTmPlayer(data.player || null)
     } catch {
-      setError('Something went wrong. Please try again.')
+      setError(t('loading.defaultMessage'))
     } finally {
       setIsChecking(false)
     }
@@ -171,14 +174,13 @@ export default function PlayerCheckPage() {
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-2 bg-purple-500/10 border border-purple-500/20 text-purple-400 text-xs font-medium px-3 py-1.5 rounded-full mb-4">
           <GitCompare className="w-3 h-3" />
-          Player Compatibility
+          {t('playerCheck.badge')}
         </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
-          Does this player fit?
+          {t('playerCheck.title')}
         </h1>
         <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Enter any player&apos;s name and select a manager to get a detailed tactical compatibility
-          report — including role, fit score, strengths, concerns, and scout comparison.
+          {t('playerCheck.subtitle')}
         </p>
       </div>
 
@@ -193,23 +195,23 @@ export default function PlayerCheckPage() {
               onChange={(e) => handlePlayerInput(e.target.value)}
               onFocus={() => playerSuggestions.length > 0 && setPlayerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-              placeholder="Player name (e.g. Micky van de Ven)"
+              placeholder={t('playerCheck.playerPlaceholder')}
               className={inputText}
             />
             {isSearchingPlayer && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-green-400 rounded-full animate-spin flex-shrink-0" />}
-            {selectedPlayer && !isSearchingPlayer && <span className="text-green-400 text-xs flex-shrink-0">✓ Found</span>}
+            {selectedPlayer && !isSearchingPlayer && <span className="text-green-400 text-xs flex-shrink-0">✓ {t('common.found')}</span>}
           </div>
           {playerDropdownOpen && (playerSuggestions.length > 0 || isSearchingPlayer) && (
             <div className={dropdownBase}>
               {isSearchingPlayer && playerSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : playerSuggestions.map((player) => (
                     <button key={player.id} onClick={() => handleSelectPlayer(player)} className={dropdownItem}>
                       <div>
                         <span className="font-medium">{player.name}</span>
                         <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{player.club}</span>
                       </div>
-                      <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{player.position}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{translatePosition(player.position)}</span>
                     </button>
                   ))
               }
@@ -226,23 +228,23 @@ export default function PlayerCheckPage() {
               onChange={(e) => handleManagerInput(e.target.value)}
               onFocus={() => managerSuggestions.length > 0 && setManagerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-              placeholder="Manager name (e.g. Klopp, Vitor Pereira...)"
+              placeholder={t('playerCheck.managerPlaceholder')}
               className={inputText}
             />
             {isSearchingManager && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-purple-400 rounded-full animate-spin flex-shrink-0" />}
-            {selectedManager?.hasProfile && !isSearchingManager && <span className="text-purple-400 text-xs flex-shrink-0">✓ Full profile</span>}
+            {selectedManager?.hasProfile && !isSearchingManager && <span className="text-purple-400 text-xs flex-shrink-0">✓ {t('common.fullProfile')}</span>}
           </div>
           {managerDropdownOpen && (managerSuggestions.length > 0 || isSearchingManager) && (
             <div className={dropdownBase}>
               {isSearchingManager && managerSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : managerSuggestions.map((coach) => (
                     <button key={coach.id} onClick={() => handleSelectManager(coach)} className={dropdownItem}>
                       <div>
                         <span className="font-medium">{coach.name}</span>
                         <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
                       </div>
-                      {coach.hasProfile && <span className="text-purple-400 text-xs flex-shrink-0">Full profile</span>}
+                      {coach.hasProfile && <span className="text-purple-400 text-xs flex-shrink-0">{t('common.fullProfile')}</span>}
                     </button>
                   ))
               }
@@ -259,7 +261,7 @@ export default function PlayerCheckPage() {
               onChange={(e) => handleClubInput(e.target.value)}
               onFocus={() => clubSuggestions.length > 0 && setClubDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-              placeholder="Target club (optional — e.g. Arsenal)"
+              placeholder={t('playerCheck.clubPlaceholder')}
               className={inputText}
             />
             {isSearchingClub && <div className="w-3 h-3 border border-slate-300 dark:border-slate-600 border-t-slate-400 rounded-full animate-spin flex-shrink-0" />}
@@ -267,7 +269,7 @@ export default function PlayerCheckPage() {
           {clubDropdownOpen && (clubSuggestions.length > 0 || isSearchingClub) && (
             <div className={dropdownBase + ' max-h-48'}>
               {isSearchingClub && clubSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : clubSuggestions.map((club) => (
                     <button key={club.id} onClick={() => { setClubQuery(club.name); setClubDropdownOpen(false); setClubSuggestions([]) }}
                       className={dropdownItem}>
@@ -288,7 +290,7 @@ export default function PlayerCheckPage() {
           disabled={!playerQuery.trim() || !managerQuery.trim() || isChecking}
           className="w-full bg-purple-600 hover:bg-purple-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:cursor-not-allowed"
         >
-          {isChecking ? 'Analyzing compatibility...' : 'Check Compatibility'}
+          {isChecking ? t('playerCheck.loadingButton') : t('playerCheck.checkButton')}
         </button>
       </div>
 
@@ -302,9 +304,9 @@ export default function PlayerCheckPage() {
 
       {isChecking && (
         <LoadingSpinner
-          message="Running scout analysis..."
-          submessage="Fetching player stats and analyzing tactical compatibility"
-          durationHint="This check can take up to about a minute when live player data and tactical reasoning both need a full pass."
+          message={t('playerCheck.loadingTitle')}
+          submessage={t('playerCheck.loadingSub')}
+          durationHint={t('playerCheck.loadingHint')}
         />
       )}
 
@@ -326,19 +328,19 @@ export default function PlayerCheckPage() {
                   <p className="text-slate-900 dark:text-white font-semibold">{result.playerName}</p>
                   <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer?.currentClub || result.currentClub || '—'}</p>
                   <p className="text-slate-400 dark:text-slate-500 text-xs">
-                    {tmPlayer?.position || result.position}
-                    {(tmPlayer?.age || result.age) ? ` · Age ${tmPlayer?.age || result.age}` : ''}
+                    {translatePosition(tmPlayer?.position || result.position || '')}
+                    {(tmPlayer?.age || result.age) ? ` · ${t('common.ageLabel', { age: tmPlayer?.age || result.age || '' })}` : ''}
                     {(tmPlayer?.nationality || result.nationality) ? ` · ${tmPlayer?.nationality || result.nationality}` : ''}
                   </p>
                 </div>
               </div>
               {tmPlayer && (
                 <div className="flex items-center gap-4 flex-wrap">
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.goals, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Goals</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.assists, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Assists</p></div>
-                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.appearances, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Apps</p></div>
-                  <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Value</p></div>
-                  <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">Contract</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.goals, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.goals')}</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.assists, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.assists')}</p></div>
+                  <div className="text-center"><p className="text-slate-900 dark:text-white font-bold text-sm">{statDisplay(tmPlayer.appearances, tmPlayer.statsAvailable)}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.apps')}</p></div>
+                  <div className="text-center"><p className="text-blue-500 dark:text-blue-400 font-bold text-sm">{tmPlayer.marketValueFormatted}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.value')}</p></div>
+                  <div className="text-center"><p className="text-slate-700 dark:text-slate-300 font-bold text-sm">{tmPlayer.contractYear}</p><p className="text-slate-400 dark:text-slate-500 text-xs">{t('common.contract')}</p></div>
                 </div>
               )}
             </div>
@@ -350,7 +352,7 @@ export default function PlayerCheckPage() {
       {/* Examples */}
       {!result && !isChecking && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">Try these examples</p>
+          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">{t('build.tryThese')}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
               { player: 'Bukayo Saka', manager: 'Mikel Arteta', profileId: 'mikel-arteta' },

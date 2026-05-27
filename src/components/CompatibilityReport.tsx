@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { PlayerCompatibilityResult } from '@/lib/claude'
 import { getScoreColor, getRecommendationColor } from '@/lib/utils'
 import { CheckCircle, AlertTriangle, Info, GitCompare } from 'lucide-react'
@@ -9,6 +10,7 @@ interface CompatibilityReportProps {
 }
 
 export default function CompatibilityReport({ result }: CompatibilityReportProps) {
+  const { t } = useLanguage()
   return (
     <div className="space-y-4">
       {/* Verdict header */}
@@ -16,7 +18,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
             <h3 className="text-slate-900 dark:text-white font-bold text-lg">{result.playerName}</h3>
-            <p className="text-slate-600 dark:text-slate-400 text-sm">vs {result.managerName}&apos;s system</p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">{t('playerCheck.versusSystem', { manager: result.managerName })}</p>
             <p className="text-slate-600 dark:text-slate-300 mt-3 text-sm leading-relaxed">{result.verdict}</p>
           </div>
           <div className="text-right flex-shrink-0">
@@ -35,7 +37,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
       <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
         <div className="flex items-center gap-2 mb-2">
           <Info className="w-4 h-4 text-blue-400" />
-          <span className="text-blue-500 dark:text-blue-400 text-sm font-medium">Tactical Role</span>
+          <span className="text-blue-500 dark:text-blue-400 text-sm font-medium">{t('playerCheck.tacticalRole')}</span>
         </div>
         <p className="text-slate-600 dark:text-slate-300 text-sm">{result.tacticalRole}</p>
       </div>
@@ -44,7 +46,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
           <h4 className="text-green-500 dark:text-green-400 text-sm font-semibold mb-3 flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" /> Why It Works
+            <CheckCircle className="w-4 h-4" /> {t('playerCheck.whyItWorks')}
           </h4>
           <ul className="space-y-2">
             {result.strengths.map((s, i) => (
@@ -58,7 +60,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
 
         <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
           <h4 className="text-yellow-500 dark:text-yellow-400 text-sm font-semibold mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" /> Concerns
+            <AlertTriangle className="w-4 h-4" /> {t('playerCheck.concerns')}
           </h4>
           {result.concerns.length > 0 ? (
             <ul className="space-y-2">
@@ -70,7 +72,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
               ))}
             </ul>
           ) : (
-            <p className="text-slate-400 dark:text-slate-500 text-sm">No major concerns identified</p>
+            <p className="text-slate-400 dark:text-slate-500 text-sm">{t('playerCheck.noMajorConcerns')}</p>
           )}
         </div>
       </div>
@@ -78,7 +80,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
       {/* Conditions */}
       {result.conditions?.length > 0 && (
         <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-          <h4 className="text-purple-500 dark:text-purple-400 text-sm font-semibold mb-3">Conditions</h4>
+          <h4 className="text-purple-500 dark:text-purple-400 text-sm font-semibold mb-3">{t('playerCheck.conditions')}</h4>
           <ul className="space-y-1.5">
             {result.conditions.map((c, i) => (
               <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
@@ -95,7 +97,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
         <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-2">
             <GitCompare className="w-4 h-4 text-slate-400" />
-            <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">Scout Comparison</span>
+            <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">{t('playerCheck.scoutComparison')}</span>
           </div>
           <p className="text-slate-600 dark:text-slate-300 text-sm">{result.comparison}</p>
         </div>

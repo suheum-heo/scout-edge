@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useLanguage } from '@/components/LanguageProvider'
 
 interface LoadingSpinnerProps {
   message?: string
@@ -18,13 +19,16 @@ function formatElapsedTime(totalSeconds: number): string {
 }
 
 export default function LoadingSpinner({
-  message = 'Analyzing...',
+  message,
   submessage,
-  durationHint = 'This can take up to about a minute depending on provider load. Stay on this page and the results will appear automatically.',
+  durationHint,
   showElapsed = true,
   compact = false,
 }: LoadingSpinnerProps) {
+  const { t } = useLanguage()
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const resolvedMessage = message || t('loading.defaultMessage')
+  const resolvedDurationHint = durationHint ?? t('loading.defaultHint')
 
   useEffect(() => {
     setElapsedSeconds(0)
@@ -49,16 +53,16 @@ export default function LoadingSpinner({
         <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-blue-500 animate-spin" />
       </div>
       <div className="text-center">
-        <p className="text-slate-900 dark:text-white font-medium">{message}</p>
+        <p className="text-slate-900 dark:text-white font-medium">{resolvedMessage}</p>
         {submessage && <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">{submessage}</p>}
         {showElapsed && (
           <div className="mt-3 inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400">
-            Working for {formatElapsedTime(elapsedSeconds)}
+            {t('loading.workingFor', { value: formatElapsedTime(elapsedSeconds) })}
           </div>
         )}
-        {durationHint && (
+        {resolvedDurationHint && (
           <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 max-w-md">
-            {durationHint}
+            {resolvedDurationHint}
           </p>
         )}
       </div>

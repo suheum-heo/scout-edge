@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { DEFAULT_LANGUAGE, type LanguageCode, buildAIOutputLanguageInstruction, translate } from './i18n'
 import { ManagerProfile } from './managers'
 import { formatPlayerStats } from './api-football'
 import { normalizePersonName } from './person-names'
@@ -214,6 +215,10 @@ function buildCachedManagerSystemPrompt(managerSection: string) {
   ]
 }
 
+function withOutputLanguage(prompt: string, language: LanguageCode): string {
+  return `${prompt}\n\n## Output Language:\n${buildAIOutputLanguageInstruction(language)}`
+}
+
 function requestUsesPromptCaching(params: Anthropic.MessageCreateParamsNonStreaming): boolean {
   return Array.isArray(params.system)
     && params.system.some((block) => typeof block === 'object' && block != null && 'cache_control' in block && Boolean(block.cache_control))
@@ -259,20 +264,24 @@ async function createMessageWithPromptCacheFallback(params: Anthropic.MessageCre
   }
 }
 
-function buildFallbackSystemFit(player: SquadPlayer): PlayerSystemFit {
+function buildFallbackSystemFit(player: SquadPlayer, language: LanguageCode = DEFAULT_LANGUAGE): PlayerSystemFit {
   return {
     playerName: player.name,
     position: player.position,
     age: player.age,
     fitScore: 5,
     fitLabel: 'Rotation',
-    reason: `${player.name} needs a manual tactical review for this system.`,
+    reason: translate(language, 'fit.manualReviewReason', { player: player.name }),
     scoutScore: 50,
     valueLabel: 'Fair Value',
   }
 }
 
-function normalizeSystemFit(player: SquadPlayer, fit?: Partial<PlayerSystemFit>): PlayerSystemFit {
+function normalizeSystemFit(
+  player: SquadPlayer,
+  fit?: Partial<PlayerSystemFit>,
+  language: LanguageCode = DEFAULT_LANGUAGE
+): PlayerSystemFit {
   const fitScore = typeof fit?.fitScore === 'number' && fit.fitScore >= 1 && fit.fitScore <= 10
     ? fit.fitScore
     : 5
@@ -302,7 +311,7 @@ function normalizeSystemFit(player: SquadPlayer, fit?: Partial<PlayerSystemFit>)
     fitLabel,
     reason: typeof fit?.reason === 'string' && fit.reason.trim()
       ? fit.reason.trim()
-      : `${player.name} needs a manual tactical review for this system.`,
+      : translate(language, 'fit.manualReviewReason', { player: player.name }),
     scoutScore,
     valueLabel,
   }
@@ -343,13 +352,14 @@ function buildSquadFitPrompt(
   chunkLabel: string,
   teamName: string,
   resolvedName: string,
-  currentDate: string
+  currentDate: string,
+  language: LanguageCode
 ): string {
   const playerList = chunk
     .map((p, index) => `${index + 1}. ${p.name} (${p.position}, Age ${p.age}, ${p.nationality})`)
     .join('\n')
 
-  return `You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
+  return withOutputLanguage(`You are an elite football scout. Rate every player at ${teamName} for how well they fit ${resolvedName}'s specific tactical system. Today is ${currentDate}.
 
 ## Squad batch ${chunkLabel} at ${teamName}:
 ${playerList}
@@ -393,7 +403,7 @@ Return JSON array, one object per player, in the same order as the input:
 ]
 
 No other text. Cover every player.
-Do not rename players. Copy playerName, position, and age exactly from the input list.`
+Do not rename players. Copy playerName, position, and age exactly from the input list.`, language)
 }
 
 async function analyzeSquadSystemFitChunk(
@@ -402,9 +412,10 @@ async function analyzeSquadSystemFitChunk(
   teamName: string,
   resolvedName: string,
   currentDate: string,
-  chunkLabel: string
+  chunkLabel: string,
+  language: LanguageCode
 ): Promise<PlayerSystemFit[]> {
-  const prompt = buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate)
+  const prompt = buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate, language)
   const maxTokens = Math.min(1800, Math.max(1000, 320 + chunk.length * 95))
 
   const res = await createMessageWithPromptCacheFallback({
@@ -430,7 +441,7 @@ async function analyzeSquadSystemFitChunk(
   return chunk.map((player, index) => {
     const byIdentity = parsedByPlayer.get(systemFitPlayerKey(player))
     const byIndex = parsed[index]
-    return normalizeSystemFit(player, byIdentity ?? byIndex)
+    return normalizeSystemFit(player, byIdentity ?? byIndex, language)
   })
 }
 
@@ -440,7 +451,8 @@ async function analyzeSquadSystemFitChunkWithRetry(
   teamName: string,
   resolvedName: string,
   currentDate: string,
-  chunkLabel: string
+  chunkLabel: string,
+  language: LanguageCode
 ): Promise<PlayerSystemFit[]> {
   try {
     return await analyzeSquadSystemFitChunk(
@@ -449,12 +461,13 @@ async function analyzeSquadSystemFitChunkWithRetry(
       teamName,
       resolvedName,
       currentDate,
-      chunkLabel
+      chunkLabel,
+      language
     )
   } catch (error) {
     if (chunk.length <= MIN_SQUAD_FIT_BATCH_SIZE) {
       console.error(`Squad fit chunk ${chunkLabel} failed for ${teamName}:`, error)
-      return chunk.map((player) => buildFallbackSystemFit(player))
+      return chunk.map((player) => buildFallbackSystemFit(player, language))
     }
 
     const midpoint = Math.ceil(chunk.length / 2)
@@ -472,7 +485,8 @@ async function analyzeSquadSystemFitChunkWithRetry(
         teamName,
         resolvedName,
         currentDate,
-        `${chunkLabel}a`
+        `${chunkLabel}a`,
+        language
       ),
       analyzeSquadSystemFitChunkWithRetry(
         rightChunk,
@@ -480,7 +494,8 @@ async function analyzeSquadSystemFitChunkWithRetry(
         teamName,
         resolvedName,
         currentDate,
-        `${chunkLabel}b`
+        `${chunkLabel}b`,
+        language
       ),
     ])
 
@@ -633,6 +648,7 @@ export async function analyzeSquadGapsCore(
   unavailablePlayers?: { name: string; position: string }[],
   allowManagerInference = true,
   liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<SquadAnalysisCoreResult> {
   const { resolvedName, managerSection, squadSection } = buildSquadAnalysisPromptContext(
     manager,
@@ -644,7 +660,7 @@ export async function analyzeSquadGapsCore(
     liveFormationContext
   )
 
-  const prompt = `You are an elite football scout and tactical analyst. Produce the FAST first-pass squad verdict for this manager-team fit.
+  const prompt = withOutputLanguage(`You are an elite football scout and tactical analyst. Produce the FAST first-pass squad verdict for this manager-team fit.
 
 ${squadSection}
 
@@ -688,7 +704,8 @@ Rules:
 - Keep overallAssessment to exactly 2 sentences and 48 words max
 - Keep each gap reasoning to 1 sentence and 55 words max
 - Keep keyStatsPriority to at most 4 items
-- Prefer the highest-signal issues first`
+- Prefer the highest-signal issues first
+- Keep "position" and "positionCode" in standard English football terms`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -724,6 +741,7 @@ export async function analyzeSquadGapDetails(
   unavailablePlayers?: { name: string; position: string }[],
   allowManagerInference = true,
   liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<SquadAnalysisDetailsResult> {
   const { managerSection, squadSection } = buildSquadAnalysisPromptContext(
     manager,
@@ -735,7 +753,7 @@ export async function analyzeSquadGapDetails(
     liveFormationContext
   )
 
-  const prompt = `You are extending an existing squad analysis with ONLY the supporting detail bullets.
+  const prompt = withOutputLanguage(`You are extending an existing squad analysis with ONLY the supporting detail bullets.
 
 ${squadSection}
 
@@ -755,7 +773,7 @@ Rules:
 - Each bullet must be 22 words max
 - Keep them specific to the system and current available squad
 - Do not repeat the gap reasoning word-for-word
-- No extra text`
+- No extra text`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -777,6 +795,7 @@ export async function analyzeSquadGaps(
   unavailablePlayers?: { name: string; position: string }[],
   allowManagerInference = true,
   liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<SquadAnalysisResult> {
   const core = await analyzeSquadGapsCore(
     manager,
@@ -785,7 +804,8 @@ export async function analyzeSquadGaps(
     managerName,
     unavailablePlayers,
     allowManagerInference,
-    liveFormationContext
+    liveFormationContext,
+    language
   )
   const details = await analyzeSquadGapDetails(
     core,
@@ -795,7 +815,8 @@ export async function analyzeSquadGaps(
     managerName,
     unavailablePlayers,
     allowManagerInference,
-    liveFormationContext
+    liveFormationContext,
+    language
   )
 
   return {
@@ -903,7 +924,8 @@ export async function analyzePlayerCompatibility(
   manager: ManagerProfile | null,
   targetTeam?: string,
   managerName?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<PlayerCompatibilityResult> {
   const resolvedManagerName = manager?.name || managerName || 'Unknown Manager'
 
@@ -932,7 +954,7 @@ Use your extensive knowledge of ${resolvedManagerName}'s tactical system — the
     : `## Player: ${playerName}
 Use your knowledge of this player — their current club, position, age, nationality, playing style, strengths, and typical stats. Today's date is ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}, so use the most current information you have about their club and situation.`
 
-  const prompt = `You are an elite football scout and tactical analyst. Assess whether this player would be a good signing for a team managed by ${resolvedManagerName}.
+  const prompt = withOutputLanguage(`You are an elite football scout and tactical analyst. Assess whether this player would be a good signing for a team managed by ${resolvedManagerName}.
 
 ${playerSection}
 
@@ -958,7 +980,7 @@ Respond in this exact JSON format:
 }
 
 Recommendation options: "Strong Yes", "Yes", "Conditional", "No", "Strong No"
-Be honest, specific, and analytical.`
+Be honest, specific, and analytical.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -983,7 +1005,8 @@ export async function analyzeSquadSystemFit(
   manager: ManagerProfile | null,
   teamName: string,
   managerName?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<PlayerSystemFit[]> {
   if (!squad.length) return []
 
@@ -1009,7 +1032,8 @@ ${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel})
         teamName,
         resolvedName,
         currentDate,
-        `${chunkIndex + 1}/${squadChunks.length}`
+        `${chunkIndex + 1}/${squadChunks.length}`,
+        language
       )
     )
   )
@@ -1027,7 +1051,8 @@ export async function recommendPlayersForGap(
   managerName?: string,
   roleCoverageContext?: string,
   nationalTeamCountry?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<TransferTarget[]> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -1039,7 +1064,7 @@ export async function recommendPlayersForGap(
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-  const prompt = `You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend up to 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
+  const prompt = withOutputLanguage(`You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend up to 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
 
@@ -1093,7 +1118,7 @@ Respond in this exact JSON format (be concise, no extra text):
 ]
 
 Availability options: "Likely available" | "Possible" | "Hard to get"
-Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.`
+Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -1159,7 +1184,8 @@ export async function generateUndervaluedXI(
   managerName?: string,
   teamName?: string,
   extraBudgetInstructions?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<UndervaluedXIResult> {
   const resolvedName = manager?.name || managerName || 'a modern pressing manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -1170,7 +1196,7 @@ export async function generateUndervaluedXI(
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
     : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
-  const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
+  const prompt = withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -1216,7 +1242,7 @@ Return ONLY this JSON (no other text):
 }
 
 Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
-Include exactly 11 players covering every position in your chosen formation.`
+Include exactly 11 players covering every position in your chosen formation.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -1236,7 +1262,8 @@ export async function generateUndervaluedXICandidatePool(
   managerName?: string,
   teamName?: string,
   extraBudgetInstructions?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<UndervaluedXICandidatePool> {
   const resolvedName = manager?.name || managerName || 'a modern pressing manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -1247,7 +1274,7 @@ export async function generateUndervaluedXICandidatePool(
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
     : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
-  const prompt = `You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
+  const prompt = withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -1300,7 +1327,7 @@ Return ONLY this JSON:
 
 Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
 Use unique slot ids for repeated positions, e.g. CB-1 and CB-2, CM-1 and CM-2.
-There must be exactly 11 slots and exactly 2 candidates per slot.`
+There must be exactly 11 slots and exactly 2 candidates per slot.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -1372,7 +1399,8 @@ export async function analyzeScenario(
   manager: ManagerProfile | null,
   teamName: string,
   managerName?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<Omit<ScenarioResult, 'id' | 'label' | 'createdAt' | 'playersOut' | 'playersIn'>> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -1401,7 +1429,7 @@ export async function analyzeScenario(
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Evaluate the impact of this transfer scenario on ${teamName}'s squad.
+  const prompt = withOutputLanguage(`You are an elite football scout and tactical analyst. Today is ${currentDate}. Evaluate the impact of this transfer scenario on ${teamName}'s squad.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -1459,7 +1487,7 @@ Return ONLY this JSON:
 }
 
 Recommendation must be exactly one of: "Do it" | "Consider it" | "Risky" | "Avoid"
-No other text.`
+No other text.`, language)
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
@@ -1566,7 +1594,8 @@ export async function analyzeTransferVerdict(
   tmPlayer: TMPlayerData | null,
   manager: ManagerProfile | null,
   managerName?: string,
-  liveFormationContext?: LiveFormationContext
+  liveFormationContext?: LiveFormationContext,
+  language: LanguageCode = DEFAULT_LANGUAGE,
 ): Promise<TransferVerdictResult> {
   const resolvedManagerName = manager?.name || managerName || 'the manager'
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -1595,7 +1624,7 @@ ${tmPlayer.statsAvailable
 **Verified Player Facts**: unavailable for this spelling right now.
 **Fact Guardrail**: Because live player verification failed, do NOT mention specific previous clubs, previous leagues, loan spells, exact contract situations, exact goal records, or transfer history as facts. Keep the verdict role-based and uncertainty-aware instead of inventing biography.`
 
-  const prompt = `You are an elite football scout giving a verdict on a transfer rumour. Today is ${currentDate}.
+  const prompt = withOutputLanguage(`You are an elite football scout giving a verdict on a transfer rumour. Today is ${currentDate}.
 
 ## Rumour: ${targetClub} want to sign ${playerName}
 
@@ -1630,7 +1659,7 @@ Return ONLY this JSON:
 }
 
 verdictLabel must be exactly one of: "Do it" | "Consider it" | "Risky" | "Avoid"
-No other text.`
+No other text.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',
@@ -2174,9 +2203,10 @@ async function generateManagerXIStructure(
   budget: string,
   extraBudgetInstructions?: string,
   lockedFormation?: string | null,
-  liveContext?: ManagerXILiveContext
+  liveContext?: ManagerXILiveContext,
+  language: LanguageCode = DEFAULT_LANGUAGE
 ): Promise<ManagerXIStructure> {
-  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Design the STRUCTURE of the ideal starting XI for ${resolvedName}'s system within the stated budget.
+  const prompt = withOutputLanguage(`You are an elite football scout and tactical analyst. Today is ${currentDate}. Design the STRUCTURE of the ideal starting XI for ${resolvedName}'s system within the stated budget.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -2207,7 +2237,7 @@ Return ONLY this JSON:
 }
 
 Position values: GK, LCB, CB, RCB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
-There must be exactly 11 slots.`
+There must be exactly 11 slots.`, language)
 
   try {
     const response = await anthropic.messages.create({
@@ -2333,7 +2363,8 @@ export async function generateManagerXICandidatePool(
   manager: ManagerProfile | null,
   managerName?: string,
   extraBudgetInstructions?: string,
-  liveContext?: ManagerXILiveContext
+  liveContext?: ManagerXILiveContext,
+  language: LanguageCode = DEFAULT_LANGUAGE
 ): Promise<ManagerXICandidatePool> {
   const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(manager, managerName, liveContext)
   const structure = await generateManagerXIStructure(
@@ -2343,7 +2374,8 @@ export async function generateManagerXICandidatePool(
     budget,
     extraBudgetInstructions,
     livePrimaryFormation,
-    liveContext
+    liveContext,
+    language
   )
 
   const batchResults = await Promise.all(
@@ -2388,7 +2420,8 @@ export async function buildManagerXI(
   manager: ManagerProfile | null,
   budget: string,
   managerName?: string,
-  liveContext?: ManagerXILiveContext
+  liveContext?: ManagerXILiveContext,
+  language: LanguageCode = DEFAULT_LANGUAGE
 ): Promise<ManagerXIResult> {
   const { resolvedName, currentDate, managerSection, livePrimaryFormation } = buildManagerXIContext(
     manager,
@@ -2396,7 +2429,7 @@ export async function buildManagerXI(
     liveContext
   )
 
-  const prompt = `You are an elite football scout and tactical analyst. Today is ${currentDate}. Build the ideal starting XI for ${resolvedName}'s system within the stated budget — not bargain hunters, but the players who best embody what this manager demands from each position.
+  const prompt = withOutputLanguage(`You are an elite football scout and tactical analyst. Today is ${currentDate}. Build the ideal starting XI for ${resolvedName}'s system within the stated budget — not bargain hunters, but the players who best embody what this manager demands from each position.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -2441,7 +2474,7 @@ Return ONLY this JSON:
 }
 
 Position values: GK, LCB, CB, RCB, LB, RB, LWB, RWB, CM, CAM, CDM, LW, RW, ST, CF, WB
-Cover every position in your chosen formation — exactly 11 players.`
+Cover every position in your chosen formation — exactly 11 players.`, language)
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',

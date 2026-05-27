@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState, useEffect, useRef } from 'react'
 import { AlertCircle, ExternalLink, Wand2, TriangleAlert } from 'lucide-react'
 import LoadingSpinner from '@/components/LoadingSpinner'
@@ -31,6 +32,7 @@ function buildTransfermarktSearchUrl(playerName: string): string {
 }
 
 function PlayerCard({ player }: { player: IdealPlayer }) {
+  const { t } = useLanguage()
   const href = player.transfermarktUrl
   const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
   const cardContent = (
@@ -51,7 +53,7 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
         </div>
         <div className="flex flex-col items-end flex-shrink-0 leading-none">
           <span className="text-[9px] uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500 mb-1">
-            Scout Score
+            {t('common.scoutScore')}
           </span>
           <span className={`text-base font-bold ${fitColor(player.systemFitScore)}`}>
             {player.systemFitScore}
@@ -72,7 +74,7 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
             className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
           >
             <TriangleAlert className="w-2.5 h-2.5 flex-shrink-0" />
-            Club unverified — check TM
+            {t('common.clubUnverifiedCheckTm')}
           </a>
         )}
       </div>
@@ -114,6 +116,7 @@ interface CoachResult {
 }
 
 export default function BuildPage() {
+  const { language, t } = useLanguage()
   const [managerQuery, setManagerQuery] = useState('')
   const [selectedManager, setSelectedManager] = useState<CoachResult | null>(null)
   const [managerSuggestions, setManagerSuggestions] = useState<CoachResult[]>([])
@@ -179,13 +182,14 @@ export default function BuildPage() {
           budget,
           managerId: selectedManager?.profileId || undefined,
           managerName: selectedManager?.profileId ? undefined : managerQuery.trim(),
+          language,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to build')
+      if (!res.ok) throw new Error(data.error || t('build.failed'))
       setResult(data)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong')
+      setError(e instanceof Error ? e.message : t('loading.defaultMessage'))
     } finally {
       setLoading(false)
     }
@@ -203,13 +207,13 @@ export default function BuildPage() {
       <div className="text-center mb-10">
         <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-medium px-3 py-1.5 rounded-full mb-4">
           <Wand2 className="w-3 h-3" />
-          Manager Identity Mode
+          {t('build.badge')}
         </div>
         <h1 className="text-3xl sm:text-4xl font-bold text-slate-900 dark:text-white tracking-tight mb-3">
-          Build their dream XI
+          {t('build.title')}
         </h1>
         <p className="text-slate-600 dark:text-slate-400 max-w-xl mx-auto leading-relaxed">
-          Pick any manager and a budget. ScoutEdge builds the ideal starting XI for their system — not just good players, but the exact profiles they demand at every position.
+          {t('build.subtitle')}
         </p>
       </div>
 
@@ -225,18 +229,16 @@ export default function BuildPage() {
               onChange={(e) => handleManagerInput(e.target.value)}
               onFocus={() => managerSuggestions.length > 0 && setManagerDropdownOpen(true)}
               onKeyDown={(e) => e.key === 'Enter' && handleBuild()}
-              placeholder="Manager name (e.g. Pep Guardiola, Klopp...)"
+              placeholder={t('build.managerPlaceholder')}
               className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm"
             />
             {isSearchingManager && <div className="w-3 h-3 border border-slate-300 dark:border-slate-500 border-t-violet-400 rounded-full animate-spin flex-shrink-0" />}
-            {selectedManager?.hasProfile && !isSearchingManager && (
-              <span className="text-violet-400 text-xs flex-shrink-0">✓ Full profile</span>
-            )}
+            {selectedManager?.hasProfile && !isSearchingManager && <span className="text-violet-400 text-xs flex-shrink-0">✓ {t('common.fullProfile')}</span>}
           </div>
           {managerDropdownOpen && (managerSuggestions.length > 0 || isSearchingManager) && (
             <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto max-h-64 shadow-xl z-20">
               {isSearchingManager && managerSuggestions.length === 0
-                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">Searching...</div>
+                ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : managerSuggestions.map((coach) => (
                     <button key={coach.id}
                       onMouseDown={() => { setManagerQuery(coach.name); setSelectedManager(coach); setManagerDropdownOpen(false) }}
@@ -245,7 +247,7 @@ export default function BuildPage() {
                         <span className="font-medium">{coach.name}</span>
                         <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
                       </div>
-                      {coach.hasProfile && <span className="text-violet-400 text-xs flex-shrink-0">Full profile</span>}
+                      {coach.hasProfile && <span className="text-violet-400 text-xs flex-shrink-0">{t('common.fullProfile')}</span>}
                     </button>
                   ))
               }
@@ -255,7 +257,7 @@ export default function BuildPage() {
 
         {/* Budget */}
         <div>
-          <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Budget</p>
+          <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">{t('common.budget')}</p>
           <div className="flex flex-wrap gap-2">
             {BUDGETS.map((b) => (
               <button key={b} onClick={() => setBudget(b)}
@@ -276,9 +278,9 @@ export default function BuildPage() {
           className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors"
         >
           {loading ? (
-            <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Building the XI...</>
+            <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{t('build.loadingButton')}</>
           ) : (
-            <><Wand2 className="w-4 h-4" />{result ? 'Rebuild XI' : 'Build the XI'}</>
+            <><Wand2 className="w-4 h-4" />{result ? t('build.rebuildButton') : t('build.buildButton')}</>
           )}
         </button>
       </div>
@@ -292,9 +294,9 @@ export default function BuildPage() {
 
       {loading && (
         <LoadingSpinner
-          message="Building the XI..."
-          submessage="Identifying ideal profiles for every position"
-          durationHint="Manager Identity builds can take up to about a minute because the XI is generated and then checked against live Transfermarkt data."
+          message={t('build.loadingTitle')}
+          submessage={t('build.loadingSub')}
+          durationHint={t('build.loadingHint')}
         />
       )}
 
@@ -318,7 +320,7 @@ export default function BuildPage() {
             <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed">{result.identity}</p>
             {result.budgetStatus === 'over' && result.budgetOverrun && (
               <p className="text-amber-500 text-xs mt-3">
-                This XI still overruns the selected budget by {result.budgetOverrun} after live Transfermarkt pricing.
+                {t('build.overrunHint', { value: result.budgetOverrun })}
               </p>
             )}
           </div>
@@ -332,10 +334,10 @@ export default function BuildPage() {
 
           {/* System fit legend */}
           <div className="flex items-center gap-4 text-xs text-slate-400 dark:text-slate-600 justify-center pt-2">
-            <span>System fit score:</span>
-            <span className="text-violet-400">90+ Elite</span>
-            <span className="text-blue-400">75+ Strong</span>
-            <span className="text-slate-500">60+ Good</span>
+            <span>{t('common.systemFitScore')}</span>
+            <span className="text-violet-400">{t('build.fitElite')}</span>
+            <span className="text-blue-400">{t('build.fitStrong')}</span>
+            <span className="text-slate-500">{t('build.fitGood')}</span>
           </div>
         </div>
       )}
@@ -343,7 +345,7 @@ export default function BuildPage() {
       {/* Examples */}
       {!result && !loading && exampleManagers.length > 0 && (
         <div className="max-w-xl mx-auto mt-12">
-          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">Try these</p>
+          <p className="text-slate-500 dark:text-slate-600 text-sm text-center mb-4">{t('build.tryThese')}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {exampleManagers.map((m) => (
               <button key={m.id}

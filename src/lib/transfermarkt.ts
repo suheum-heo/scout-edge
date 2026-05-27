@@ -151,6 +151,7 @@ export interface TMManagerSearchResult {
   age: number | null
   functionTitle: string | null
   contractUntil: string | null
+  profileUrl: string | null
 }
 
 export interface TMManagerProfileSnapshot {
@@ -396,6 +397,15 @@ export function buildTMPlayerProfileUrl(tmId: string, playerName?: string | null
     .replace(/^-+|-+$/g, '') || '-'
 
   return `${TM_SITE_BASE}/${slug}/profil/spieler/${encodeURIComponent(tmId)}`
+}
+
+export function buildTMManagerProfileUrl(tmId: string, managerName?: string | null): string {
+  const slug = stripDiacritics(managerName || '-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || '-'
+
+  return `${TM_SITE_BASE}/${slug}/profil/trainer/${encodeURIComponent(tmId)}`
 }
 
 function buildHyphenatedTokenVariants(token: string): string[] {
@@ -870,24 +880,26 @@ export async function searchManagers(query: string): Promise<TMManagerSearchResu
 
     const results = Array.from(
       coachGrid.matchAll(
-        /<a title="([^"]+)" id="(\d+)" href="\/[^"]+\/profil\/trainer\/\d+">[^<]+<\/a><\/td><\/tr><tr><td>(?:<a title="([^"]+)" href="([^"]+)">[^<]*<\/a>|([^<]+))<\/td><\/tr><\/table><\/td><td class="zentriert">[\s\S]*?<\/td><td class="zentriert">([^<]*)<\/td><td class="zentriert">[\s\S]*?<\/td><td class="rechts">([^<]*)<\/td><td class="rechts">([^<]*)<\/td>/gi
+        /<a title="([^"]+)" id="(\d+)" href="([^"]+\/profil\/trainer\/\d+)">[^<]+<\/a><\/td><\/tr><tr><td>(?:<a title="([^"]+)" href="([^"]+)">[^<]*<\/a>|([^<]+))<\/td><\/tr><\/table><\/td><td class="zentriert">[\s\S]*?<\/td><td class="zentriert">([^<]*)<\/td><td class="zentriert">[\s\S]*?<\/td><td class="rechts">([^<]*)<\/td><td class="rechts">([^<]*)<\/td>/gi
       )
     )
 
     return results.map((match) => {
-      const clubName = match[3] || match[5] || null
-      const clubHref = match[4] || ''
+      const profileHref = match[3] || ''
+      const clubName = match[4] || match[6] || null
+      const clubHref = match[5] || ''
       const clubId = clubHref.match(/\/verein\/(\d+)/)?.[1] || null
-      const contractUntil = normalizeTMDate(match[8] || null)
+      const contractUntil = normalizeTMDate(match[9] || null)
 
       return {
         id: match[2],
         name: decodeHtml(match[1]),
         currentClub: normalizeManagerClub(clubName),
         currentClubId: clubId,
-        age: Number.parseInt(match[6] || '', 10) || null,
-        functionTitle: decodeHtml(match[7] || '') || null,
+        age: Number.parseInt(match[7] || '', 10) || null,
+        functionTitle: decodeHtml(match[8] || '') || null,
         contractUntil,
+        profileUrl: profileHref ? `${TM_SITE_BASE}${profileHref}` : buildTMManagerProfileUrl(match[2], match[1]),
       }
     })
   } catch {

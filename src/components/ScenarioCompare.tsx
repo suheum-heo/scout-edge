@@ -1,3 +1,6 @@
+'use client'
+
+import { useLanguage } from '@/components/LanguageProvider'
 import { ScenarioResult, ScenarioDimension, ScenarioVerdict } from '@/lib/claude'
 
 interface Props {
@@ -37,6 +40,7 @@ function DimRow({ dimA, dimB }: { dimA: ScenarioDimension; dimB: ScenarioDimensi
 }
 
 export default function ScenarioCompare({ a, b }: Props) {
+  const { t } = useLanguage()
   const dimsA = new Map(a.dimensions.map((d) => [d.key, d]))
   const dimsB = new Map(b.dimensions.map((d) => [d.key, d]))
   const keys = a.dimensions.map((d) => d.key)
@@ -46,7 +50,7 @@ export default function ScenarioCompare({ a, b }: Props) {
 
   return (
     <div className="border border-blue-500/20 bg-slate-50 dark:bg-slate-800/60 rounded-xl p-4 mb-4">
-      <div className="text-slate-400 dark:text-slate-400 text-xs uppercase tracking-widest mb-3 text-center">Scenario Comparison</div>
+      <div className="text-slate-400 dark:text-slate-400 text-xs uppercase tracking-widest mb-3 text-center">{t('scenario.comparisonTitle')}</div>
 
       {/* Header row */}
       <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center mb-3">
@@ -80,7 +84,7 @@ export default function ScenarioCompare({ a, b }: Props) {
         <div className={`text-center text-lg font-bold ${aWins ? 'text-emerald-400' : 'text-slate-400'}`}>
           {a.overallScenarioScore.toFixed(1)}
         </div>
-        <div className="text-slate-400 dark:text-slate-500 text-[10px] text-center w-24">Overall score</div>
+        <div className="text-slate-400 dark:text-slate-500 text-[10px] text-center w-24">{t('scenario.overallScore')}</div>
         <div className={`text-center text-lg font-bold ${bWins ? 'text-emerald-400' : 'text-slate-400'}`}>
           {b.overallScenarioScore.toFixed(1)}
         </div>

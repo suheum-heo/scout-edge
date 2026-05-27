@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -21,11 +22,13 @@ export async function POST(request: NextRequest) {
       teamName: string
       teamSource?: string
       fotmobId?: number
+      language?: string
     }
 
     if (!playerName || !teamName) {
       return NextResponse.json({ error: 'playerName and teamName are required' }, { status: 400 })
     }
+    const language = normalizeLanguage(body.language)
 
     // Fetch club's current coach (parallel with TM player lookup)
     let coachName: string | undefined
@@ -106,7 +109,8 @@ export async function POST(request: NextRequest) {
             formationSeason: liveManagerSnapshot.season,
             referenceClub: liveManagerSnapshot.referenceClub,
           }
-        : undefined
+        : undefined,
+      language
     )
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useState } from 'react'
 import { ScenarioResult, ScenarioVerdict } from '@/lib/claude'
 import ScenarioDimensionChart from './ScenarioDimensionChart'
@@ -19,15 +20,16 @@ function verdictStyle(v: ScenarioVerdict): string {
   return                          'bg-red-500/15 border-red-500/30 text-red-400'
 }
 
-function overallDeltaDisplay(delta: number) {
-  if (delta > 0) return { icon: <ArrowUpRight className="w-4 h-4" />, color: 'text-emerald-400', text: `+${delta.toFixed(1)} overall` }
-  if (delta < 0) return { icon: <ArrowDownRight className="w-4 h-4" />, color: 'text-red-400', text: `${delta.toFixed(1)} overall` }
-  return { icon: null, color: 'text-slate-500', text: 'No change' }
+function overallDeltaDisplay(delta: number, noChangeLabel: string) {
+  if (delta > 0) return { icon: <ArrowUpRight className="w-4 h-4" />, color: 'text-emerald-400', text: `+${delta.toFixed(1)}` }
+  if (delta < 0) return { icon: <ArrowDownRight className="w-4 h-4" />, color: 'text-red-400', text: `${delta.toFixed(1)}` }
+  return { icon: null, color: 'text-slate-500', text: noChangeLabel }
 }
 
 export default function ScenarioResultCard({ result, compareSelected, onToggleCompare, compareDisabled }: Props) {
+  const { t } = useLanguage()
   const [expanded, setExpanded] = useState(true)
-  const overall = overallDeltaDisplay(result.overallDelta)
+  const overall = overallDeltaDisplay(result.overallDelta, t('scenario.noChange'))
 
   return (
     <div className={`border rounded-xl overflow-hidden transition-colors ${
@@ -44,8 +46,8 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${verdictStyle(result.recommendation)}`}>
                 {result.recommendation}
               </span>
-              <span className={`flex items-center gap-0.5 text-sm font-bold ${overall.color}`}>
-                {overall.icon}{overall.text}
+                <span className={`flex items-center gap-0.5 text-sm font-bold ${overall.color}`}>
+                {overall.icon}{overall.text}{overall.icon ? ` ${t('scenario.overallScore').toLowerCase()}` : ''}
               </span>
             </div>
 
@@ -53,12 +55,12 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
             <div className="flex flex-wrap gap-1 mt-1.5">
               {result.playersOut.map((p) => (
                 <span key={p.playerId + p.name} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-400">
-                  OUT: {p.name}
+                  {t('common.out')}: {p.name}
                 </span>
               ))}
               {result.playersIn.map((p, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  IN: {p.name}
+                  {t('common.in')}: {p.name}
                 </span>
               ))}
             </div>
@@ -69,7 +71,7 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
             <button
               onClick={() => onToggleCompare(result.id)}
               disabled={compareDisabled}
-              title="Compare this scenario"
+              title={t('scenario.compareThis')}
               className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
                 compareSelected
                   ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
@@ -77,7 +79,7 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
               }`}
             >
               <GitCompare className="w-3 h-3" />
-              Compare
+              {t('common.compare')}
             </button>
 
             {/* Expand/collapse */}
@@ -114,11 +116,11 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
           {/* Scores summary */}
           <div className="flex gap-4 pt-1 border-t border-slate-200/30 dark:border-slate-700/30">
             <div>
-              <div className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wide">Current squad</div>
+              <div className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wide">{t('scenario.currentSquad')}</div>
               <div className="text-slate-600 dark:text-slate-400 text-sm font-semibold">{result.overallBaselineScore.toFixed(1)}/10</div>
             </div>
             <div>
-              <div className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wide">After scenario</div>
+              <div className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wide">{t('scenario.afterScenario')}</div>
               <div className="text-slate-900 dark:text-white text-sm font-semibold">{result.overallScenarioScore.toFixed(1)}/10</div>
             </div>
           </div>

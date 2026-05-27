@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -45,7 +46,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
-import { getClubManager, getClubSquad, searchClub, searchManagerByClub } from '@/lib/transfermarkt'
+import { getClubManager, getClubSquad, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
@@ -186,6 +187,21 @@ function preferRicherManagerName(current?: string | null, candidate?: string | n
   }
 
   return base
+}
+
+function managerNamesLikelyMatch(left?: string | null, right?: string | null): boolean {
+  const leftTokens = personNameTokens(left || '')
+  const rightTokens = personNameTokens(right || '')
+
+  if (!leftTokens.length || !rightTokens.length) return false
+  if (leftTokens.join(' ') === rightTokens.join(' ')) return true
+
+  const leftLast = leftTokens.at(-1)
+  const rightLast = rightTokens.at(-1)
+  const leftFirst = leftTokens[0]
+  const rightFirst = rightTokens[0]
+
+  return leftLast === rightLast && leftFirst?.[0] === rightFirst?.[0]
 }
 
 function getTrustedSnapshotManagerName(snapshot: ManagerLiveSnapshot | null, teamName: string): string | null {
@@ -352,6 +368,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds, analysisMode } = body
+    const language = normalizeLanguage(typeof body.language === 'string' ? body.language : null)
     const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
     if (teamId == null || !teamName) {
@@ -685,6 +702,7 @@ export async function POST(request: NextRequest) {
       managerName: managerNameHint,
       unavailablePlayers,
       allowManagerInference,
+      language,
       liveFormationContext: liveManagerSnapshot
         ? {
             primaryFormation: liveManagerSnapshot.primaryFormation,
@@ -735,6 +753,23 @@ export async function POST(request: NextRequest) {
       ? 'provider'
       : 'unverified'
 
+    const tmManagerByClub = !managerId
+      ? await searchManagerByClub(teamName).catch(() => null)
+      : null
+    const tmManagerByName = factualManagerName
+      ? await searchManager(factualManagerName).catch(() => null)
+      : null
+    const managerTransfermarktUrl =
+      (tmManagerByClub && managerNamesLikelyMatch(tmManagerByClub.name, factualManagerName)
+        ? tmManagerByClub.profileUrl
+        : null) ||
+      (tmManagerByName && managerNamesLikelyMatch(tmManagerByName.name, factualManagerName)
+        ? tmManagerByName.profileUrl
+        : null) ||
+      tmManagerByClub?.profileUrl ||
+      tmManagerByName?.profileUrl ||
+      null
+
     console.log(
       `[analyze] managerResolution team=${teamName} source=${teamSource ?? 'fd'} provider=${providerManagerName ?? 'none'} inferred=${inferredManagerName ?? 'none'} factual=${factualManagerName ?? 'none'} managerSource=${managerSource}`
     )
@@ -754,6 +789,7 @@ export async function POST(request: NextRequest) {
             keyPrinciples: resolvedManager.keyPrinciples,
             source: managerSource,
             verified: factualManagerVerified,
+            transfermarktUrl: managerTransfermarktUrl,
           }
         : {
             id: null,
@@ -765,6 +801,7 @@ export async function POST(request: NextRequest) {
             keyPrinciples: [],
             source: managerSource,
             verified: factualManagerVerified,
+            transfermarktUrl: managerTransfermarktUrl,
           },
       squadSize: squad.length,
       managerFromDB: !!resolvedManager,

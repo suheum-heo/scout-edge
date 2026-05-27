@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useId, useState } from 'react'
+import { useLanguage } from '@/components/LanguageProvider'
 
 interface ExpandableTextProps {
   text: string
@@ -15,6 +16,7 @@ export default function ExpandableText({
   className = '',
   buttonClassName = '',
 }: ExpandableTextProps) {
+  const { t } = useLanguage()
   const [expanded, setExpanded] = useState(false)
   const contentId = useId()
 
@@ -39,7 +41,7 @@ export default function ExpandableText({
         onClick={() => setExpanded((value) => !value)}
         className={`${buttonClassName} mt-2 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors`.trim()}
       >
-        {expanded ? 'Show less' : 'Show more'}
+        {expanded ? t('common.showLess') : t('common.showMore')}
       </button>
     </div>
   )

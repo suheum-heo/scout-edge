@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { type LanguageCode, normalizeLanguage, translate } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -18,7 +19,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v4'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v5'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -76,10 +77,12 @@ function getUndervaluedXICacheKey(
   budget: string,
   managerId?: string,
   managerName?: string,
-  teamName?: string
+  teamName?: string,
+  language?: string
 ): string {
   return [
     budget,
+    normalizeCacheValue(language),
     managerId || 'no-manager-id',
     normalizeCacheValue(managerName),
     normalizeCacheValue(teamName),
@@ -476,6 +479,7 @@ function preferCompatibleCandidates(candidates: CandidateEvaluation[]): Candidat
 
 async function enrichDirectPlayers(
   players: UndervaluedPlayer[],
+  language: LanguageCode,
   searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
 ): Promise<UndervaluedPlayer[]> {
   return mapWithConcurrency(
@@ -493,7 +497,7 @@ async function enrichDirectPlayers(
       return {
         ...enriched,
         contractUntil: player.contractUntil || 'Unknown',
-        whyUndervalued: player.whyUndervalued || buildWhyUndervaluedSummary(enriched),
+        whyUndervalued: player.whyUndervalued || buildWhyUndervaluedSummary(enriched, language),
       }
     }
   )
@@ -594,12 +598,17 @@ function buildEstimatedSlots(slots: UndervaluedXISlot[]): EnrichedSlot[] {
   }))
 }
 
-function buildWhyUndervaluedSummary(player: UndervaluedPlayer): string {
-  const valueContext = player.estimatedValue && player.estimatedValue !== 'Unknown'
-    ? `at ${player.estimatedValue}`
-    : 'at a manageable market cost'
-
-  return `${player.archetypeLabel} profile ${valueContext} for a ${player.age}-year-old. Built as a value-first fit for this system rather than a prestige signing.`
+function buildWhyUndervaluedSummary(player: UndervaluedPlayer, language: LanguageCode): string {
+  return player.estimatedValue && player.estimatedValue !== 'Unknown'
+    ? translate(language, 'xi.fallbackWhyUndervaluedWithValue', {
+        archetype: player.archetypeLabel,
+        value: player.estimatedValue,
+        age: player.age,
+      })
+    : translate(language, 'xi.fallbackWhyUndervaluedNoValue', {
+        archetype: player.archetypeLabel,
+        age: player.age,
+      })
 }
 
 function getAlternativeEntriesForSelection(
@@ -636,7 +645,7 @@ function getAlternativeEntriesForSelection(
   })
 }
 
-function buildSelectedPlayers(chosen: CandidateEvaluation[]): UndervaluedPlayer[] {
+function buildSelectedPlayers(chosen: CandidateEvaluation[], language: LanguageCode): UndervaluedPlayer[] {
   return chosen.map((candidate) => {
     const finalizedPlayer = {
       ...candidate.player,
@@ -645,7 +654,7 @@ function buildSelectedPlayers(chosen: CandidateEvaluation[]): UndervaluedPlayer[
 
     return {
       ...finalizedPlayer,
-      whyUndervalued: candidate.player.whyUndervalued || buildWhyUndervaluedSummary(finalizedPlayer),
+      whyUndervalued: candidate.player.whyUndervalued || buildWhyUndervaluedSummary(finalizedPlayer, language),
     }
   })
 }
@@ -731,6 +740,7 @@ export async function POST(request: NextRequest) {
       managerId?: string
       managerName?: string
       teamName?: string
+      language?: string
     }
 
     if (!budget) {
@@ -739,6 +749,7 @@ export async function POST(request: NextRequest) {
       timing.apply(response.headers)
       return response
     }
+    const language = normalizeLanguage(body.language)
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
@@ -746,7 +757,8 @@ export async function POST(request: NextRequest) {
       budget,
       managerId,
       factualManagerName ?? undefined,
-      teamName
+      teamName,
+      language
     )
     const cachedResult = getCachedUndervaluedXI(cacheKey)
     if (cachedResult) {
@@ -809,7 +821,8 @@ export async function POST(request: NextRequest) {
         managerName,
         teamName,
         instructions,
-        liveFormationContext
+        liveFormationContext,
+        language
       )
       timing.end(`candidate_pool${attemptSuffix}`, candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
@@ -841,7 +854,7 @@ export async function POST(request: NextRequest) {
       const enrichedStarters = starterEvaluations.map((evaluation) => ({
         ...evaluation.player,
         contractUntil: evaluation.player.contractUntil || 'Unknown',
-        whyUndervalued: evaluation.player.whyUndervalued || buildWhyUndervaluedSummary(evaluation.player),
+        whyUndervalued: evaluation.player.whyUndervalued || buildWhyUndervaluedSummary(evaluation.player, language),
       }))
       timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
 
@@ -915,7 +928,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const selectedPlayers = buildSelectedPlayers(selection.chosen)
+      const selectedPlayers = buildSelectedPlayers(selection.chosen, language)
       if (hasUnverifiedPlayers(selectedPlayers) || selection.chosen.some((candidate) => !candidate.positionCompatible)) {
         continue
       }

@@ -1,5 +1,6 @@
 'use client'
 
+import { useLanguage } from '@/components/LanguageProvider'
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Sparkles, TriangleAlert } from 'lucide-react'
 import { UndervaluedXIResult, UndervaluedPlayer } from '@/lib/claude'
@@ -21,6 +22,7 @@ function buildTransfermarktSearchUrl(playerName: string): string {
 }
 
 function PlayerCard({ player }: { player: UndervaluedPlayer }) {
+  const { t } = useLanguage()
   const href = player.transfermarktUrl
   const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
   const cardContent = (
@@ -43,7 +45,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
         </div>
         <div className="flex-shrink-0 text-right">
           <div className="text-slate-400 dark:text-slate-500 text-[9px] font-medium uppercase tracking-wider">
-            Scout Score
+            {t('common.scoutScore')}
           </div>
           <span className={`text-sm font-bold ${scoreColor(player.scoutScore)}`}>
             {player.scoutScore}
@@ -66,7 +68,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
             className="flex items-center gap-0.5 text-amber-500/70 text-[10px] hover:text-amber-400 transition-colors"
           >
             <TriangleAlert className="w-2.5 h-2.5 flex-shrink-0" />
-            Club unverified — check TM
+            {t('common.clubUnverifiedCheckTm')}
           </a>
         )}
       </div>
@@ -75,7 +77,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       <div className="flex items-center gap-3 text-xs">
         <span className="text-emerald-400 font-semibold">{player.estimatedValue}</span>
         {player.contractUntil && player.contractUntil !== 'Unknown' && (
-          <span className="text-slate-400 dark:text-slate-600">until {player.contractUntil}</span>
+          <span className="text-slate-400 dark:text-slate-600">{t('common.untilYear', { year: player.contractUntil })}</span>
         )}
       </div>
 
@@ -110,9 +112,11 @@ interface Props {
   managerId?: string | null
   managerName?: string
   teamName?: string
+  language?: string
 }
 
-export default function UndervaluedXI({ managerId, managerName, teamName }: Props) {
+export default function UndervaluedXI({ managerId, managerName, teamName, language }: Props) {
+  const { t } = useLanguage()
   const [budget, setBudget] = useState<string>('')
   const [result, setResult] = useState<UndervaluedXIResult | null>(null)
   const [loading, setLoading] = useState(false)
@@ -134,7 +138,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
       const res = await fetch('/api/undervalued-xi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ budget: targetBudget, managerId, managerName, teamName }),
+        body: JSON.stringify({ budget: targetBudget, managerId, managerName, teamName, language }),
       })
 
       let data: unknown = null
@@ -148,7 +152,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
         const nextError =
           data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
             ? data.error
-            : 'Failed to generate'
+            : t('error.analysisFailed')
         throw new Error(nextError)
       }
 
@@ -178,7 +182,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
     setResult(null)
     setError(null)
     setLoading(false)
-  }, [managerId, managerName, teamName])
+  }, [managerId, managerName, teamName, language])
 
   useEffect(() => {
     if (!budget || !teamName) return
@@ -188,7 +192,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
     void requestUndervaluedXI(budget).catch(() => {
       // Silent prewarm: foreground generate still handles user-visible errors.
     })
-  }, [budget, managerId, managerName, teamName])
+  }, [budget, managerId, managerName, teamName, language])
 
   const handleGenerate = async () => {
     if (!budget) return
@@ -203,7 +207,7 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
       setResult(nextResult)
     } catch (e) {
       if (generateRequestSeqRef.current !== requestSeq) return
-      setError(e instanceof Error ? e.message : 'Something went wrong')
+      setError(e instanceof Error ? e.message : t('loading.defaultMessage'))
     } finally {
       if (generateRequestSeqRef.current === requestSeq) {
         setLoading(false)
@@ -222,16 +226,16 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
       <div className="mb-5">
         <h2 className="text-slate-900 dark:text-white font-bold text-lg flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-emerald-400" />
-          Undervalued XI
+          {t('xi.title')}
         </h2>
         <p className="text-slate-500 dark:text-slate-500 text-sm mt-1">
-          The best tactical XI money {`can't`} buy — hidden gems that fit {managerName || 'this system'} within your budget.
+          {t('xi.subtitle', { manager: managerName || t('common.thisSystem') })}
         </p>
       </div>
 
       {/* Budget selector */}
       <div className="mb-4">
-        <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">Total Budget</p>
+        <p className="text-slate-600 dark:text-slate-400 text-xs font-medium mb-2 uppercase tracking-wider">{t('common.totalBudget')}</p>
         <div className="flex flex-wrap gap-2">
           {BUDGETS.map((b) => (
             <button
@@ -257,12 +261,12 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
         {loading ? (
           <>
             <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            Scouting the market…
+            {t('xi.loadingButton')}
           </>
         ) : (
           <>
             <Sparkles className="w-4 h-4" />
-            {result ? 'Regenerate XI' : 'Generate Undervalued XI'}
+            {result ? t('xi.regenerate') : t('xi.generate')}
           </>
         )}
       </button>
@@ -276,9 +280,9 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
       {loading && (
         <LoadingSpinner
           compact
-          message="Scouting the market..."
-          submessage="Building a role-correct XI and verifying every player against Transfermarkt"
-          durationHint="A fresh Undervalued XI can take up to about a minute. Stay on this page while we finish the market scan."
+          message={t('xi.loadingTitle')}
+          submessage={t('xi.loadingSub')}
+          durationHint={t('xi.loadingHint')}
         />
       )}
 
@@ -295,14 +299,14 @@ export default function UndervaluedXI({ managerId, managerName, teamName }: Prop
                   </span>
                   {result.budgetStatus === 'over' && result.budgetOverrun && (
                     <span className="bg-red-500/10 border border-red-500/25 text-red-400 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                      Over by {result.budgetOverrun}
+                      {t('common.overBy', { value: result.budgetOverrun })}
                     </span>
                   )}
                 </div>
                 <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{result.concept}</p>
                 {result.budgetStatus === 'over' && (
                   <p className="text-red-500 dark:text-red-400 text-xs mt-2">
-                    Live Transfermarkt values still put this XI above your selected budget bracket. Regenerate or choose a higher bracket.
+                    {t('xi.overBudgetHint')}
                   </p>
                 )}
               </div>

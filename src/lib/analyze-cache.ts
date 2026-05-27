@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 
 import type { ManagerProfile } from '@/lib/managers'
+import type { LanguageCode } from '@/lib/i18n'
 import type {
   LiveFormationContext,
   MinimalSquadPlayer,
@@ -17,6 +18,7 @@ export interface CachedSquadAnalysisInput {
   unavailablePlayers?: { name: string; position: string }[]
   allowManagerInference: boolean
   liveFormationContext?: LiveFormationContext
+  language?: LanguageCode
 }
 
 const ANALYSIS_CACHE_REVALIDATE_SECONDS = 15 * 60
@@ -30,7 +32,8 @@ const getCachedCoreAnalysis = unstable_cache(
       input.managerName,
       input.unavailablePlayers,
       input.allowManagerInference,
-      input.liveFormationContext
+      input.liveFormationContext,
+      input.language
     )
   },
   ['squad-analysis-core-v1'],
@@ -50,7 +53,8 @@ const getCachedDetailsAnalysis = unstable_cache(
       input.managerName,
       input.unavailablePlayers,
       input.allowManagerInference,
-      input.liveFormationContext
+      input.liveFormationContext,
+      input.language
     )
   },
   ['squad-analysis-details-v1'],

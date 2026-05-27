@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -17,9 +18,11 @@ export async function POST(request: NextRequest) {
       managerId?: string
       managerName?: string
       teamName: string
+      language?: string
     }
 
     const { squad, playersOut, playersIn, managerId, managerName, teamName } = body
+    const language = normalizeLanguage(body.language)
 
     if (!squad?.length || !teamName) {
       return NextResponse.json({ error: 'squad and teamName are required' }, { status: 400 })
@@ -48,7 +51,8 @@ export async function POST(request: NextRequest) {
             formationSeason: liveManagerSnapshot.season,
             referenceClub: liveManagerSnapshot.referenceClub,
           }
-        : undefined
+        : undefined,
+      language
     )
 
     const result: ScenarioResult = {

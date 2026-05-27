@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -27,6 +28,7 @@ function getSquadFitCacheKey(
   managerId?: string,
   managerName?: string,
   teamName?: string,
+  language?: string,
 ): string {
   const squadKey = squad
     .map((player) => `${player.playerId}:${normalizeFitCacheValue(player.name)}:${normalizeFitCacheValue(player.position)}:${player.age}`)
@@ -35,6 +37,7 @@ function getSquadFitCacheKey(
 
   return [
     normalizeFitCacheValue(teamName),
+    normalizeFitCacheValue(language),
     managerId || 'no-manager-id',
     normalizeFitCacheValue(managerName),
     squadKey,
@@ -69,6 +72,7 @@ export async function POST(request: NextRequest) {
       managerId?: string
       managerName?: string
       teamName: string
+      language?: string
     }
 
     if (!squad?.length || !teamName) {
@@ -77,8 +81,9 @@ export async function POST(request: NextRequest) {
       timing.apply(response.headers)
       return response
     }
+    const language = normalizeLanguage(body.language)
 
-    const cacheKey = getSquadFitCacheKey(squad, managerId, managerName, teamName)
+    const cacheKey = getSquadFitCacheKey(squad, managerId, managerName, teamName, language)
     const cachedFits = getCachedSquadFit(cacheKey)
     if (cachedFits) {
       const response = NextResponse.json({ fits: cachedFits })
@@ -109,7 +114,8 @@ export async function POST(request: NextRequest) {
             formationSeason: liveManagerSnapshot.season,
             referenceClub: liveManagerSnapshot.referenceClub,
           }
-        : undefined
+        : undefined,
+      language
     )
     timing.end('fit_analysis', fitStartedAt, `players:${fits.length}`)
     setCachedSquadFit(cacheKey, fits)

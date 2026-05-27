@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { normalizeLanguage } from '@/lib/i18n'
 import { getManagerById } from '@/lib/managers'
 import { analyzePlayerCompatibility } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest) {
       managerId?: string
       managerName?: string
       targetTeam?: string
+      language?: string
     }
 
     if (!playerName || (!managerId && !managerName)) {
@@ -23,6 +25,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const language = normalizeLanguage(body.language)
 
     const manager = managerId ? (getManagerById(managerId) ?? null) : null
     const factualManagerName = manager?.name || managerName || null
@@ -60,7 +63,8 @@ export async function POST(request: NextRequest) {
             formationSeason: liveManagerSnapshot.season,
             referenceClub: liveManagerSnapshot.referenceClub,
           }
-        : undefined
+        : undefined,
+      language
     )
 
     return NextResponse.json({
