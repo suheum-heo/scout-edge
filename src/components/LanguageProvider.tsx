@@ -5,6 +5,8 @@ import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   SUPPORTED_LANGUAGES,
+  getEnglishMessages,
+  getSeededMessages,
   type MessageCatalog,
   type LanguageCode,
   hasStaticMessages,
@@ -88,17 +90,39 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     }
   }, [language])
 
+  const resolvedCatalog = useMemo(() => {
+    const seeded = getSeededMessages(language)
+    if (hasStaticMessages(language)) {
+      return runtimeCatalog
+    }
+
+    if (!runtimeCatalog && Object.keys(seeded).length === 0) {
+      return null
+    }
+
+    const english = getEnglishMessages()
+    const merged = { ...(runtimeCatalog || {}) }
+
+    for (const [key, value] of Object.entries(seeded)) {
+      if (!(key in merged) || merged[key] === english[key]) {
+        merged[key] = value
+      }
+    }
+
+    return merged
+  }, [language, runtimeCatalog])
+
   const value = useMemo<LanguageContextValue>(() => ({
     language,
     setLanguage,
-    t: (key, values) => translate(language, key, values, runtimeCatalog),
+    t: (key, values) => translate(language, key, values, resolvedCatalog),
     translatePosition: (position) => translatePosition(language, position),
-    translateFitLabel: (label) => translateFitLabel(language, label, runtimeCatalog),
-    translateValueLabel: (label) => translateValueLabel(language, label, runtimeCatalog),
-    translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label, runtimeCatalog),
-    translateVerdictLabel: (label) => translateVerdictLabel(language, label, runtimeCatalog),
+    translateFitLabel: (label) => translateFitLabel(language, label, resolvedCatalog),
+    translateValueLabel: (label) => translateValueLabel(language, label, resolvedCatalog),
+    translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label, resolvedCatalog),
+    translateVerdictLabel: (label) => translateVerdictLabel(language, label, resolvedCatalog),
     pluralSuffix: (count) => pluralSuffix(language, count),
-  }), [language, runtimeCatalog])
+  }), [language, resolvedCatalog])
 
   return (
     <LanguageContext.Provider value={value}>
