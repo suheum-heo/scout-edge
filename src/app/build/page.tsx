@@ -290,7 +290,13 @@ export default function BuildPage() {
         </div>
       )}
 
-      {loading && <LoadingSpinner message="Building the XI..." submessage="Identifying ideal profiles for every position" />}
+      {loading && (
+        <LoadingSpinner
+          message="Building the XI..."
+          submessage="Identifying ideal profiles for every position"
+          durationHint="Manager Identity builds can take up to about a minute because the XI is generated and then checked against live Transfermarkt data."
+        />
+      )}
 
       {result && !loading && (
         <div className="space-y-5">

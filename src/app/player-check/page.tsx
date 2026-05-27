@@ -300,7 +300,13 @@ export default function PlayerCheckPage() {
         </div>
       )}
 
-      {isChecking && <LoadingSpinner message="Running scout analysis..." submessage="Fetching player stats and analyzing tactical compatibility" />}
+      {isChecking && (
+        <LoadingSpinner
+          message="Running scout analysis..."
+          submessage="Fetching player stats and analyzing tactical compatibility"
+          durationHint="This check can take up to about a minute when live player data and tactical reasoning both need a full pass."
+        />
+      )}
 
       {/* Results */}
       {result && !isChecking && (

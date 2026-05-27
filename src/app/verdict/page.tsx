@@ -239,7 +239,13 @@ export default function VerdictPage() {
         </div>
       )}
 
-      {isChecking && <LoadingSpinner message="Running scout analysis..." submessage="Fetching player data and analysing tactical fit" />}
+      {isChecking && (
+        <LoadingSpinner
+          message="Running scout analysis..."
+          submessage="Fetching player data and analysing tactical fit"
+          durationHint="Verdict checks can take up to about a minute when live market data and fit analysis both need to refresh."
+        />
+      )}
 
       {result && cfg && !isChecking && (
         <div className="space-y-4 max-w-2xl mx-auto">

@@ -697,6 +697,7 @@ export default function HomePage() {
         <LoadingSpinner
           message="Analysing squad..."
           submessage="Fetching squad data and running tactical analysis with Claude AI"
+          durationHint="Squad analysis can take up to about a minute when live squad data and deeper tactical reasoning are both running. Stay on this page and the report will appear automatically."
         />
       )}
 
@@ -978,6 +979,7 @@ export default function HomePage() {
                     <LoadingSpinner
                       message={`Finding ${selectedGap.position} targets...`}
                       submessage="Claude is scanning the transfer market"
+                      durationHint="Transfer target discovery can take up to about a minute because live market checks and tactical ranking run together."
                     />
                   )}
 
@@ -1021,6 +1023,7 @@ export default function HomePage() {
                   <LoadingSpinner
                     message="Analysing squad fit..."
                     submessage="Claude is rating each player against the tactical system"
+                    durationHint="Squad Fit Map can take up to about a minute because every player is scored against the current system."
                   />
                 )}
                 {fitError && (
@@ -1052,6 +1055,14 @@ export default function HomePage() {
                     onRun={handleRunScenario}
                     isLoading={isRunningScenario}
                   />
+                  {isRunningScenario && (
+                    <LoadingSpinner
+                      compact
+                      message="Running transfer scenario..."
+                      submessage="Recalculating depth, balance, and tactical trade-offs"
+                      durationHint="Scenario simulations can take up to about a minute when multiple squad dimensions need to be recomputed."
+                    />
+                  )}
                   {scenarioError && (
                     <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex items-start gap-2">
                       <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
