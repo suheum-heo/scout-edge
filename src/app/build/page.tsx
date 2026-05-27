@@ -130,6 +130,7 @@ export default function BuildPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exampleManagers, setExampleManagers] = useState<{ id: string; name: string; currentClub: string }[]>([])
+  const previousLanguageRef = useRef(language)
 
   const EXAMPLE_IDS = ['pep-guardiola', 'diego-simeone', 'arne-slot', 'mikel-arteta']
 
@@ -200,6 +201,16 @@ export default function BuildPage() {
         (a, b) => playerSortIndex(a) - playerSortIndex(b)
       )
     : []
+
+  useEffect(() => {
+    const previousLanguage = previousLanguageRef.current
+    previousLanguageRef.current = language
+
+    if (previousLanguage === language) return
+    if (!result || loading || !managerQuery.trim()) return
+
+    void handleBuild()
+  }, [language, loading, managerQuery, result])
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10">

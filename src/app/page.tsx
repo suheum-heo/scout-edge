@@ -99,6 +99,7 @@ export default function HomePage() {
   const analysisRequestSeq = useRef(0)
   const resultsRef = useRef<HTMLDivElement>(null)
   const recsRef = useRef<HTMLDivElement>(null)
+  const previousLanguageRef = useRef(language)
 
   const loadManagers = useCallback(async () => {
     if (managers.length > 0) return
@@ -544,6 +545,20 @@ export default function HomePage() {
     : isLoadingAnalysisDetails
     ? t('home.detailsLoadingMessage')
     : t('home.detailsReadyMessage')
+
+  useEffect(() => {
+    const previousLanguage = previousLanguageRef.current
+    previousLanguageRef.current = language
+
+    if (previousLanguage === language) return
+    if (!analysis || !analyzedTeam || isAnalyzing) return
+
+    void handleAnalyze({
+      team: analyzedTeam,
+      excludeIds: analyzedUnavailableIds,
+    })
+  }, [analysis, analyzedTeam, analyzedUnavailableIds, isAnalyzing, language])
+
   const handleRetryAnalysisDetails = () => {
     if (!analyzedTeam || !analysis || isLoadingAnalysisDetails) return
     void hydrateAnalysisDetails(analysisRequestSeq.current, analyzedTeam, analyzedUnavailableIds)

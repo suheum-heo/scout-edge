@@ -63,6 +63,7 @@ export default function VerdictPage() {
 
   const statDisplay = (value: number, available?: boolean) => available ? String(value) : '—'
   const [error, setError] = useState<string | null>(null)
+  const previousLanguageRef = useRef(language)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -149,6 +150,16 @@ export default function VerdictPage() {
   const inputText = 'flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm'
   const dropdownBase = 'absolute top-full left-0 right-0 mt-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl overflow-auto shadow-xl z-20'
   const dropdownItem = 'w-full px-4 py-2.5 text-left hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-sm text-slate-900 dark:text-white flex items-center justify-between gap-3'
+
+  useEffect(() => {
+    const previousLanguage = previousLanguageRef.current
+    previousLanguageRef.current = language
+
+    if (previousLanguage === language) return
+    if (!result || isChecking || !selectedTeam) return
+
+    void handleCheck()
+  }, [isChecking, language, result, selectedTeam])
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
