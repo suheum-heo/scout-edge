@@ -13,7 +13,7 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const MESSAGE_SCOPE = 'runtime-i18n-catalog-v2'
+const MESSAGE_SCOPE = 'runtime-i18n-catalog-v3'
 const MANAGER_SCOPE = 'runtime-i18n-manager-v1'
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MANAGER_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -72,6 +72,50 @@ function mergeMessageCatalog(candidate: Record<string, unknown> | null | undefin
   return resolved
 }
 
+function normalizeMessageCatalogChunk(
+  sourceMessages: Record<string, string>,
+  candidate: Record<string, unknown> | null | undefined,
+  language: LanguageCode,
+  chunkIndex: number,
+  totalChunks: number
+): Record<string, string> {
+  const resolved: Record<string, string> = {}
+  const missingKeys: string[] = []
+  const invalidKeys: string[] = []
+  const unexpectedKeys = candidate
+    ? Object.keys(candidate).filter((key) => !(key in sourceMessages))
+    : []
+
+  for (const [key, value] of Object.entries(sourceMessages)) {
+    if (!(key in (candidate || {}))) {
+      missingKeys.push(key)
+      resolved[key] = value
+      continue
+    }
+
+    if (typeof candidate?.[key] !== 'string') {
+      invalidKeys.push(key)
+      resolved[key] = value
+      continue
+    }
+
+    resolved[key] = candidate[key] as string
+  }
+
+  if (missingKeys.length || invalidKeys.length || unexpectedKeys.length) {
+    console.warn(
+      `[i18n] runtime catalog chunk ${chunkIndex}/${totalChunks} normalized for ${language}: missing=${missingKeys.length} invalid=${invalidKeys.length} unexpected=${unexpectedKeys.length}`,
+      {
+        missingKeys: missingKeys.slice(0, 5),
+        invalidKeys: invalidKeys.slice(0, 5),
+        unexpectedKeys: unexpectedKeys.slice(0, 5),
+      }
+    )
+  }
+
+  return resolved
+}
+
 function splitMessageCatalog(sourceMessages: Record<string, string>): Array<Record<string, string>> {
   const entries = Object.entries(sourceMessages)
   const chunks: Array<Record<string, string>> = []
@@ -109,7 +153,13 @@ ${JSON.stringify(sourceMessages)}`,
     }],
   })
 
-  return mergeMessageCatalog(extractJsonObject(extractFirstText(response)))
+  return normalizeMessageCatalogChunk(
+    sourceMessages,
+    extractJsonObject(extractFirstText(response)),
+    language,
+    chunkIndex,
+    totalChunks
+  )
 }
 
 async function translateMessageCatalog(language: LanguageCode): Promise<Record<string, string>> {
