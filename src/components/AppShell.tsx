@@ -14,41 +14,38 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-2">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex shrink-0 flex-col items-start gap-2">
-              <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity">
-                <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
-                  <Search className="w-4 h-4 text-white" />
-                </div>
-                <span className="font-bold text-slate-900 dark:text-white tracking-tight">ScoutEdge</span>
-                <span className="hidden sm:inline-flex shrink-0 items-center whitespace-nowrap text-slate-400 dark:text-slate-500 text-xs border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded">
-                  {t('nav.beta')}
-                </span>
-              </Link>
-              <div className="lg:ml-[38px]">
-                <ThemeToggle />
+          <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[auto_1fr] lg:grid-rows-[auto_auto] lg:items-start lg:gap-x-8 lg:gap-y-2">
+            <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity lg:col-start-1 lg:row-start-1">
+              <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
+                <Search className="w-4 h-4 text-white" />
               </div>
+              <span className="font-bold text-slate-900 dark:text-white tracking-tight">ScoutEdge</span>
+              <span className="hidden sm:inline-flex shrink-0 items-center whitespace-nowrap text-slate-400 dark:text-slate-500 text-xs border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded">
+                {t('nav.beta')}
+              </span>
+            </Link>
+
+            <div className="lg:col-start-1 lg:row-start-2 lg:ml-[38px]">
+              <ThemeToggle />
             </div>
 
-            <div className="flex w-full flex-col items-center gap-3 md:ml-auto md:w-max md:items-stretch lg:pt-1">
-              <div className="flex w-full items-center justify-center gap-1.5 flex-wrap md:flex-nowrap md:justify-between">
-                <Link href="/" className={navLinkClassName}>
-                  {t('nav.squadAnalysis')}
-                </Link>
-                <Link href="/player-check" className={navLinkClassName}>
-                  {t('nav.playerCheck')}
-                </Link>
-                <Link href="/verdict" className={navLinkClassName}>
-                  {t('nav.verdict')}
-                </Link>
-                <Link href="/build" className={navLinkClassName}>
-                  {t('nav.buildXi')}
-                </Link>
-              </div>
+            <div className="flex w-full items-center justify-center gap-1.5 flex-wrap md:ml-auto md:w-max md:flex-nowrap md:justify-between lg:col-start-2 lg:row-start-1 lg:justify-self-end">
+              <Link href="/" className={navLinkClassName}>
+                {t('nav.squadAnalysis')}
+              </Link>
+              <Link href="/player-check" className={navLinkClassName}>
+                {t('nav.playerCheck')}
+              </Link>
+              <Link href="/verdict" className={navLinkClassName}>
+                {t('nav.verdict')}
+              </Link>
+              <Link href="/build" className={navLinkClassName}>
+                {t('nav.buildXi')}
+              </Link>
+            </div>
 
-              <div className="flex justify-center md:justify-start">
-                <LanguageSelector />
-              </div>
+            <div className="flex justify-center md:ml-auto md:w-max md:justify-start lg:col-start-2 lg:row-start-2 lg:justify-self-end">
+              <LanguageSelector />
             </div>
           </div>
         </div>
