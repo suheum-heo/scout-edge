@@ -15,7 +15,11 @@ import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeUndervaluedXIResult } from '@/lib/entity-localization'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
-import { enrichTMPlayerIdentity, searchPlayer, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import {
+  enrichTMPlayerIdentityFromSearchResult,
+  searchPlayer,
+  TMPlayerSearchResult,
+} from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_PROFILE_TIMEOUT_MS = 10000
@@ -561,8 +565,14 @@ function rankSelectionCandidates(candidates: CandidateEvaluation[]): CandidateEv
   })
 }
 
-async function enrichUndervaluedPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
-  const enriched = await enrichTMPlayerIdentity({
+async function enrichUndervaluedPlayer(
+  player: UndervaluedPlayer,
+  searchResult: TMPlayerSearchResult | null,
+  options?: {
+    verifyViaProfile?: boolean
+  }
+): Promise<UndervaluedPlayer> {
+  const enriched = await enrichTMPlayerIdentityFromSearchResult({
     playerName: player.playerName,
     currentClub: player.currentClub,
     age: player.age,
@@ -570,9 +580,9 @@ async function enrichUndervaluedPlayer(player: UndervaluedPlayer): Promise<Under
     estimatedValue: player.estimatedValue,
     contractUntil: player.contractUntil,
     transfermarktUrl: player.transfermarktUrl,
-  }, {
-    searchTimeoutMs: TM_SEARCH_TIMEOUT_MS,
+  }, searchResult, {
     profileTimeoutMs: TM_PROFILE_TIMEOUT_MS,
+    verifyViaProfile: options?.verifyViaProfile ?? true,
   })
 
   return {
@@ -586,6 +596,40 @@ async function enrichUndervaluedPlayer(player: UndervaluedPlayer): Promise<Under
     tmVerified: enriched.tmVerified,
     transfermarktUrl: enriched.transfermarktUrl || player.transfermarktUrl,
   }
+}
+
+async function finalizeSelectionWithTM(
+  chosen: CandidateEvaluation[],
+  searchCache: Map<string, Promise<TMPlayerSearchResult | null>>,
+  profileCache: Map<string, Promise<UndervaluedPlayer>>
+): Promise<CandidateEvaluation[]> {
+  return mapWithConcurrency(
+    chosen,
+    TM_ENRICHMENT_CONCURRENCY,
+    async (candidate) => {
+      const key = playerKey(candidate.player)
+      const cached = profileCache.get(key)
+      if (cached) {
+        const finalizedPlayer = await cached
+        return { ...candidate, player: finalizedPlayer }
+      }
+
+      const promise = (async () => {
+        const searchResult = await findSearchResult(candidate.player, searchCache)
+        const enrichedPlayer = await enrichUndervaluedPlayer(candidate.player, searchResult, {
+          verifyViaProfile: true,
+        })
+        return {
+          ...enrichedPlayer,
+          contractUntil: enrichedPlayer.contractUntil || 'Unknown',
+        }
+      })()
+
+      profileCache.set(key, promise)
+      const finalizedPlayer = await promise
+      return { ...candidate, player: finalizedPlayer }
+    }
+  )
 }
 
 async function mapWithConcurrency<T, R>(
@@ -984,6 +1028,7 @@ export async function POST(request: NextRequest) {
         }
 
         const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
+        const profileCache = new Map<string, Promise<UndervaluedPlayer>>()
 
         const starterEnrichmentStartedAt = timing.start()
         const starterEvaluations = await mapWithConcurrency(
@@ -992,7 +1037,7 @@ export async function POST(request: NextRequest) {
           async (candidate, slotIndex) => {
             const searchResult = await findSearchResult(candidate.player, searchCache)
             const enrichedPlayer = searchResult
-              ? await enrichUndervaluedPlayer(candidate.player)
+              ? await enrichUndervaluedPlayer(candidate.player, searchResult, { verifyViaProfile: false })
               : { ...candidate.player, tmVerified: false }
             return buildCandidateEvaluation(
               pool.slots[slotIndex],
@@ -1002,7 +1047,12 @@ export async function POST(request: NextRequest) {
             )
           }
         )
-        const enrichedStarters = starterEvaluations.map((evaluation) => ({
+        const finalizedStarterEvaluations = await finalizeSelectionWithTM(
+          starterEvaluations,
+          searchCache,
+          profileCache
+        )
+        const enrichedStarters = finalizedStarterEvaluations.map((evaluation) => ({
           ...evaluation.player,
           contractUntil: evaluation.player.contractUntil || 'Unknown',
           whyUndervalued: resolveWhyUndervaluedText(evaluation.player, language),
@@ -1026,7 +1076,7 @@ export async function POST(request: NextRequest) {
           budget
         )
 
-        if (!hasInvalidSelection(enrichedStarters, starterEvaluations, budget, { requireVerified: true })) {
+        if (!hasInvalidSelection(enrichedStarters, finalizedStarterEvaluations, budget, { requireVerified: true })) {
           resolvedResult = starterResult
           resolvedFormation = pool.formation
           resolvedSource = 'starter-path'
@@ -1046,7 +1096,7 @@ export async function POST(request: NextRequest) {
           async (entry) => {
             const searchResult = await findSearchResult(entry.player, searchCache)
             const enrichedPlayer = searchResult
-              ? await enrichUndervaluedPlayer(entry.player)
+              ? await enrichUndervaluedPlayer(entry.player, searchResult, { verifyViaProfile: false })
               : { ...entry.player, tmVerified: false }
             return {
               slotId: entry.slotId,
@@ -1091,8 +1141,13 @@ export async function POST(request: NextRequest) {
         )
 
         if (strictSelection.chosen.length === strictSlots.length) {
-          const strictPlayers = buildSelectedPlayers(strictSelection.chosen, language)
-          if (!hasInvalidSelection(strictPlayers, strictSelection.chosen, budget, { requireVerified: true })) {
+          const finalizedStrictSelection = await finalizeSelectionWithTM(
+            strictSelection.chosen,
+            searchCache,
+            profileCache
+          )
+          const strictPlayers = buildSelectedPlayers(finalizedStrictSelection, language)
+          if (!hasInvalidSelection(strictPlayers, finalizedStrictSelection, budget, { requireVerified: true })) {
             resolvedResult = withComputedBudget(
               {
                 formation: pool.formation,
@@ -1141,8 +1196,13 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const safePlayers = buildSelectedPlayers(safeSelection.chosen, language)
-        if (hasInvalidSelection(safePlayers, safeSelection.chosen, budget)) {
+        const finalizedSafeSelection = await finalizeSelectionWithTM(
+          safeSelection.chosen,
+          searchCache,
+          profileCache
+        )
+        const safePlayers = buildSelectedPlayers(finalizedSafeSelection, language)
+        if (hasInvalidSelection(safePlayers, finalizedSafeSelection, budget)) {
           continue
         }
 
