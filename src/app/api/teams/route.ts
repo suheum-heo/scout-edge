@@ -291,8 +291,8 @@ export async function GET(request: NextRequest) {
   const query = request.nextUrl.searchParams.get('q')?.trim()
   const language = normalizeLanguage(request.nextUrl.searchParams.get('language'))
 
-  if (!query || query.length < 2) {
-    const response = NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
+  if (!query || query.length < 1) {
+    const response = NextResponse.json({ error: 'Query must not be empty' }, { status: 400 })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response
@@ -303,6 +303,13 @@ export async function GET(request: NextRequest) {
     if (localResults.length > 0) {
       const localizedTeams = await localizeTeamSearchResults(localResults.slice(0, 8), language)
       const response = NextResponse.json({ teams: localizedTeams })
+      timing.end('total', requestStartedAt)
+      timing.apply(response.headers)
+      return response
+    }
+
+    if (query.length < 2) {
+      const response = NextResponse.json({ teams: [] })
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response

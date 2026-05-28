@@ -130,15 +130,21 @@ export default function HomePage() {
     if (searchAbort.current) searchAbort.current.abort()
     setIsSearching(false)
 
-    if (value.length < 2) {
+    const trimmedValue = value.trim()
+    if (trimmedValue.length < 1) {
       setTeamResults([])
       return
     }
 
-    const localResults = searchLocalTeams(value)
+    const localResults = searchLocalTeams(trimmedValue)
     if (localResults.length > 0) {
       setTeamResults(localResults)
       setHighlightedTeamIndex(0)
+      return
+    }
+
+    if (trimmedValue.length < 2) {
+      setTeamResults([])
       return
     }
 
@@ -147,7 +153,7 @@ export default function HomePage() {
       searchAbort.current = controller
       setIsSearching(true)
       try {
-        const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}&language=${encodeURIComponent(language)}`, { signal: controller.signal })
+        const res = await fetch(`/api/teams?q=${encodeURIComponent(trimmedValue)}&language=${encodeURIComponent(language)}`, { signal: controller.signal })
         const data = await res.json()
         const nextTeams = data.teams || []
         setTeamResults(nextTeams)

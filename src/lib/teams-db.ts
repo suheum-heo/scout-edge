@@ -275,7 +275,7 @@ export function searchLocalTeams(query: string): Array<{
   venue: { name: string; city: string }
 }> {
   const q = normalize(query)
-  if (q.length < 2) return []
+  if (q.length < 1) return []
 
   const results: Array<{ team: LocalTeam; score: number }> = []
 
