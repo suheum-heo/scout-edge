@@ -1,5 +1,14 @@
 import { POPULAR_TEAMS } from '@/lib/teams-db'
 
+const SAFE_EQUIVALENT_CLUB_NAMES: Array<[string, string]> = [
+  ['Rennes', 'Stade Rennais FC'],
+  ['Stade Rennais', 'Stade Rennais FC'],
+  ['RB Salzburg', 'Red Bull Salzburg'],
+  ['Red Bull Salzburg', 'Red Bull Salzburg'],
+  ['Hellas Verona', 'Hellas Verona FC'],
+  ['Verona', 'Hellas Verona FC'],
+]
+
 const CLUB_WORDS_TO_IGNORE = new Set([
   '1',
   '04',
@@ -76,6 +85,11 @@ function collectVariants(): Map<string, Set<string>> {
     for (const alias of team.aliases) {
       add(alias, team.name)
     }
+  }
+
+  for (const [variant, canonicalName] of SAFE_EQUIVALENT_CLUB_NAMES) {
+    add(variant, canonicalName)
+    add(canonicalName, canonicalName)
   }
 
   return variants

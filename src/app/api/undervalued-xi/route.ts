@@ -15,12 +15,13 @@ import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeUndervaluedXIResult } from '@/lib/entity-localization'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
-import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult, isReliableTMClubMatch } from '@/lib/transfermarkt'
+import { enrichTMPlayerIdentity, searchPlayer, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 5000
+const TM_PROFILE_TIMEOUT_MS = 10000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v10'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v11'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -190,14 +191,6 @@ async function safeNormalizeLocalizedUndervaluedXIResult(
 
 function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
   return Promise.race([promise, new Promise<T | F>((resolve) => setTimeout(() => resolve(fallback), ms))])
-}
-
-function isUsableTMClubName(clubName?: string | null): clubName is string {
-  if (!clubName) return false
-  const clubLow = clubName.toLowerCase()
-  return !clubLow.includes('retired') &&
-    !clubLow.includes('without club') &&
-    clubLow !== '-'
 }
 
 function getBudgetCap(budget: string): number | null {
@@ -533,23 +526,6 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
   })
 }
 
-function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSearchResult): UndervaluedPlayer {
-  const searchClub = searchResult.club?.name
-  const reliableClubMatch = !player.currentClub || !searchClub || isReliableTMClubMatch(player.currentClub, searchClub)
-  return {
-    ...player,
-    playerName: searchResult.name || player.playerName,
-    currentClub: isUsableTMClubName(searchClub) && reliableClubMatch ? searchClub : player.currentClub,
-    age: searchResult.age ?? player.age,
-    nationality: searchResult.nationalities?.[0] || player.nationality,
-    estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
-    tmVerified: isUsableTMClubName(searchClub) && reliableClubMatch,
-    transfermarktUrl: isUsableTMClubName(searchClub) && reliableClubMatch
-      ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
-      : player.transfermarktUrl,
-  }
-}
-
 function hasDuplicateUndervaluedPlayers(players: UndervaluedPlayer[]): boolean {
   const seen = new Set<string>()
 
@@ -585,30 +561,31 @@ function rankSelectionCandidates(candidates: CandidateEvaluation[]): CandidateEv
   })
 }
 
-async function enrichDirectPlayers(
-  players: UndervaluedPlayer[],
-  language: LanguageCode,
-  searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-): Promise<UndervaluedPlayer[]> {
-  return mapWithConcurrency(
-    players,
-    TM_ENRICHMENT_CONCURRENCY,
-    async (player) => {
-      const searchResult = await findSearchResult(player, searchCache)
-      const enriched = searchResult
-        ? mergeSearchResult(player, searchResult)
-        : {
-            ...player,
-            tmVerified: false,
-          }
+async function enrichUndervaluedPlayer(player: UndervaluedPlayer): Promise<UndervaluedPlayer> {
+  const enriched = await enrichTMPlayerIdentity({
+    playerName: player.playerName,
+    currentClub: player.currentClub,
+    age: player.age,
+    nationality: player.nationality,
+    estimatedValue: player.estimatedValue,
+    contractUntil: player.contractUntil,
+    transfermarktUrl: player.transfermarktUrl,
+  }, {
+    searchTimeoutMs: TM_SEARCH_TIMEOUT_MS,
+    profileTimeoutMs: TM_PROFILE_TIMEOUT_MS,
+  })
 
-      return {
-        ...enriched,
-        contractUntil: player.contractUntil || 'Unknown',
-        whyUndervalued: resolveWhyUndervaluedText(enriched, language),
-      }
-    }
-  )
+  return {
+    ...player,
+    playerName: enriched.playerName || player.playerName,
+    currentClub: enriched.currentClub || player.currentClub,
+    age: enriched.age ?? player.age,
+    nationality: enriched.nationality || player.nationality,
+    estimatedValue: enriched.estimatedValue || player.estimatedValue,
+    contractUntil: enriched.contractUntil || player.contractUntil,
+    tmVerified: enriched.tmVerified,
+    transfermarktUrl: enriched.transfermarktUrl || player.transfermarktUrl,
+  }
 }
 
 async function mapWithConcurrency<T, R>(
@@ -674,14 +651,9 @@ async function findSearchResult(
 function buildCandidateEvaluation(
   slot: Pick<EnrichedSlot, 'position' | 'archetypeLabel'>,
   player: UndervaluedPlayer,
-  searchResult: TMPlayerSearchResult | null
+  searchResult: TMPlayerSearchResult | null,
+  enrichedPlayer: UndervaluedPlayer
 ): CandidateEvaluation {
-  const enrichedPlayer = searchResult
-    ? mergeSearchResult(player, searchResult)
-    : {
-        ...player,
-        tmVerified: false,
-      }
   const positionCompatibilityScore = scorePositionCompatibility(slot, searchResult?.position)
   const positionCompatible = positionCompatibilityScore >= minimumCompatiblePositionScore(slot)
 
@@ -1017,11 +989,18 @@ export async function POST(request: NextRequest) {
         const starterEvaluations = await mapWithConcurrency(
           initialSelection.chosen,
           TM_ENRICHMENT_CONCURRENCY,
-          async (candidate, slotIndex) => buildCandidateEvaluation(
-            pool.slots[slotIndex],
-            candidate.player,
-            await findSearchResult(candidate.player, searchCache)
-          )
+          async (candidate, slotIndex) => {
+            const searchResult = await findSearchResult(candidate.player, searchCache)
+            const enrichedPlayer = searchResult
+              ? await enrichUndervaluedPlayer(candidate.player)
+              : { ...candidate.player, tmVerified: false }
+            return buildCandidateEvaluation(
+              pool.slots[slotIndex],
+              candidate.player,
+              searchResult,
+              enrichedPlayer
+            )
+          }
         )
         const enrichedStarters = starterEvaluations.map((evaluation) => ({
           ...evaluation.player,
@@ -1064,10 +1043,16 @@ export async function POST(request: NextRequest) {
         const reserveEvaluations = await mapWithConcurrency(
           reserveEntries,
           TM_ENRICHMENT_CONCURRENCY,
-          async (entry) => ({
-            slotId: entry.slotId,
-            candidate: buildCandidateEvaluation(entry, entry.player, await findSearchResult(entry.player, searchCache)),
-          })
+          async (entry) => {
+            const searchResult = await findSearchResult(entry.player, searchCache)
+            const enrichedPlayer = searchResult
+              ? await enrichUndervaluedPlayer(entry.player)
+              : { ...entry.player, tmVerified: false }
+            return {
+              slotId: entry.slotId,
+              candidate: buildCandidateEvaluation(entry, entry.player, searchResult, enrichedPlayer),
+            }
+          }
         )
         timing.end(`reserve_tm_enrichment${attemptSuffix}`, reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
 

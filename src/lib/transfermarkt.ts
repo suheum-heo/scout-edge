@@ -122,6 +122,21 @@ export interface TMPlayerData {
   statsAvailable: boolean
 }
 
+export type TMVerificationSource = 'profile' | 'search' | 'none'
+
+export interface TMEnrichmentResult {
+  playerName: string
+  currentClub: string
+  age?: number | null
+  nationality?: string
+  position?: string
+  estimatedValue?: string
+  contractUntil?: string
+  tmVerified: boolean
+  transfermarktUrl?: string
+  tmVerificationSource: TMVerificationSource
+}
+
 export interface TMClubPlayer {
   id: string
   name: string
@@ -552,6 +567,12 @@ export function isReliableTMClubMatch(left?: string | null, right?: string | nul
   return clubMatchScore(left, right) >= 4
 }
 
+export function canUseTMClubFact(clubName?: string | null): clubName is string {
+  if (!clubName) return false
+  const clubLow = clubName.toLowerCase()
+  return clubLow !== '-' && !clubLow.includes('retired') && !clubLow.includes('without club')
+}
+
 function managerClubScore(resultClub?: string | null, queryClub?: string | null): number {
   if (!resultClub || !queryClub) return 0
 
@@ -689,7 +710,7 @@ export async function getPlayerData(
   options?: { fallbackAge?: number | null }
 ): Promise<TMPlayerData | null> {
   try {
-    const [profile, statsData, sitePerformance] = await Promise.all([
+    const [profileResult, statsResult, sitePerformanceResult] = await Promise.allSettled([
       tmFetch<{
         id: string
         name: string
@@ -703,16 +724,30 @@ export async function getPlayerData(
         marketValue: number | null
       }>(`/players/${tmId}/profile`),
       tmFetch<{ stats: Array<{ seasonId: string; appearances?: number | null; goals?: number | null; assists?: number | null; minutesPlayed?: number | null; yellowCards?: number | null }> }>(`/players/${tmId}/stats`),
-      tmSiteFetch<TMSitePerformanceRow[]>(`/ceapi/player/performance/${encodeURIComponent(tmId)}`).catch(() => null),
+      tmSiteFetch<TMSitePerformanceRow[]>(`/ceapi/player/performance/${encodeURIComponent(tmId)}`),
     ])
+
+    if (profileResult.status !== 'fulfilled') {
+      return null
+    }
+
+    const profile = profileResult.value
+    const statsRows =
+      statsResult.status === 'fulfilled' && Array.isArray(statsResult.value?.stats)
+        ? statsResult.value.stats
+        : []
+    const sitePerformance =
+      sitePerformanceResult.status === 'fulfilled' && Array.isArray(sitePerformanceResult.value)
+        ? sitePerformanceResult.value
+        : null
 
     const hasSitePerformance = Array.isArray(sitePerformance) && sitePerformance.length > 0
     const stats = hasSitePerformance
       ? aggregateSitePerformanceStats(sitePerformance)
-      : aggregateStats(statsData.stats)
+      : aggregateStats(statsRows)
     const statsAvailable = hasSitePerformance
       ? sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
-      : Array.isArray(statsData.stats) && statsData.stats.length > 0
+      : statsRows.length > 0
 
     return {
       id: profile.id,
@@ -733,6 +768,106 @@ export async function getPlayerData(
     }
   } catch {
     return null
+  }
+}
+
+export async function enrichTMPlayerIdentity(
+  player: {
+    playerName: string
+    currentClub?: string
+    age?: number | null
+    nationality?: string
+    position?: string
+    estimatedValue?: string
+    contractUntil?: string
+    transfermarktUrl?: string
+  },
+  options?: {
+    searchTimeoutMs?: number
+    profileTimeoutMs?: number
+  }
+): Promise<TMEnrichmentResult> {
+  const searchTimeoutMs = options?.searchTimeoutMs ?? 10_000
+  const profileTimeoutMs = options?.profileTimeoutMs ?? 10_000
+  const attempts = [
+    { age: player.age ?? undefined, club: player.currentClub },
+    { age: player.age ?? undefined },
+    undefined,
+  ] as const
+
+  let searchResult: TMPlayerSearchResult | null = null
+  for (const hints of attempts) {
+    try {
+      const result = await Promise.race([
+        searchPlayer(player.playerName, hints),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), searchTimeoutMs)),
+      ])
+      if (result) {
+        searchResult = result
+        break
+      }
+    } catch {
+      continue
+    }
+  }
+
+  if (!searchResult) {
+    return {
+      playerName: player.playerName,
+      currentClub: player.currentClub || '',
+      age: player.age ?? null,
+      nationality: player.nationality,
+      position: player.position,
+      estimatedValue: player.estimatedValue,
+      contractUntil: player.contractUntil,
+      tmVerified: false,
+      transfermarktUrl: player.transfermarktUrl,
+      tmVerificationSource: 'none',
+    }
+  }
+
+  const searchClub = searchResult.club?.name
+  const reliableClubMatch = !player.currentClub || !searchClub || isReliableTMClubMatch(player.currentClub, searchClub)
+  const searchTransfermarktUrl = canUseTMClubFact(searchClub)
+    ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
+    : player.transfermarktUrl
+
+  let profileData: TMPlayerData | null = null
+  try {
+    profileData = await Promise.race([
+      getPlayerData(searchResult.id, { fallbackAge: player.age ?? null }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), profileTimeoutMs)),
+    ])
+  } catch {
+    profileData = null
+  }
+
+  if (profileData && canUseTMClubFact(profileData.currentClub)) {
+    return {
+      playerName: profileData.name || searchResult.name || player.playerName,
+      currentClub: profileData.currentClub,
+      age: profileData.age ?? searchResult.age ?? player.age ?? null,
+      nationality: profileData.nationality || searchResult.nationalities?.[0] || player.nationality,
+      position: profileData.position || searchResult.position || player.position,
+      estimatedValue: profileData.marketValue ? formatMarketValue(profileData.marketValue) : player.estimatedValue,
+      contractUntil: profileData.contractYear || player.contractUntil,
+      tmVerified: true,
+      transfermarktUrl: searchTransfermarktUrl,
+      tmVerificationSource: 'profile',
+    }
+  }
+
+  return {
+    playerName: searchResult.name || player.playerName,
+    currentClub: canUseTMClubFact(searchClub) && reliableClubMatch ? searchClub : (player.currentClub || ''),
+    age: searchResult.age ?? player.age ?? null,
+    nationality: searchResult.nationalities?.[0] || player.nationality,
+    position: searchResult.position || player.position,
+    estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
+    contractUntil: player.contractUntil,
+    tmVerified: canUseTMClubFact(searchClub) && reliableClubMatch,
+    transfermarktUrl: canUseTMClubFact(searchClub) && reliableClubMatch ? searchTransfermarktUrl : player.transfermarktUrl,
+    tmVerificationSource: canUseTMClubFact(searchClub) && reliableClubMatch ? 'search' : 'none',
   }
 }
 
