@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { ChevronDown, Languages } from 'lucide-react'
 import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
@@ -143,35 +144,21 @@ export function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage()
 
   return (
-    <div className="inline-flex shrink-0 items-center gap-3 rounded-lg border border-slate-300 dark:border-slate-700 px-4 py-1.5 text-xs text-slate-500 dark:text-slate-400">
-      <span className="hidden whitespace-nowrap sm:inline">{t('nav.language')}</span>
-      <div className="flex items-center gap-1 sm:gap-1.5">
-        {SUPPORTED_LANGUAGES.map((option) => {
-          const isActive = language === option.code
-          const shortLabel = option.code === 'ko'
-            ? '한국어'
-            : option.code === 'ja'
-            ? '日本語'
-            : option.code.toUpperCase()
-
-          return (
-            <button
-              key={option.code}
-              type="button"
-              onClick={() => setLanguage(option.code)}
-              className={`rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors sm:px-2 ${
-                isActive
-                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'text-slate-500 hover:bg-slate-200/70 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'
-              }`}
-              aria-pressed={isActive}
-              aria-label={option.label}
-            >
-              <span className="whitespace-nowrap">{shortLabel}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    <label className="relative inline-flex min-w-[140px] shrink-0 items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-500 dark:text-slate-400">
+      <Languages className="h-3.5 w-3.5 shrink-0" />
+      <select
+        value={language}
+        onChange={(event) => setLanguage(normalizeLanguage(event.target.value))}
+        aria-label={t('nav.language')}
+        className="w-full appearance-none bg-transparent pr-5 text-xs font-medium text-slate-700 outline-none dark:text-slate-200"
+      >
+        {SUPPORTED_LANGUAGES.map((option) => (
+          <option key={option.code} value={option.code}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+    </label>
   )
 }
