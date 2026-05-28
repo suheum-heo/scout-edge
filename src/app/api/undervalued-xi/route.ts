@@ -20,7 +20,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v8'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v9'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -179,6 +179,12 @@ function getBudgetOverrunAllowance(budget: string): number | null {
   if (budget === '€100–150M') return 15_000_000
   if (budget === '€150–200M') return 20_000_000
   return null
+}
+
+function getBudgetSelectionCap(budget: string): number | null {
+  const cap = getBudgetCap(budget)
+  if (cap === null) return null
+  return cap + (getBudgetOverrunAllowance(budget) ?? 0)
 }
 
 function getBudgetOverrun(total: number, budget: string): number {
@@ -876,6 +882,7 @@ export async function POST(request: NextRequest) {
       : null
     timing.end('manager_snapshot', snapshotStartedAt, factualManagerName ?? 'none')
     const cap = getBudgetCap(budget)
+    const selectionCap = getBudgetSelectionCap(budget)
     const verificationInstructions = buildVerificationInstructions()
     const baseInstructions = cap !== null
       ? `${buildBudgetInstructions(budget, cap)} ${verificationInstructions}`
@@ -918,7 +925,7 @@ export async function POST(request: NextRequest) {
 
       const initialSelectionStartedAt = timing.start()
       const estimatedSlots = buildEstimatedSlots(pool.slots)
-      const initialSelection = selectPlayersForSlots(estimatedSlots, cap)
+      const initialSelection = selectPlayersForSlots(estimatedSlots, selectionCap)
       timing.end(
         `initial_selection${attemptSuffix}`,
         initialSelectionStartedAt,
@@ -1021,7 +1028,7 @@ export async function POST(request: NextRequest) {
       }))
 
       const selectionStartedAt = timing.start()
-      const selection = selectPlayersForSlots(finalSlots, cap)
+      const selection = selectPlayersForSlots(finalSlots, selectionCap)
       timing.end(`selection${attemptSuffix}`, selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
 
       if (selection.chosen.length !== finalSlots.length) {
