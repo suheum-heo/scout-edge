@@ -20,7 +20,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v9'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v10'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -45,6 +45,8 @@ interface SelectionSummary {
   score: number
   withinBudget: boolean
 }
+
+type UndervaluedXIErrorCode = 'no_valid_budget_xi' | 'provider_error'
 
 interface MaterializedSlotCandidate {
   slotId: string
@@ -151,6 +153,39 @@ async function normalizeLocalizedUndervaluedXIResult(
   )
 
   return localizeUndervaluedXIResult(normalizedResult, language, options)
+}
+
+async function safeNormalizeLocalizedUndervaluedXIResult(
+  result: UndervaluedXIResult,
+  language: LanguageCode,
+  budget: string,
+  options?: {
+    managerName?: string
+    teamName?: string
+  }
+): Promise<UndervaluedXIResult> {
+  try {
+    return await normalizeLocalizedUndervaluedXIResult(result, language, budget, options)
+  } catch (error) {
+    console.warn('[undervalued-xi] localization failed, falling back to canonical result:', error)
+    return withComputedBudget(
+      {
+        ...result,
+        concept: buildLocalizedUndervaluedConcept(
+          result.formation,
+          options?.managerName || 'this system',
+          budget,
+          language,
+          result.concept
+        ),
+      },
+      result.players.map((player) => ({
+        ...player,
+        whyUndervalued: resolveWhyUndervaluedText(player, language),
+      })),
+      budget
+    )
+  }
 }
 
 function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
@@ -541,6 +576,15 @@ function preferCompatibleCandidates(candidates: CandidateEvaluation[]): Candidat
   return compatible.length > 0 ? compatible : []
 }
 
+function rankSelectionCandidates(candidates: CandidateEvaluation[]): CandidateEvaluation[] {
+  return [...candidates].sort((left, right) => {
+    const verificationDiff = Number(right.player.tmVerified === true) - Number(left.player.tmVerified === true)
+    if (verificationDiff !== 0) return verificationDiff
+    if (candidateRank(right) !== candidateRank(left)) return candidateRank(right) - candidateRank(left)
+    return candidateCost(left) - candidateCost(right)
+  })
+}
+
 async function enrichDirectPlayers(
   players: UndervaluedPlayer[],
   language: LanguageCode,
@@ -745,6 +789,33 @@ function buildSelectedPlayers(chosen: CandidateEvaluation[], language: LanguageC
   })
 }
 
+function hasInvalidSelection(
+  players: UndervaluedPlayer[],
+  chosen: CandidateEvaluation[],
+  budget: string,
+  options?: {
+    requireVerified?: boolean
+  }
+): boolean {
+  if (!players.length) return true
+  if (hasDuplicateUndervaluedPlayers(players)) return true
+  if (!isBudgetTotalAcceptable(calculateTotalEstimatedCost(players), budget)) return true
+  if (chosen.some((candidate) => !candidate.positionCompatible)) return true
+  if (options?.requireVerified && hasUnverifiedPlayers(players)) return true
+  return false
+}
+
+function buildUndervaluedXIErrorPayload(language: LanguageCode, errorCode: UndervaluedXIErrorCode) {
+  return {
+    errorCode,
+    status: errorCode,
+    error:
+      errorCode === 'no_valid_budget_xi'
+        ? translate(language, 'xi.noValidBudgetXi')
+        : translate(language, 'xi.providerError'),
+  }
+}
+
 function selectPlayersForSlots(slots: EnrichedSlot[], cap: number | null): SelectionSummary {
   let bestWithin: SelectionSummary | null = null
   let bestOver: SelectionSummary | null = null
@@ -849,7 +920,7 @@ export async function POST(request: NextRequest) {
     )
     const cachedResult = getCachedUndervaluedXI(cacheKey)
     if (cachedResult) {
-      const normalizedCachedResult = await normalizeLocalizedUndervaluedXIResult(cachedResult, language, budget, {
+      const normalizedCachedResult = await safeNormalizeLocalizedUndervaluedXIResult(cachedResult, language, budget, {
         managerName: factualManagerName ?? managerName ?? undefined,
         teamName,
       })
@@ -865,7 +936,7 @@ export async function POST(request: NextRequest) {
       cacheKey
     )
     if (sharedCachedResult) {
-      const normalizedSharedResult = await normalizeLocalizedUndervaluedXIResult(sharedCachedResult, language, budget, {
+      const normalizedSharedResult = await safeNormalizeLocalizedUndervaluedXIResult(sharedCachedResult, language, budget, {
         managerName: factualManagerName ?? managerName ?? undefined,
         teamName,
       })
@@ -904,199 +975,264 @@ export async function POST(request: NextRequest) {
 
     let resolvedResult: UndervaluedXIResult | null = null
     let resolvedFormation: string | null = null
-    let resolvedSource: 'starter-path' | 'reserve-path' | null = null
+    let resolvedSource: 'starter-path' | 'reserve-path' | 'safe-fallback-path' | null = null
     let attemptsUsed = 0
+    let hadCandidatePoolSuccess = false
+    let lastAttemptError: unknown = null
 
     for (const [attemptIndex, instructions] of instructionPasses.entries()) {
       attemptsUsed = attemptIndex + 1
       const attemptSuffix = attemptIndex === 0 ? '' : `_${attemptIndex + 1}`
 
-      const candidatePoolStartedAt = timing.start()
-      const pool = await generateUndervaluedXICandidatePool(
-        budget,
-        manager || null,
-        managerName,
-        teamName,
-        instructions,
-        liveFormationContext,
-        'en'
-      )
-      timing.end(`candidate_pool${attemptSuffix}`, candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
-
-      const initialSelectionStartedAt = timing.start()
-      const estimatedSlots = buildEstimatedSlots(pool.slots)
-      const initialSelection = selectPlayersForSlots(estimatedSlots, selectionCap)
-      timing.end(
-        `initial_selection${attemptSuffix}`,
-        initialSelectionStartedAt,
-        `chosen:${initialSelection.chosen.length},within:${initialSelection.withinBudget ? 'yes' : 'no'}`
-      )
-
-      if (initialSelection.chosen.length !== estimatedSlots.length) {
-        continue
-      }
-
-      const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
-
-      const starterEnrichmentStartedAt = timing.start()
-      const starterEvaluations = await mapWithConcurrency(
-        initialSelection.chosen,
-        TM_ENRICHMENT_CONCURRENCY,
-        async (candidate, slotIndex) => buildCandidateEvaluation(
-          pool.slots[slotIndex],
-          candidate.player,
-          await findSearchResult(candidate.player, searchCache)
+      try {
+        const candidatePoolStartedAt = timing.start()
+        const pool = await generateUndervaluedXICandidatePool(
+          budget,
+          manager || null,
+          managerName,
+          teamName,
+          instructions,
+          liveFormationContext,
+          'en'
         )
-      )
-      const enrichedStarters = starterEvaluations.map((evaluation) => ({
-        ...evaluation.player,
-        contractUntil: evaluation.player.contractUntil || 'Unknown',
-        whyUndervalued: resolveWhyUndervaluedText(evaluation.player, language),
-      }))
-      timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
+        hadCandidatePoolSuccess = true
+        timing.end(`candidate_pool${attemptSuffix}`, candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
-      const starterResult = withComputedBudget(
-        {
-          formation: pool.formation,
-          concept: buildLocalizedUndervaluedConcept(
-            pool.formation,
-            factualManagerName || managerName || 'this system',
-            budget,
-            language,
-            pool.concept
-          ),
-          players: enrichedStarters,
-          totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
-        },
-        enrichedStarters,
-        budget
-      )
-      const starterBudgetAcceptable = isBudgetTotalAcceptable(
-        calculateTotalEstimatedCost(enrichedStarters),
-        budget
-      )
+        const initialSelectionStartedAt = timing.start()
+        const estimatedSlots = buildEstimatedSlots(pool.slots)
+        const initialSelection = selectPlayersForSlots(estimatedSlots, selectionCap)
+        timing.end(
+          `initial_selection${attemptSuffix}`,
+          initialSelectionStartedAt,
+          `chosen:${initialSelection.chosen.length},within:${initialSelection.withinBudget ? 'yes' : 'no'}`
+        )
 
-      const starterPathUsable =
-        enrichedStarters.length === estimatedSlots.length &&
-        !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
-        starterBudgetAcceptable &&
-        !hasUnverifiedPlayers(enrichedStarters) &&
-        starterEvaluations.every((evaluation) => evaluation.positionCompatible)
-
-      if (starterPathUsable) {
-        resolvedResult = starterResult
-        resolvedFormation = pool.formation
-        resolvedSource = 'starter-path'
-        break
-      }
-
-      const reserveEntries = getAlternativeEntriesForSelection(
-        pool.slots,
-        initialSelection,
-        starterEvaluations,
-        starterResult
-      )
-      const reserveEnrichmentStartedAt = timing.start()
-      const reserveEvaluations = await mapWithConcurrency(
-        reserveEntries,
-        TM_ENRICHMENT_CONCURRENCY,
-        async (entry) => ({
-          slotId: entry.slotId,
-          candidate: buildCandidateEvaluation(entry, entry.player, await findSearchResult(entry.player, searchCache)),
-        })
-      )
-      timing.end(`reserve_tm_enrichment${attemptSuffix}`, reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
-
-      const reserveCandidatesBySlot = new Map<string, CandidateEvaluation[]>()
-      for (const entry of reserveEvaluations) {
-        const existing = reserveCandidatesBySlot.get(entry.slotId)
-        if (existing) {
-          existing.push(entry.candidate)
-        } else {
-          reserveCandidatesBySlot.set(entry.slotId, [entry.candidate])
+        if (initialSelection.chosen.length !== estimatedSlots.length) {
+          continue
         }
-      }
 
-      const finalSlots = pool.slots.map((slot, slotIndex) => ({
-        slotId: slot.slotId,
-        position: slot.position,
-        archetypeLabel: slot.archetypeLabel,
-        candidates: preferVerifiedCandidates(preferCompatibleCandidates(dedupeCandidates([
-          starterEvaluations[slotIndex],
-          ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
-        ]))),
-      }))
+        const searchCache = new Map<string, Promise<TMPlayerSearchResult | null>>()
 
-      const selectionStartedAt = timing.start()
-      const selection = selectPlayersForSlots(finalSlots, selectionCap)
-      timing.end(`selection${attemptSuffix}`, selectionStartedAt, `chosen:${selection.chosen.length},within:${selection.withinBudget ? 'yes' : 'no'}`)
+        const starterEnrichmentStartedAt = timing.start()
+        const starterEvaluations = await mapWithConcurrency(
+          initialSelection.chosen,
+          TM_ENRICHMENT_CONCURRENCY,
+          async (candidate, slotIndex) => buildCandidateEvaluation(
+            pool.slots[slotIndex],
+            candidate.player,
+            await findSearchResult(candidate.player, searchCache)
+          )
+        )
+        const enrichedStarters = starterEvaluations.map((evaluation) => ({
+          ...evaluation.player,
+          contractUntil: evaluation.player.contractUntil || 'Unknown',
+          whyUndervalued: resolveWhyUndervaluedText(evaluation.player, language),
+        }))
+        timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
 
-      if (selection.chosen.length !== finalSlots.length) {
-        continue
-      }
+        const starterResult = withComputedBudget(
+          {
+            formation: pool.formation,
+            concept: buildLocalizedUndervaluedConcept(
+              pool.formation,
+              factualManagerName || managerName || 'this system',
+              budget,
+              language,
+              pool.concept
+            ),
+            players: enrichedStarters,
+            totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
+          },
+          enrichedStarters,
+          budget
+        )
 
-      const selectedPlayers = buildSelectedPlayers(selection.chosen, language)
-      if (hasUnverifiedPlayers(selectedPlayers) || selection.chosen.some((candidate) => !candidate.positionCompatible)) {
-        continue
-      }
+        if (!hasInvalidSelection(enrichedStarters, starterEvaluations, budget, { requireVerified: true })) {
+          resolvedResult = starterResult
+          resolvedFormation = pool.formation
+          resolvedSource = 'starter-path'
+          break
+        }
 
-      resolvedResult = withComputedBudget(
-        {
-          formation: pool.formation,
-          concept: buildLocalizedUndervaluedConcept(
-            pool.formation,
-            factualManagerName || managerName || 'this system',
-            budget,
-            language,
-            pool.concept
+        const reserveEntries = getAlternativeEntriesForSelection(
+          pool.slots,
+          initialSelection,
+          starterEvaluations,
+          starterResult
+        )
+        const reserveEnrichmentStartedAt = timing.start()
+        const reserveEvaluations = await mapWithConcurrency(
+          reserveEntries,
+          TM_ENRICHMENT_CONCURRENCY,
+          async (entry) => ({
+            slotId: entry.slotId,
+            candidate: buildCandidateEvaluation(entry, entry.player, await findSearchResult(entry.player, searchCache)),
+          })
+        )
+        timing.end(`reserve_tm_enrichment${attemptSuffix}`, reserveEnrichmentStartedAt, `players:${reserveEvaluations.length}`)
+
+        const reserveCandidatesBySlot = new Map<string, CandidateEvaluation[]>()
+        for (const entry of reserveEvaluations) {
+          const existing = reserveCandidatesBySlot.get(entry.slotId)
+          if (existing) {
+            existing.push(entry.candidate)
+          } else {
+            reserveCandidatesBySlot.set(entry.slotId, [entry.candidate])
+          }
+        }
+
+        const strictSlots = pool.slots.map((slot, slotIndex) => ({
+          slotId: slot.slotId,
+          position: slot.position,
+          archetypeLabel: slot.archetypeLabel,
+          candidates: preferVerifiedCandidates(
+            rankSelectionCandidates(
+              preferCompatibleCandidates(
+                dedupeCandidates([
+                  starterEvaluations[slotIndex],
+                  ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
+                ])
+              )
+            )
           ),
-          players: selectedPlayers,
-          totalEstimatedCost: `≈${formatCompactEuros(selection.total)}`,
-        },
-        selectedPlayers,
-        budget
-      )
-      if (!isBudgetTotalAcceptable(calculateTotalEstimatedCost(selectedPlayers), budget)) {
-        resolvedResult = null
+        }))
+
+        const strictSelectionStartedAt = timing.start()
+        const strictSelection = selectPlayersForSlots(strictSlots, selectionCap)
+        timing.end(
+          `strict_selection${attemptSuffix}`,
+          strictSelectionStartedAt,
+          `chosen:${strictSelection.chosen.length},within:${strictSelection.withinBudget ? 'yes' : 'no'}`
+        )
+
+        if (strictSelection.chosen.length === strictSlots.length) {
+          const strictPlayers = buildSelectedPlayers(strictSelection.chosen, language)
+          if (!hasInvalidSelection(strictPlayers, strictSelection.chosen, budget, { requireVerified: true })) {
+            resolvedResult = withComputedBudget(
+              {
+                formation: pool.formation,
+                concept: buildLocalizedUndervaluedConcept(
+                  pool.formation,
+                  factualManagerName || managerName || 'this system',
+                  budget,
+                  language,
+                  pool.concept
+                ),
+                players: strictPlayers,
+                totalEstimatedCost: `≈${formatCompactEuros(strictSelection.total)}`,
+              },
+              strictPlayers,
+              budget
+            )
+            resolvedFormation = pool.formation
+            resolvedSource = 'reserve-path'
+            break
+          }
+        }
+
+        const safeSlots = pool.slots.map((slot, slotIndex) => ({
+          slotId: slot.slotId,
+          position: slot.position,
+          archetypeLabel: slot.archetypeLabel,
+          candidates: rankSelectionCandidates(
+            preferCompatibleCandidates(
+              dedupeCandidates([
+                starterEvaluations[slotIndex],
+                ...(reserveCandidatesBySlot.get(slot.slotId) ?? []),
+              ])
+            )
+          ),
+        }))
+
+        const safeSelectionStartedAt = timing.start()
+        const safeSelection = selectPlayersForSlots(safeSlots, selectionCap)
+        timing.end(
+          `safe_selection${attemptSuffix}`,
+          safeSelectionStartedAt,
+          `chosen:${safeSelection.chosen.length},within:${safeSelection.withinBudget ? 'yes' : 'no'}`
+        )
+
+        if (safeSelection.chosen.length !== safeSlots.length) {
+          continue
+        }
+
+        const safePlayers = buildSelectedPlayers(safeSelection.chosen, language)
+        if (hasInvalidSelection(safePlayers, safeSelection.chosen, budget)) {
+          continue
+        }
+
+        resolvedResult = withComputedBudget(
+          {
+            formation: pool.formation,
+            concept: buildLocalizedUndervaluedConcept(
+              pool.formation,
+              factualManagerName || managerName || 'this system',
+              budget,
+              language,
+              pool.concept
+            ),
+            players: safePlayers,
+            totalEstimatedCost: `≈${formatCompactEuros(safeSelection.total)}`,
+          },
+          safePlayers,
+          budget
+        )
+        resolvedFormation = pool.formation
+        resolvedSource = 'safe-fallback-path'
+        break
+      } catch (error) {
+        lastAttemptError = error
+        console.warn(`[undervalued-xi] attempt ${attemptIndex + 1} failed:`, error)
         continue
       }
-      resolvedFormation = pool.formation
-      resolvedSource = 'reserve-path'
-      break
     }
 
     if (!resolvedResult || !resolvedFormation || !resolvedSource) {
+      const errorCode: UndervaluedXIErrorCode = hadCandidatePoolSuccess ? 'no_valid_budget_xi' : 'provider_error'
+      if (lastAttemptError) {
+        console.warn(`[undervalued-xi] final failure mode=${errorCode}:`, lastAttemptError)
+      }
       const response = NextResponse.json(
-        { error: translate(language, 'xi.noValidBudgetXi') },
-        { status: 422 }
+        buildUndervaluedXIErrorPayload(language, errorCode),
+        { status: errorCode === 'provider_error' ? 503 : 422 }
       )
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
     }
 
-    const localizedResult = await normalizeLocalizedUndervaluedXIResult(resolvedResult, language, budget, {
+    const localizedResult = await safeNormalizeLocalizedUndervaluedXIResult(resolvedResult, language, budget, {
       managerName: factualManagerName || managerName || undefined,
       teamName,
     })
 
-    await persistUndervaluedXIResult(cacheKey, localizedResult, {
-      source: resolvedSource,
-      formation: resolvedFormation,
-      budget,
-      managerName: factualManagerName,
-      teamName,
-      attemptsUsed,
-    })
+    try {
+      await persistUndervaluedXIResult(cacheKey, localizedResult, {
+        source: resolvedSource,
+        formation: resolvedFormation,
+        budget,
+        managerName: factualManagerName,
+        teamName,
+        attemptsUsed,
+      })
+    } catch (error) {
+      console.warn('[undervalued-xi] cache persistence failed:', error)
+    }
 
-    const response = NextResponse.json(localizedResult)
+    const response = NextResponse.json({ ...localizedResult, status: 'ok' as const })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response
   } catch (error) {
     console.error('Undervalued XI error:', error)
-    const details = getAIErrorDetails(error, translate(language, 'error.analysisFailed'))
-    const response = NextResponse.json({ error: details.error }, { status: details.status })
+    const details = getAIErrorDetails(error, translate(language, 'xi.providerError'))
+    const response = NextResponse.json(
+      {
+        ...buildUndervaluedXIErrorPayload(language, 'provider_error'),
+        error: details.error,
+      },
+      { status: details.status }
+    )
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response

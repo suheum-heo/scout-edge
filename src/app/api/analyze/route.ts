@@ -48,7 +48,12 @@ import {
 } from '@/lib/fotmob'
 import { getClubManager, getClubSquad, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
-import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
+import {
+  buildCachedSquadAnalysisFingerprint,
+  getCachedSquadAnalysisCore,
+  getCachedSquadAnalysisDetails,
+  normalizeCachedSquadAnalysisInput,
+} from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { localizeSquadAnalysisResult, resolveLocalizedEntityMap } from '@/lib/entity-localization'
 import { translateCountryDisplayName } from '@/lib/country-names'
@@ -56,6 +61,8 @@ import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { buildFullName, personNameTokens } from '@/lib/person-names'
+import { normalizeLiveFormation } from '@/lib/formations'
+import type { MinimalSquadPlayer, LiveFormationContext } from '@/lib/claude'
 
 type AFSearchTeamResult = Awaited<ReturnType<typeof afSearchTeams>>[number]
 
@@ -321,6 +328,8 @@ type AnalyzeSquadRow = {
   rating: string
   goals: number
   assists: number
+  tackles?: number
+  interceptions?: number
   currentTeam?: string
 }
 
@@ -331,8 +340,15 @@ interface CachedAnalyzeProviderContext {
   providerManagerPhoto: string | null
 }
 
+interface CachedStableManagerSnapshot {
+  trustedManagerName: string | null
+  liveFormationContext?: LiveFormationContext
+}
+
 const ANALYZE_PROVIDER_TTL_MS = 10 * 60 * 1000
 const analyzeProviderCache = new Map<string, { data: CachedAnalyzeProviderContext; expiresAt: number }>()
+const analyzeManagerSnapshotCache = new Map<string, { data: CachedStableManagerSnapshot; expiresAt: number }>()
+const analyzeFingerprintCache = new Map<string, { fingerprint: string; expiresAt: number }>()
 
 function getAnalyzeProviderCacheKey(teamId: number | string, teamName: string, teamSource?: string, fotmobId?: number | null) {
   return [
@@ -357,6 +373,123 @@ function getCachedAnalyzeProviderContext(cacheKey: string): CachedAnalyzeProvide
 function setCachedAnalyzeProviderContext(cacheKey: string, data: CachedAnalyzeProviderContext) {
   analyzeProviderCache.set(cacheKey, {
     data,
+    expiresAt: Date.now() + ANALYZE_PROVIDER_TTL_MS,
+  })
+}
+
+function getAnalyzeManagerSnapshotCacheKey(
+  teamId: number | string,
+  teamName: string,
+  managerId?: string
+) {
+  return [
+    'analyze-snapshot',
+    String(teamId),
+    normalizeTeamLookupName(teamName),
+    managerId || 'auto',
+  ].join(':')
+}
+
+function getCachedAnalyzeManagerSnapshot(cacheKey: string): CachedStableManagerSnapshot | null {
+  const entry = analyzeManagerSnapshotCache.get(cacheKey)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    analyzeManagerSnapshotCache.delete(cacheKey)
+    return null
+  }
+  return entry.data
+}
+
+function setCachedAnalyzeManagerSnapshot(cacheKey: string, data: CachedStableManagerSnapshot) {
+  analyzeManagerSnapshotCache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + ANALYZE_PROVIDER_TTL_MS,
+  })
+}
+
+function normalizeFormationList(values?: string[] | null, primaryFormation?: string | null): string[] {
+  const normalized = Array.from(
+    new Set((values || []).map((value) => normalizeLiveFormation(value)).filter(Boolean) as string[])
+  )
+
+  if (primaryFormation) {
+    return [
+      primaryFormation,
+      ...normalized.filter((value) => value !== primaryFormation).sort(),
+    ]
+  }
+
+  return normalized.sort()
+}
+
+function buildStableLiveFormationContext(snapshot: ManagerLiveSnapshot | null): LiveFormationContext | undefined {
+  if (!snapshot) return undefined
+
+  const primaryFormation = normalizeLiveFormation(snapshot.primaryFormation) || null
+  const recentFormations = normalizeFormationList(snapshot.recentFormations, primaryFormation)
+  const referenceClub = snapshot.referenceClub?.trim() || null
+  const formationSampleSize = Number.isFinite(snapshot.sampleSize) ? snapshot.sampleSize : 0
+  const formationSeason = Number.isFinite(snapshot.season) ? snapshot.season : null
+
+  if (!primaryFormation && !recentFormations.length && !referenceClub && !formationSampleSize && !formationSeason) {
+    return undefined
+  }
+
+  return {
+    primaryFormation,
+    recentFormations,
+    formationSampleSize,
+    formationSeason,
+    referenceClub,
+  }
+}
+
+function buildAnalysisMinimalPlayer(player: AnalyzeSquadRow): MinimalSquadPlayer {
+  return {
+    name: player.name,
+    position: player.position ?? '',
+    age: Number.isFinite(player.age) ? player.age : 0,
+    nationality: player.nationality ?? '',
+    appearances: Number.isFinite(player.appearances) ? player.appearances : 0,
+    goals: Number.isFinite(player.goals) ? player.goals : 0,
+    assists: Number.isFinite(player.assists) ? player.assists : 0,
+    minutes: Number.isFinite(player.minutes) ? player.minutes : 0,
+    rating: player.rating ?? '0',
+    tackles: Number.isFinite(player.tackles) ? player.tackles : 0,
+    interceptions: Number.isFinite(player.interceptions) ? player.interceptions : 0,
+  }
+}
+
+function getAnalyzeFingerprintCacheKey(
+  teamId: number | string,
+  teamName: string,
+  managerId?: string,
+  language?: string,
+  excludedPlayerIds?: string[]
+) {
+  return [
+    'analyze-fingerprint',
+    String(teamId),
+    normalizeTeamLookupName(teamName),
+    managerId || 'auto',
+    normalizeTeamLookupName(language || 'en'),
+    [...(excludedPlayerIds || [])].sort().join(',') || 'none',
+  ].join(':')
+}
+
+function getCachedAnalyzeFingerprint(cacheKey: string): string | null {
+  const entry = analyzeFingerprintCache.get(cacheKey)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    analyzeFingerprintCache.delete(cacheKey)
+    return null
+  }
+  return entry.fingerprint
+}
+
+function setCachedAnalyzeFingerprint(cacheKey: string, fingerprint: string) {
+  analyzeFingerprintCache.set(cacheKey, {
+    fingerprint,
     expiresAt: Date.now() + ANALYZE_PROVIDER_TTL_MS,
   })
 }
@@ -661,12 +794,8 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    let manager = managerId ? getManagerById(managerId) : undefined
+    const requestedManager = managerId ? getManagerById(managerId) : undefined
     const providerManagerProfile = providerManagerName ? getManagerByName(providerManagerName) : undefined
-
-    if (!manager && providerManagerProfile) {
-      manager = providerManagerProfile
-    }
 
     // Filter excluded players (injured/suspended) before passing to Claude
     const availableSquad = excludedSet.size > 0
@@ -685,41 +814,76 @@ export async function POST(request: NextRequest) {
 
     // Detect national teams so recommendations can filter by nationality
     const nationalTeamCountry = isNationalTeam(teamName) ? teamName : null
-    const initialManagerName = manager?.name ?? providerManagerName ?? null
-    const managerSnapshotStartedAt = timing.start()
-    const liveManagerSnapshot = initialManagerName
-      ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 20 }).catch(() => null)
-      : null
-    timing.end('manager_snapshot', managerSnapshotStartedAt, initialManagerName ?? 'none')
+    const initialManagerName = requestedManager?.name ?? providerManagerName ?? null
+    const managerSnapshotCacheKey = getAnalyzeManagerSnapshotCacheKey(teamId, teamName, managerId)
+    const cachedManagerSnapshot = getCachedAnalyzeManagerSnapshot(managerSnapshotCacheKey)
+    let stableManagerSnapshot = cachedManagerSnapshot
 
-    const snapshotManagerName = getTrustedSnapshotManagerName(liveManagerSnapshot, teamName)
-    const snapshotManagerProfile = !manager && snapshotManagerName ? getManagerByName(snapshotManagerName) : undefined
-    const resolvedManager = manager ?? snapshotManagerProfile ?? providerManagerProfile
+    if (!stableManagerSnapshot) {
+      const managerSnapshotStartedAt = timing.start()
+      const liveManagerSnapshot = initialManagerName
+        ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 20 }).catch(() => null)
+        : null
+      timing.end('manager_snapshot', managerSnapshotStartedAt, initialManagerName ?? 'none')
+
+      stableManagerSnapshot = {
+        trustedManagerName: getTrustedSnapshotManagerName(liveManagerSnapshot, teamName),
+        liveFormationContext: buildStableLiveFormationContext(liveManagerSnapshot),
+      }
+      setCachedAnalyzeManagerSnapshot(managerSnapshotCacheKey, stableManagerSnapshot)
+    } else {
+      const managerSnapshotStartedAt = timing.start()
+      timing.end(
+        'manager_snapshot',
+        managerSnapshotStartedAt,
+        `cache:hit,manager:${stableManagerSnapshot.trustedManagerName ?? initialManagerName ?? 'none'}`
+      )
+    }
+
+    const snapshotManagerName = stableManagerSnapshot.trustedManagerName
+    const snapshotManagerProfile = !requestedManager && snapshotManagerName ? getManagerByName(snapshotManagerName) : undefined
+    const resolvedManager = requestedManager ?? snapshotManagerProfile ?? providerManagerProfile
     const factualManagerName = preferRicherManagerName(
       resolvedManager?.name ?? providerManagerName,
       snapshotManagerName
     )
+    if (
+      providerManagerName &&
+      snapshotManagerName &&
+      !managerNamesLikelyMatch(providerManagerName, snapshotManagerName)
+    ) {
+      console.warn(
+        `[analyze] provider manager drift for ${teamName}: provider=${providerManagerName} snapshot=${snapshotManagerName}`
+      )
+    }
     const managerNameHint = factualManagerName ?? undefined
 
     const allowManagerInference = Boolean(resolvedManager || factualManagerName)
-    const analysisInput = {
+    const analysisInput = normalizeCachedSquadAnalysisInput({
       manager: resolvedManager || null,
-      squadPlayers: availableSquad,
+      squadPlayers: availableSquad.map(buildAnalysisMinimalPlayer),
       teamName,
       managerName: managerNameHint,
       unavailablePlayers,
       allowManagerInference,
       language,
-      liveFormationContext: liveManagerSnapshot
-        ? {
-            primaryFormation: liveManagerSnapshot.primaryFormation,
-            recentFormations: liveManagerSnapshot.recentFormations,
-            formationSampleSize: liveManagerSnapshot.sampleSize,
-            formationSeason: liveManagerSnapshot.season,
-            referenceClub: liveManagerSnapshot.referenceClub,
-          }
-        : undefined,
+      liveFormationContext: stableManagerSnapshot.liveFormationContext,
+    })
+    const analysisFingerprint = buildCachedSquadAnalysisFingerprint(analysisInput)
+    const fingerprintCacheKey = getAnalyzeFingerprintCacheKey(
+      teamId,
+      teamName,
+      managerId,
+      language,
+      excludedSet.size > 0 ? [...excludedSet] : undefined
+    )
+    const previousFingerprint = getCachedAnalyzeFingerprint(fingerprintCacheKey)
+    if (previousFingerprint && previousFingerprint !== analysisFingerprint) {
+      console.warn(
+        `[analyze] canonical input drift detected for ${teamName}: previous=${previousFingerprint} current=${analysisFingerprint} manager=${managerNameHint ?? 'none'} formation=${analysisInput.liveFormationContext?.primaryFormation ?? 'none'}`
+      )
     }
+    setCachedAnalyzeFingerprint(fingerprintCacheKey, analysisFingerprint)
 
     const requestedAnalysisMode = analysisMode === 'details' ? 'details' : 'core'
     const claudeStartedAt = timing.start()
@@ -812,7 +976,7 @@ export async function POST(request: NextRequest) {
             displayName: localizedAnalysis.displayManagerName ?? localizedManager?.name ?? resolvedManager.name,
             currentClub: teamName,
             displayCurrentClub: localizedAnalysis.displayTeamName ?? teamName,
-            formations: liveManagerSnapshot?.recentFormations || [],
+            formations: stableManagerSnapshot.liveFormationContext?.recentFormations || [],
             style: resolvedManager.style,
             tacticalSummary: localizedManager?.tacticalSummary ?? resolvedManager.tacticalSummary,
             keyPrinciples: localizedManager?.keyPrinciples ?? resolvedManager.keyPrinciples,
@@ -827,7 +991,7 @@ export async function POST(request: NextRequest) {
             displayName: localizedAnalysis.displayManagerName ?? factualManagerName,
             currentClub: teamName,
             displayCurrentClub: localizedAnalysis.displayTeamName ?? teamName,
-            formations: liveManagerSnapshot?.recentFormations || [],
+            formations: stableManagerSnapshot.liveFormationContext?.recentFormations || [],
             style: null,
             tacticalSummary: null,
             keyPrinciples: [],

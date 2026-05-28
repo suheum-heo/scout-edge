@@ -1218,6 +1218,7 @@ export interface UndervaluedXIResult {
   totalEstimatedCost: string // e.g. "≈€87M"
   budgetStatus?: 'within' | 'over'
   budgetOverrun?: string
+  status?: 'ok'
 }
 
 export interface UndervaluedSlotCandidate {
