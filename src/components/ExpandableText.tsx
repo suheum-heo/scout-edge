@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useState } from 'react'
+import { useId, useState } from 'react'
 import { useLanguage } from '@/components/LanguageProvider'
 
 interface ExpandableTextProps {
@@ -17,12 +17,9 @@ export default function ExpandableText({
   buttonClassName = '',
 }: ExpandableTextProps) {
   const { t } = useLanguage()
-  const [expanded, setExpanded] = useState(false)
+  const [expandedText, setExpandedText] = useState<string | null>(null)
   const contentId = useId()
-
-  useEffect(() => {
-    setExpanded(false)
-  }, [text])
+  const expanded = expandedText === text
 
   const clampClass = collapsedLines === 3 ? 'line-clamp-3' : 'line-clamp-2'
 
@@ -38,7 +35,7 @@ export default function ExpandableText({
         type="button"
         aria-expanded={expanded}
         aria-controls={contentId}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setExpandedText((value) => (value === text ? null : text))}
         className={`${buttonClassName} mt-2 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors`.trim()}
       >
         {expanded ? t('common.showLess') : t('common.showMore')}

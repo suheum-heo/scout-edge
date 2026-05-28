@@ -13,8 +13,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <nav className="border-b border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 lg:flex-nowrap">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 min-h-14 py-3 lg:h-20 lg:py-0">
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 lg:h-full lg:flex-nowrap lg:gap-y-0">
             <Link href="/" className="flex shrink-0 items-center gap-2.5 hover:opacity-80 transition-opacity">
               <div className="w-7 h-7 bg-blue-500 rounded-lg flex items-center justify-center">
                 <Search className="w-4 h-4 text-white" />
@@ -22,8 +22,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <span className="font-bold text-slate-900 dark:text-white tracking-tight">ScoutEdge</span>
             </Link>
 
-            <div className="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2 lg:w-auto lg:flex-nowrap lg:gap-x-8">
-              <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 sm:gap-x-6 lg:gap-x-8">
+            <div className="flex w-full flex-wrap items-center justify-end gap-x-4 gap-y-2 sm:gap-x-6 lg:w-auto lg:flex-nowrap lg:items-center lg:gap-x-8">
+              <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 sm:gap-x-6 lg:flex-nowrap lg:gap-x-8">
                 <Link href="/" className={navLinkClassName}>
                   {t('nav.squadAnalysis')}
                 </Link>

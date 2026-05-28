@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useLanguage } from '@/components/LanguageProvider'
-import { formatElapsedTime } from '@/lib/i18n'
+import { formatElapsedTime, type LanguageCode } from '@/lib/i18n'
 
 interface LoadingSpinnerProps {
   message?: string
@@ -10,6 +10,24 @@ interface LoadingSpinnerProps {
   durationHint?: string
   showElapsed?: boolean
   compact?: boolean
+}
+
+function ElapsedTimePill({ language, workingLabel }: { language: LanguageCode; workingLabel: string }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setElapsedSeconds((value) => value + 1)
+    }, 1000)
+
+    return () => window.clearInterval(interval)
+  }, [])
+
+  return (
+    <div className="mt-3 inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400">
+      {workingLabel.replace('{value}', formatElapsedTime(language, elapsedSeconds))}
+    </div>
+  )
 }
 
 export default function LoadingSpinner({
@@ -20,21 +38,8 @@ export default function LoadingSpinner({
   compact = false,
 }: LoadingSpinnerProps) {
   const { language, t } = useLanguage()
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const resolvedMessage = message || t('loading.defaultMessage')
   const resolvedDurationHint = durationHint ?? t('loading.defaultHint')
-
-  useEffect(() => {
-    setElapsedSeconds(0)
-    if (!showElapsed) return
-
-    const startedAt = Date.now()
-    const interval = window.setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
-    }, 1000)
-
-    return () => window.clearInterval(interval)
-  }, [showElapsed])
 
   return (
     <div
@@ -50,9 +55,11 @@ export default function LoadingSpinner({
         <p className="text-slate-900 dark:text-white font-medium">{resolvedMessage}</p>
         {submessage && <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">{submessage}</p>}
         {showElapsed && (
-          <div className="mt-3 inline-flex items-center rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-400">
-            {t('loading.workingFor', { value: formatElapsedTime(language, elapsedSeconds) })}
-          </div>
+          <ElapsedTimePill
+            key={`${language}-${resolvedMessage}-${submessage ?? ''}`}
+            language={language}
+            workingLabel={t('loading.workingFor', { value: '{value}' })}
+          />
         )}
         {resolvedDurationHint && (
           <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 max-w-xl text-pretty">

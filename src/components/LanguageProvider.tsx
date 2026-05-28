@@ -37,14 +37,26 @@ const LanguageContext = createContext<LanguageContextValue | null>(null)
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(DEFAULT_LANGUAGE)
-  const [runtimeCatalog, setRuntimeCatalog] = useState<MessageCatalog | null>(null)
+  const [runtimeCatalogState, setRuntimeCatalogState] = useState<{
+    language: LanguageCode
+    messages: MessageCatalog | null
+  }>({
+    language: DEFAULT_LANGUAGE,
+    messages: null,
+  })
 
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY)
-      if (saved) setLanguage(normalizeLanguage(saved))
+      if (!saved) return
+
+      const syncLanguageTimer = window.setTimeout(() => {
+        setLanguage(normalizeLanguage(saved))
+      }, 0)
+
+      return () => window.clearTimeout(syncLanguageTimer)
     } catch {
-      // Ignore storage failures.
+      return
     }
   }, [])
 
@@ -61,13 +73,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false
 
     if (hasStaticMessages(language)) {
-      setRuntimeCatalog(null)
       return () => {
         cancelled = true
       }
     }
-
-    setRuntimeCatalog(null)
 
     void fetch(`/api/i18n?language=${encodeURIComponent(language)}`)
       .then(async (response) => {
@@ -77,12 +86,12 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       })
       .then((messages) => {
         if (!cancelled) {
-          setRuntimeCatalog(messages)
+          setRuntimeCatalogState({ language, messages })
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRuntimeCatalog(null)
+          setRuntimeCatalogState({ language, messages: null })
         }
       })
 
@@ -92,6 +101,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, [language])
 
   const resolvedCatalog = useMemo(() => {
+    const runtimeCatalog = runtimeCatalogState.language === language
+      ? runtimeCatalogState.messages
+      : null
     const seeded = getSeededMessages(language)
     if (hasStaticMessages(language)) {
       return runtimeCatalog
@@ -111,7 +123,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     }
 
     return merged
-  }, [language, runtimeCatalog])
+  }, [language, runtimeCatalogState])
 
   const value = useMemo<LanguageContextValue>(() => ({
     language,

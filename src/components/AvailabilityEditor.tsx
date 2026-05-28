@@ -25,10 +25,16 @@ function posGroup(pos: string): Group {
 const GROUP_ORDER: Group[] = ['GK', 'DEF', 'MID', 'ATT']
 export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: Props) {
   const { t } = useLanguage()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(() => unavailableIds.size > 0)
 
   useEffect(() => {
-    if (unavailableIds.size > 0) setOpen(true)
+    if (unavailableIds.size === 0) return
+
+    const openTimer = window.setTimeout(() => {
+      setOpen(true)
+    }, 0)
+
+    return () => window.clearTimeout(openTimer)
   }, [unavailableIds.size])
 
   const grouped = GROUP_ORDER.reduce((acc, g) => {

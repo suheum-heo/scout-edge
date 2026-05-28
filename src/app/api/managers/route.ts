@@ -15,7 +15,7 @@ type ManagerSummary = {
   formations: string[]
 }
 
-let managersCache = new Map<string, { data: ManagerSummary[]; expiresAt: number }>()
+const managersCache = new Map<string, { data: ManagerSummary[]; expiresAt: number }>()
 const MANAGERS_TTL = 15 * 60 * 1000
 
 function parseRequestedIds(request: Request) {

@@ -14,9 +14,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const saved = (localStorage.getItem('theme') as Theme | null) ?? 'dark'
-    setTheme(saved)
-    document.documentElement.classList.toggle('dark', saved === 'dark')
+    const syncThemeTimer = window.setTimeout(() => {
+      setTheme(saved)
+    }, 0)
+
+    return () => window.clearTimeout(syncThemeTimer)
   }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+  }, [theme])
 
   function toggle() {
     setTheme((prev) => {
