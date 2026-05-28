@@ -1,4 +1,5 @@
 import { getCanonicalClubLogo } from '@/lib/club-crests'
+import { MANUAL_NAME_GLOSSARY } from '@/lib/football-localization'
 
 /**
  * Local database of popular clubs for instant search (no API calls).
@@ -205,12 +206,68 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 8478, source: 'fotmob', name: 'Viking FK',            country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8478_small.png', aliases: ['viking', 'stavanger'] },
 ]
 
+const LOCALIZED_TEAM_SHORT_ALIASES: Partial<Record<'ko' | 'ja', Record<string, string[]>>> = {
+  ko: {
+    'Tottenham Hotspur': ['토트넘'],
+    'FC Bayern München': ['바이에른'],
+    'Bayern München': ['바이에른'],
+    'Real Madrid': ['레알'],
+    'Manchester City': ['맨시티'],
+    'Manchester United': ['맨유'],
+  },
+  ja: {
+    'Tottenham Hotspur': ['トッテナム'],
+    'FC Bayern München': ['バイエルン'],
+    'Bayern München': ['バイエルン'],
+    'Real Madrid': ['レアル'],
+    'Manchester City': ['マンチェスター・シティ'],
+    'Manchester United': ['マンチェスター・ユナイテッド'],
+  },
+}
+
 function normalize(s: string): string {
   return s
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[·・･]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim()
+}
+
+function compactLocalizedAlias(value: string): string {
+  return value.replace(/[\s·・･]/g, '').trim()
+}
+
+function getLocalizedClubAliases(teamName: string): string[] {
+  const derived = new Set<string>()
+
+  for (const language of ['ko', 'ja'] as const) {
+    const localizedName = MANUAL_NAME_GLOSSARY[language].club?.[teamName]
+    if (localizedName) {
+      derived.add(localizedName)
+
+      const compact = compactLocalizedAlias(localizedName)
+      if (compact && compact !== localizedName) {
+        derived.add(compact)
+      }
+    }
+
+    for (const alias of LOCALIZED_TEAM_SHORT_ALIASES[language]?.[teamName] || []) {
+      derived.add(alias)
+
+      const compact = compactLocalizedAlias(alias)
+      if (compact && compact !== alias) {
+        derived.add(compact)
+      }
+    }
+  }
+
+  return [...derived]
+}
+
+function getSearchableAliases(team: LocalTeam): string[] {
+  return [...new Set([team.name, ...team.aliases, ...getLocalizedClubAliases(team.name)])]
 }
 
 export function searchLocalTeams(query: string): Array<{
@@ -224,6 +281,7 @@ export function searchLocalTeams(query: string): Array<{
 
   for (const team of POPULAR_TEAMS) {
     const normalizedName = normalize(team.name)
+    const searchableAliases = getSearchableAliases(team)
     let score = 0
 
     if (normalizedName === q)                                                     score = 100
@@ -231,7 +289,7 @@ export function searchLocalTeams(query: string): Array<{
     else if (normalizedName.split(' ').some((w) => w.startsWith(q)))              score = 80
     else if (normalizedName.includes(q))                                          score = 70
     else {
-      for (const alias of team.aliases) {
+      for (const alias of searchableAliases) {
         const na = normalize(alias)
         if (na === q)                                   { score = 85; break }
         if (na.startsWith(q))                           { score = 75; break }
