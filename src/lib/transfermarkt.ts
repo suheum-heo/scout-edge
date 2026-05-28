@@ -516,7 +516,13 @@ function scoreClubSearchResultName(name: string, query: string): number {
   return 0
 }
 
-function clubMatchScore(left?: string, right?: string): number {
+function getMeaningfulClubTokens(value?: string | null): string[] {
+  const { simplified, exact } = getClubLookupKeys(value)
+  const key = simplified || exact
+  return key.split(' ').filter(Boolean)
+}
+
+function clubMatchScore(left?: string | null, right?: string | null): number {
   if (!left || !right) return 0
 
   const leftKeys = getClubLookupKeys(left)
@@ -525,25 +531,25 @@ function clubMatchScore(left?: string, right?: string): number {
   if (!leftKeys.exact || !rightKeys.exact) return 0
 
   if (leftKeys.exact === rightKeys.exact || (leftKeys.simplified && leftKeys.simplified === rightKeys.simplified)) {
-    return 6
+    return 8
   }
 
-  if (
-    leftKeys.exact.includes(rightKeys.exact) ||
-    rightKeys.exact.includes(leftKeys.exact) ||
-    (leftKeys.simplified && rightKeys.simplified && (
-      leftKeys.simplified.includes(rightKeys.simplified) ||
-      rightKeys.simplified.includes(leftKeys.simplified)
-    ))
-  ) {
+  const leftTokens = new Set(getMeaningfulClubTokens(left))
+  const rightTokens = new Set(getMeaningfulClubTokens(right))
+  const sharedTokens = Array.from(leftTokens).filter((token) => rightTokens.has(token))
+  const minTokenCount = Math.min(leftTokens.size, rightTokens.size)
+
+  if (sharedTokens.length >= 2 && minTokenCount >= 2) {
     return 4
   }
-
-  const leftLead = (leftKeys.simplified || leftKeys.exact).split(' ')[0]
-  const rightLead = (rightKeys.simplified || rightKeys.exact).split(' ')[0]
-  if (leftLead && rightLead && leftLead === rightLead) return 2
+  if (sharedTokens.length >= 3) return 4
+  if (sharedTokens.length >= 2) return 3
 
   return 0
+}
+
+export function isReliableTMClubMatch(left?: string | null, right?: string | null): boolean {
+  return clubMatchScore(left, right) >= 4
 }
 
 function managerClubScore(resultClub?: string | null, queryClub?: string | null): number {
@@ -611,6 +617,7 @@ export async function searchPlayer(
     const pStripped = stripDiacritics(pLow)
 
     let score = 0
+    let clubScore = 0
     // Name similarity
     if (pLow === q || pStripped === qStripped) score += 10
     else if (pStripped.includes(qStripped) && qStripped.length >= 5) score += 5
@@ -626,13 +633,19 @@ export async function searchPlayer(
 
     // Club name match
     if (hints?.club && p.club?.name) {
-      score += clubMatchScore(hints.club, p.club.name)
+      clubScore = clubMatchScore(hints.club, p.club.name)
+      score += clubScore
+      if (clubScore === 0) score -= 8
     }
 
-    return { p, score }
+    return { p, score, clubScore }
   })
 
-  scored.sort((a, b) => b.score - a.score)
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if (b.clubScore !== a.clubScore) return b.clubScore - a.clubScore
+    return 0
+  })
   return scored[0].p
 }
 

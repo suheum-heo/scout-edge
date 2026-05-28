@@ -9,7 +9,7 @@ import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeTransferTargets } from '@/lib/entity-localization'
-import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult, buildTMPlayerProfileUrl } from '@/lib/transfermarkt'
+import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult, buildTMPlayerProfileUrl, isReliableTMClubMatch } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
 
@@ -101,16 +101,19 @@ async function findSearchResult(target: TransferTarget): Promise<TMPlayerSearchR
 
 function mergeSearchResult(target: TransferTarget, searchResult: TMPlayerSearchResult): TransferTarget {
   const searchClub = searchResult.club?.name
+  const reliableClubMatch = !target.currentClub || !searchClub || isReliableTMClubMatch(target.currentClub, searchClub)
   return {
     ...target,
     playerName: searchResult.name || target.playerName,
-    currentClub: isUsableTMClubName(searchClub) ? searchClub : target.currentClub,
+    currentClub: isUsableTMClubName(searchClub) && reliableClubMatch ? searchClub : target.currentClub,
     age: searchResult.age ?? target.age,
     nationality: searchResult.nationalities?.[0] || target.nationality,
     position: normalizeTMPositionLabel(searchResult.position) || target.position,
     estimatedFee: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : target.estimatedFee,
-    tmVerified: isUsableTMClubName(searchClub),
-    transfermarktUrl: searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name),
+    tmVerified: isUsableTMClubName(searchClub) && reliableClubMatch,
+    transfermarktUrl: isUsableTMClubName(searchClub) && reliableClubMatch
+      ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
+      : target.transfermarktUrl,
   }
 }
 

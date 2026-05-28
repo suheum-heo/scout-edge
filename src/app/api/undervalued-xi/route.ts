@@ -15,7 +15,7 @@ import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeUndervaluedXIResult } from '@/lib/entity-localization'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
-import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult, isReliableTMClubMatch } from '@/lib/transfermarkt'
 
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
@@ -494,15 +494,18 @@ function dedupeCandidates(candidates: CandidateEvaluation[]): CandidateEvaluatio
 
 function mergeSearchResult(player: UndervaluedPlayer, searchResult: TMPlayerSearchResult): UndervaluedPlayer {
   const searchClub = searchResult.club?.name
+  const reliableClubMatch = !player.currentClub || !searchClub || isReliableTMClubMatch(player.currentClub, searchClub)
   return {
     ...player,
     playerName: searchResult.name || player.playerName,
-    currentClub: isUsableTMClubName(searchClub) ? searchClub : player.currentClub,
+    currentClub: isUsableTMClubName(searchClub) && reliableClubMatch ? searchClub : player.currentClub,
     age: searchResult.age ?? player.age,
     nationality: searchResult.nationalities?.[0] || player.nationality,
     estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
-    tmVerified: isUsableTMClubName(searchClub),
-    transfermarktUrl: searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name),
+    tmVerified: isUsableTMClubName(searchClub) && reliableClubMatch,
+    transfermarktUrl: isUsableTMClubName(searchClub) && reliableClubMatch
+      ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
+      : player.transfermarktUrl,
   }
 }
 

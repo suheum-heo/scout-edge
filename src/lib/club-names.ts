@@ -107,7 +107,14 @@ export function normalizeClubDisplayName(value?: string | null): string {
   if (!trimmed) return ''
 
   const { exact, simplified } = getClubLookupKeys(trimmed)
-  return SAFE_CANONICAL_BY_KEY.get(exact) ??
-    SAFE_CANONICAL_BY_KEY.get(simplified) ??
-    trimmed
+  const exactCanonical = SAFE_CANONICAL_BY_KEY.get(exact)
+  if (exactCanonical) return exactCanonical
+
+  const exactTokenCount = exact.split(' ').filter(Boolean).length
+  if (exact === simplified || exactTokenCount <= 1) {
+    const simplifiedCanonical = SAFE_CANONICAL_BY_KEY.get(simplified)
+    if (simplifiedCanonical) return simplifiedCanonical
+  }
+
+  return trimmed
 }
