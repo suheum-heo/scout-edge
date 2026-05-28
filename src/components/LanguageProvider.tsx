@@ -37,6 +37,10 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue | null>(null)
 
+const SEEDED_PREFERRED_KEYS = new Set<string>([
+  'home.searchPlaceholder',
+])
+
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(DEFAULT_LANGUAGE)
   const [runtimeCatalogState, setRuntimeCatalogState] = useState<{
@@ -119,7 +123,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const merged = { ...(runtimeCatalog || {}) }
 
     for (const [key, value] of Object.entries(seeded)) {
-      if (!(key in merged) || merged[key] === english[key]) {
+      if (SEEDED_PREFERRED_KEYS.has(key) || !(key in merged) || merged[key] === english[key]) {
         merged[key] = value
       }
     }

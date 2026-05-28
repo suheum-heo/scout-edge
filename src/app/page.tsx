@@ -14,6 +14,7 @@ import UndervaluedXI from '@/components/UndervaluedXI'
 import LoadingSpinner from '@/components/LoadingSpinner'
 import ExpandableText from '@/components/ExpandableText'
 import type { SquadAnalysisResult, SquadGap, TransferTarget, PlayerSystemFit, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
+import { getSeededMessages } from '@/lib/i18n'
 import { searchLocalTeams } from '@/lib/teams-db'
 import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
@@ -58,6 +59,7 @@ function makeTeamKey(team?: Team | null): string {
 
 export default function HomePage() {
   const { language, t, pluralSuffix, translatePosition, localizeText } = useLanguage()
+  const seededSearchPlaceholder = getSeededMessages(language)['home.searchPlaceholder']
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
@@ -599,7 +601,7 @@ export default function HomePage() {
               value={teamQuery}
               onChange={(e) => handleTeamSearch(e.target.value)}
               onKeyDown={handleTeamInputKeyDown}
-              placeholder={t('home.searchPlaceholder')}
+              placeholder={seededSearchPlaceholder || t('home.searchPlaceholder')}
               className="flex-1 bg-transparent text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 outline-none text-sm"
             />
             {isSearching && (
