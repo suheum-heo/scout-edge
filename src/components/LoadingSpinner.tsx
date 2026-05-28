@@ -7,7 +7,7 @@ import { formatElapsedTime, type LanguageCode } from '@/lib/i18n'
 interface LoadingSpinnerProps {
   message?: string
   submessage?: string
-  durationHint?: string
+  durationHint?: string | string[]
   showElapsed?: boolean
   compact?: boolean
 }
@@ -40,6 +40,12 @@ export default function LoadingSpinner({
   const { language, t } = useLanguage()
   const resolvedMessage = message || t('loading.defaultMessage')
   const resolvedDurationHint = durationHint ?? t('loading.defaultHint')
+  const resolvedHintLines = Array.isArray(resolvedDurationHint)
+    ? resolvedDurationHint
+    : String(resolvedDurationHint || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
 
   return (
     <div
@@ -61,10 +67,14 @@ export default function LoadingSpinner({
             workingLabel={t('loading.workingFor', { value: '{value}' })}
           />
         )}
-        {resolvedDurationHint && (
-          <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 max-w-xl text-pretty">
-            {resolvedDurationHint}
-          </p>
+        {resolvedHintLines.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {resolvedHintLines.map((line) => (
+              <p key={line} className="text-slate-400 dark:text-slate-500 text-xs max-w-xl text-pretty">
+                {line}
+              </p>
+            ))}
+          </div>
         )}
       </div>
     </div>

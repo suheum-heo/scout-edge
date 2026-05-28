@@ -22,9 +22,11 @@ function buildTransfermarktSearchUrl(playerName: string): string {
 }
 
 function PlayerCard({ player }: { player: UndervaluedPlayer }) {
-  const { t } = useLanguage()
+  const { t, localizeText } = useLanguage()
   const href = player.transfermarktUrl
   const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
+  const displayName = player.displayName || player.playerName
+  const displayClub = player.displayCurrentClub || player.currentClub
   const cardContent = (
     <>
       {/* Position + archetype */}
@@ -32,14 +34,14 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
         <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{localizeText(player.archetypeLabel)}</span>
       </div>
 
       {/* Name + score */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-1.5">
           <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
-            {player.playerName}
+            {displayName}
           </span>
           {href && <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 dark:group-hover:text-emerald-300 transition-colors flex-shrink-0 mt-0.5" />}
         </div>
@@ -59,7 +61,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       </div>
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">{displayClub}</span>
         ) : (
           <a
             href={fallbackSearchUrl}
@@ -83,7 +85,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
 
       {/* Why undervalued */}
       <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
-        {player.whyUndervalued}
+        {localizeText(player.whyUndervalued)}
       </p>
     </>
   )

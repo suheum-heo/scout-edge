@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerTiming } from '@/lib/server-timing'
+import { localizePlayerSearchResults } from '@/lib/entity-localization'
+import { normalizeLanguage } from '@/lib/i18n'
 import { searchPlayer, searchPlayers } from '@/lib/transfermarkt'
 
 export async function GET(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
   const q = request.nextUrl.searchParams.get('q')?.trim()
+  const language = normalizeLanguage(request.nextUrl.searchParams.get('language'))
 
   if (!q || q.length < 2) {
     const response = NextResponse.json({ players: [] })
@@ -32,7 +35,8 @@ export async function GET(request: NextRequest) {
     marketValue: p.marketValue,
   })))
 
-  const response = NextResponse.json({ players })
+  const localizedPlayers = await localizePlayerSearchResults(players, language)
+  const response = NextResponse.json({ players: localizedPlayers })
   timing.end('total', requestStartedAt)
   timing.apply(response.headers)
   return response

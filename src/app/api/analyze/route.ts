@@ -50,6 +50,7 @@ import { getClubManager, getClubSquad, searchClub, searchManager, searchManagerB
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
+import { localizeSquadAnalysisResult, resolveLocalizedEntityMap } from '@/lib/entity-localization'
 import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -744,6 +745,15 @@ export async function POST(request: NextRequest) {
         managerName: factualManagerName,
       }
     }
+    const localizedAnalysis = await localizeSquadAnalysisResult(analysis, language)
+    const squadNameMap = await resolveLocalizedEntityMap(
+      squadPlayers.map((player) => ({ name: player.name, entityType: 'player' as const })),
+      language
+    )
+    const localizedSquadPlayers = squadPlayers.map((player) => ({
+      ...player,
+      displayName: squadNameMap[player.name] || player.name,
+    }))
     timing.end(
       requestedAnalysisMode === 'details' ? 'claude_analysis_details' : 'claude_analysis_core',
       claudeStartedAt,
@@ -780,14 +790,16 @@ export async function POST(request: NextRequest) {
     )
 
     const response = NextResponse.json({
-      analysis,
-      squad: squadPlayers,
+      analysis: localizedAnalysis,
+      squad: localizedSquadPlayers,
       nationalTeamCountry,
       manager: resolvedManager
         ? {
             id: localizedManager?.id ?? resolvedManager.id,
             name: localizedManager?.name ?? resolvedManager.name,
+            displayName: localizedAnalysis.displayManagerName ?? localizedManager?.name ?? resolvedManager.name,
             currentClub: teamName,
+            displayCurrentClub: localizedAnalysis.displayTeamName ?? teamName,
             formations: liveManagerSnapshot?.recentFormations || [],
             style: resolvedManager.style,
             tacticalSummary: localizedManager?.tacticalSummary ?? resolvedManager.tacticalSummary,
@@ -800,7 +812,9 @@ export async function POST(request: NextRequest) {
         : {
             id: null,
             name: factualManagerName,
+            displayName: localizedAnalysis.displayManagerName ?? factualManagerName,
             currentClub: teamName,
+            displayCurrentClub: localizedAnalysis.displayTeamName ?? teamName,
             formations: liveManagerSnapshot?.recentFormations || [],
             style: null,
             tacticalSummary: null,

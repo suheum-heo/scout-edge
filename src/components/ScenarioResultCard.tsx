@@ -27,7 +27,7 @@ function overallDeltaDisplay(delta: number, noChangeLabel: string) {
 }
 
 export default function ScenarioResultCard({ result, compareSelected, onToggleCompare, compareDisabled }: Props) {
-  const { t } = useLanguage()
+  const { t, translateVerdictLabel, localizeText } = useLanguage()
   const [expanded, setExpanded] = useState(true)
   const overall = overallDeltaDisplay(result.overallDelta, t('scenario.noChange'))
 
@@ -44,7 +44,7 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-slate-900 dark:text-white font-bold text-sm">{result.label}</span>
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${verdictStyle(result.recommendation)}`}>
-                {result.recommendation}
+                {translateVerdictLabel(result.recommendation)}
               </span>
                 <span className={`flex items-center gap-0.5 text-sm font-bold ${overall.color}`}>
                 {overall.icon}{overall.text}{overall.icon ? ` ${t('scenario.overallScore').toLowerCase()}` : ''}
@@ -55,12 +55,12 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
             <div className="flex flex-wrap gap-1 mt-1.5">
               {result.playersOut.map((p) => (
                 <span key={p.playerId + p.name} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-400">
-                  {t('common.out')}: {p.name}
+                  {t('common.out')}: {p.displayName || p.name}
                 </span>
               ))}
               {result.playersIn.map((p, i) => (
                 <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                  {t('common.in')}: {p.name}
+                  {t('common.in')}: {p.displayName || p.name}
                 </span>
               ))}
             </div>
@@ -99,7 +99,7 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
           <ScenarioDimensionChart dimensions={result.dimensions} />
 
           {/* Verdict */}
-          <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{result.verdict}&rdquo;</p>
+          <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{localizeText(result.verdict)}&rdquo;</p>
 
           {/* Risks */}
           {result.risks.length > 0 && (
@@ -107,7 +107,7 @@ export default function ScenarioResultCard({ result, compareSelected, onToggleCo
               {result.risks.map((r, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span className="text-slate-600 dark:text-slate-400 text-xs">{r}</span>
+                  <span className="text-slate-600 dark:text-slate-400 text-xs">{localizeText(r)}</span>
                 </div>
               ))}
             </div>

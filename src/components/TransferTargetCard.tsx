@@ -36,11 +36,13 @@ function rankStyle(rank: number): { ring: string; text: string; label: string } 
 }
 
 export default function TransferTargetCard({ target, rank }: TransferTargetCardProps) {
-  const { t, translateAvailabilityLabel, translatePosition } = useLanguage()
+  const { t, translateAvailabilityLabel, translatePosition, localizeText } = useLanguage()
   const [expanded, setExpanded] = useState(rank === 1)
   const score = target.tacticalFitScore
   const badge = getMarketBadge(target)
   const rs = rankStyle(rank)
+  const displayName = target.displayName || target.playerName
+  const displayClub = target.displayCurrentClub || target.currentClub
   const localizedBadge = badge
     ? {
         ...badge,
@@ -69,7 +71,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
           {/* Name + club */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-slate-900 dark:text-white font-semibold text-sm">{target.playerName}</span>
+              <span className="text-slate-900 dark:text-white font-semibold text-sm">{displayName}</span>
               {localizedBadge && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${localizedBadge.className}`}>
                   {localizedBadge.label}
@@ -78,7 +80,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
             </div>
             <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               {target.tmVerified
-                ? <span className="text-slate-400 dark:text-slate-500 text-xs">{target.currentClub}</span>
+                ? <span className="text-slate-400 dark:text-slate-500 text-xs">{displayClub}</span>
                 : <a
                     href={`https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(target.playerName)}`}
                     target="_blank"
@@ -117,7 +119,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
 
         {/* Collapsed summary */}
         {!expanded && (
-          <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 ml-12 line-clamp-1 italic">{target.fitSummary}</p>
+          <p className="text-slate-400 dark:text-slate-500 text-xs mt-2 ml-12 line-clamp-1 italic">{localizeText(target.fitSummary)}</p>
         )}
       </div>
 
@@ -147,21 +149,21 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
           </div>
 
           {/* Scout quotes */}
-          <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{target.fitSummary}&rdquo;</p>
-          <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{target.whyThisPlayer}</p>
+          <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{localizeText(target.fitSummary)}&rdquo;</p>
+          <p className="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">{localizeText(target.whyThisPlayer)}</p>
 
           {/* Strengths + concerns */}
           <div className="space-y-1.5">
             {target.strengths.map((s, i) => (
               <div key={i} className="flex items-start gap-2">
                 <CheckCircle className="w-3.5 h-3.5 text-green-400 flex-shrink-0 mt-0.5" />
-                <span className="text-slate-600 dark:text-slate-300 text-xs">{s}</span>
+                <span className="text-slate-600 dark:text-slate-300 text-xs">{localizeText(s)}</span>
               </div>
             ))}
             {target.concerns.map((c, i) => (
               <div key={i} className="flex items-start gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 mt-0.5" />
-                <span className="text-slate-600 dark:text-slate-400 text-xs">{c}</span>
+                <span className="text-slate-600 dark:text-slate-400 text-xs">{localizeText(c)}</span>
               </div>
             ))}
           </div>

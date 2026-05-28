@@ -99,12 +99,14 @@ export interface TMPlayerSearchResult {
 export interface TMPlayerData {
   id: string
   name: string
+  displayName?: string
   fullName: string | null
   imageUrl: string | null
   age: number | null
   nationality: string
   position: string
   currentClub: string
+  displayCurrentClub?: string
   currentClubId: string | null
   contractExpires: string | null   // ISO date "2027-06-30"
   contractYear: string             // "2027" or "Unknown"

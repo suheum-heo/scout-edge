@@ -4,6 +4,7 @@ import { getManagerById } from '@/lib/managers'
 import { analyzePlayerCompatibility } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizePlayerCompatibilityResult, localizeTMPlayerData } from '@/lib/entity-localization'
 import { searchPlayer, getPlayerData } from '@/lib/transfermarkt'
 
 export async function POST(request: NextRequest) {
@@ -66,10 +67,14 @@ export async function POST(request: NextRequest) {
         : undefined,
       language
     )
+    const [localizedCompatibility, localizedPlayer] = await Promise.all([
+      localizePlayerCompatibilityResult(compatibility, language),
+      localizeTMPlayerData(tmPlayer, language),
+    ])
 
     return NextResponse.json({
-      compatibility,
-      player: tmPlayer,
+      compatibility: localizedCompatibility,
+      player: localizedPlayer,
       manager: manager
         ? { id: manager.id, name: manager.name, formations: liveManagerSnapshot?.recentFormations || [], style: manager.style, tacticalSummary: manager.tacticalSummary }
         : { id: null, name: managerName || 'Unknown', formations: [], style: null, tacticalSummary: null },

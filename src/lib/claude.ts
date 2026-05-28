@@ -1,10 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { DEFAULT_LANGUAGE, type LanguageCode, buildAIOutputLanguageInstruction, translate } from './i18n'
+import { DEFAULT_LANGUAGE, type LanguageCode, translate } from './i18n'
 import { ManagerProfile } from './managers'
 import { formatPlayerStats } from './api-football'
 import { normalizePersonName } from './person-names'
 import type { TMPlayerData } from './transfermarkt'
 import type { SquadPlayer } from './role-profiles'
+import { buildLocalizedOutputGuidance } from './football-localization'
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -66,11 +67,14 @@ function extractJSON(text: string, type: 'object' | 'array'): unknown {
 export interface SquadGap {
   position: string
   positionCode: string
+  displayPositionCode?: string
   urgency: 'critical' | 'high' | 'medium' | 'low'
   needScore: number       // 0-100: composite transfer priority score
   profileLabel: string
+  displayProfileLabel?: string
   reasoning: string
   keyStatsPriority: string[]
+  displayKeyStatsPriority?: string[]
 }
 
 export interface PlayerRecommendation {
@@ -91,7 +95,9 @@ export interface PlayerRecommendation {
 
 export interface TransferTarget {
   playerName: string
+  displayName?: string
   currentClub: string
+  displayCurrentClub?: string
   nationality: string
   age: number
   position: string
@@ -108,7 +114,9 @@ export interface TransferTarget {
 
 export interface SquadAnalysisResult {
   managerName: string
+  displayManagerName?: string
   teamName: string
+  displayTeamName?: string
   overallAssessment: string
   tacticalFitScore: number // 1-10 — how well the current squad fits the manager
   gaps: SquadGap[]
@@ -131,6 +139,7 @@ export type FitLabel = 'Key Man' | 'Good Fit' | 'Rotation' | 'Poor Fit' | 'Sell 
 
 export interface PlayerSystemFit {
   playerName: string
+  displayName?: string
   position: string
   age: number
   fitScore: number   // 1-10
@@ -155,7 +164,9 @@ const MIN_SQUAD_FIT_BATCH_SIZE = 5
 
 export interface PlayerCompatibilityResult {
   playerName: string
+  displayPlayerName?: string
   managerName: string
+  displayManagerName?: string
   overallFitScore: number // 1-10
   verdict: string
   tacticalRole: string
@@ -166,6 +177,7 @@ export interface PlayerCompatibilityResult {
   recommendation: 'Strong Yes' | 'Yes' | 'Conditional' | 'No' | 'Strong No'
   // Claude-derived player info (used when no API stats are available)
   currentClub?: string
+  displayCurrentClub?: string
   age?: number
   nationality?: string
   position?: string
@@ -216,7 +228,7 @@ function buildCachedManagerSystemPrompt(managerSection: string) {
 }
 
 function withOutputLanguage(prompt: string, language: LanguageCode): string {
-  return `${prompt}\n\n## Output Language:\n${buildAIOutputLanguageInstruction(language)}`
+  return `${prompt}\n\n## Output Language:\n${buildLocalizedOutputGuidance(language)}`
 }
 
 function requestUsesPromptCaching(params: Anthropic.MessageCreateParamsNonStreaming): boolean {
@@ -1135,11 +1147,13 @@ Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "�
 
 export interface UndervaluedPlayer {
   playerName: string
+  displayName?: string
   position: string           // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string     // e.g. "Ball-Playing GK", "Inverted Winger", "Press-Resistant #6"
   age: number
   nationality: string
   currentClub: string
+  displayCurrentClub?: string
   estimatedValue: string     // "€12M", "€8M", "Free agent"
   contractUntil: string      // "2025", "2026", "Unknown"
   whyUndervalued: string     // 2 sentences: why they're a bargain + what they bring tactically
@@ -1345,6 +1359,7 @@ There must be exactly 11 slots and exactly 2 candidates per slot.`, language)
 
 export interface ScenarioInPlayer {
   name: string
+  displayName?: string
   position: string
   age: number
   fromRecommendations?: boolean
@@ -1353,6 +1368,7 @@ export interface ScenarioInPlayer {
 export interface ScenarioOutPlayer {
   playerId: string
   name: string
+  displayName?: string
   position: string
   age: number
 }
@@ -1508,8 +1524,11 @@ export type VerdictLabel = 'Do it' | 'Consider it' | 'Risky' | 'Avoid'
 
 export interface TransferVerdictResult {
   playerName: string
+  displayPlayerName?: string
   targetClub: string
+  displayTargetClub?: string
   managerName: string
+  displayManagerName?: string
   verdictLabel: VerdictLabel
   fitScore: number          // 1-10 tactical fit
   headline: string          // one punchy sentence e.g. "Osimhen is the wrong profile for Arteta's system"
@@ -1685,12 +1704,14 @@ No other text.`, language)
 
 export interface IdealPlayer {
   playerName: string
+  displayName?: string
   position: string        // "GK", "LCB", "CB", "RCB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
   displayOrder?: number   // preserves canonical formation slot order for UI rendering
   age: number
   nationality: string
   currentClub: string
+  displayCurrentClub?: string
   estimatedFee: string    // "€80M", "€120M", "Free agent", "Loan"
   contractUntil: string   // "2025", "2026", "Unknown"
   whyIdeal: string        // 2 sentences: why THIS player is the textbook profile for this role in this system
@@ -1702,6 +1723,7 @@ export interface IdealPlayer {
 export interface ManagerXIResult {
   formation: string          // e.g. "4-3-3"
   managerName: string
+  displayManagerName?: string
   players: IdealPlayer[]     // exactly 11
   identity: string           // 2-3 sentences: what makes this XI's identity — the tactical DNA
   totalEstimatedCost: string // e.g. "≈€620M"

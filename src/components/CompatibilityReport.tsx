@@ -10,16 +10,18 @@ interface CompatibilityReportProps {
 }
 
 export default function CompatibilityReport({ result }: CompatibilityReportProps) {
-  const { t } = useLanguage()
+  const { t, localizeText } = useLanguage()
+  const displayPlayerName = result.displayPlayerName || result.playerName
+  const displayManagerName = result.displayManagerName || result.managerName
   return (
     <div className="space-y-4">
       {/* Verdict header */}
       <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <h3 className="text-slate-900 dark:text-white font-bold text-lg">{result.playerName}</h3>
-            <p className="text-slate-600 dark:text-slate-400 text-sm">{t('playerCheck.versusSystem', { manager: result.managerName })}</p>
-            <p className="text-slate-600 dark:text-slate-300 mt-3 text-sm leading-relaxed">{result.verdict}</p>
+            <h3 className="text-slate-900 dark:text-white font-bold text-lg">{displayPlayerName}</h3>
+            <p className="text-slate-600 dark:text-slate-400 text-sm">{t('playerCheck.versusSystem', { manager: displayManagerName })}</p>
+            <p className="text-slate-600 dark:text-slate-300 mt-3 text-sm leading-relaxed">{localizeText(result.verdict)}</p>
           </div>
           <div className="text-right flex-shrink-0">
             <div className={`text-4xl font-bold ${getScoreColor(result.overallFitScore)}`}>
@@ -27,7 +29,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
               <span className="text-lg text-slate-400 dark:text-slate-500">/10</span>
             </div>
             <div className={`mt-1 text-xs font-semibold px-3 py-1 rounded-full border inline-block ${getRecommendationColor(result.recommendation)}`}>
-              {result.recommendation}
+              {localizeText(result.recommendation)}
             </div>
           </div>
         </div>
@@ -39,7 +41,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
           <Info className="w-4 h-4 text-blue-400" />
           <span className="text-blue-500 dark:text-blue-400 text-sm font-medium">{t('playerCheck.tacticalRole')}</span>
         </div>
-        <p className="text-slate-600 dark:text-slate-300 text-sm">{result.tacticalRole}</p>
+        <p className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(result.tacticalRole)}</p>
       </div>
 
       {/* Strengths and Concerns */}
@@ -52,7 +54,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
             {result.strengths.map((s, i) => (
               <li key={i} className="flex items-start gap-2">
                 <span className="text-green-400/60 text-xs mt-0.5">•</span>
-                <span className="text-slate-600 dark:text-slate-300 text-sm">{s}</span>
+                <span className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(s)}</span>
               </li>
             ))}
           </ul>
@@ -67,7 +69,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
               {result.concerns.map((c, i) => (
                 <li key={i} className="flex items-start gap-2">
                   <span className="text-yellow-400/60 text-xs mt-0.5">•</span>
-                  <span className="text-slate-600 dark:text-slate-300 text-sm">{c}</span>
+                  <span className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(c)}</span>
                 </li>
               ))}
             </ul>
@@ -85,7 +87,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
             {result.conditions.map((c, i) => (
               <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
                 <span className="text-purple-400/60 text-xs mt-0.5">→</span>
-                {c}
+                {localizeText(c)}
               </li>
             ))}
           </ul>
@@ -99,7 +101,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
             <GitCompare className="w-4 h-4 text-slate-400" />
             <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">{t('playerCheck.scoutComparison')}</span>
           </div>
-          <p className="text-slate-600 dark:text-slate-300 text-sm">{result.comparison}</p>
+          <p className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(result.comparison)}</p>
         </div>
       )}
     </div>

@@ -17,6 +17,7 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeManagerXIResult } from '@/lib/entity-localization'
 import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 
@@ -1113,7 +1114,8 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await buildBudgetAwareManagerXI(budget, managerName, managerId, language)
-    return NextResponse.json(result)
+    const localizedResult = await localizeManagerXIResult(result, language)
+    return NextResponse.json(localizedResult)
   } catch (error) {
     console.error('Manager XI error:', error)
     if (error instanceof Error && error.message.startsWith(LIVE_FORMATION_ERROR_PREFIX)) {

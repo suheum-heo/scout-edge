@@ -40,7 +40,7 @@ function DimRow({ dimA, dimB }: { dimA: ScenarioDimension; dimB: ScenarioDimensi
 }
 
 export default function ScenarioCompare({ a, b }: Props) {
-  const { t } = useLanguage()
+  const { t, translateVerdictLabel } = useLanguage()
   const dimsA = new Map(a.dimensions.map((d) => [d.key, d]))
   const dimsB = new Map(b.dimensions.map((d) => [d.key, d]))
   const keys = a.dimensions.map((d) => d.key)
@@ -57,14 +57,14 @@ export default function ScenarioCompare({ a, b }: Props) {
         <div className="text-center">
           <div className={`text-sm font-bold ${aWins ? 'text-emerald-400' : 'text-slate-900 dark:text-white'}`}>{a.label}</div>
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${verdictStyle(a.recommendation)}`}>
-            {a.recommendation}
+            {translateVerdictLabel(a.recommendation)}
           </span>
         </div>
         <div className="w-4" />
         <div className="text-center">
           <div className={`text-sm font-bold ${bWins ? 'text-emerald-400' : 'text-slate-900 dark:text-white'}`}>{b.label}</div>
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${verdictStyle(b.recommendation)}`}>
-            {b.recommendation}
+            {translateVerdictLabel(b.recommendation)}
           </span>
         </div>
       </div>

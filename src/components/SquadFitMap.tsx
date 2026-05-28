@@ -50,6 +50,7 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
   const { translateFitLabel, translatePosition, translateValueLabel, t } = useLanguage()
   const cfg = FIT_CONFIG[player.fitLabel] ?? FIT_CONFIG['Rotation']
   const barWidth = `${Math.round((player.fitScore / 10) * 100)}%`
+  const displayName = player.displayName || player.playerName
 
   return (
     <div className={`flex items-start gap-3 py-2.5 px-3 rounded-lg ${
@@ -66,7 +67,7 @@ function PlayerRow({ player }: { player: PlayerSystemFit }) {
       {/* Name + reason */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-slate-900 dark:text-white text-sm font-medium">{player.playerName}</span>
+          <span className="text-slate-900 dark:text-white text-sm font-medium">{displayName}</span>
           <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${cfg.badge}`}>
             {translateFitLabel(player.fitLabel)}
           </span>

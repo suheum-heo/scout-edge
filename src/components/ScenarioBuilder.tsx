@@ -9,8 +9,10 @@ import { Plus, X, Play, Search } from 'lucide-react'
 interface PlayerSuggestion {
   id: string
   name: string
+  displayName?: string
   position: string
   club: string
+  displayClub?: string
   nationality: string
 }
 
@@ -40,7 +42,7 @@ const GROUP_ORDER: PositionGroup[] = ['GK', 'DEF', 'MID', 'ATT']
 const POSITIONS = ['Goalkeeper', 'Right Back', 'Left Back', 'Centre Back', 'Defensive Mid', 'Central Mid', 'Attacking Mid', 'Right Wing', 'Left Wing', 'Striker']
 
 export default function ScenarioBuilder({ squad, recommendations, onRun, isLoading }: Props) {
-  const { t, translatePosition } = useLanguage()
+  const { language, t, translatePosition, localizeText } = useLanguage()
   const [outIds, setOutIds] = useState<Set<string>>(new Set())
   const [inList, setInList] = useState<ScenarioInPlayer[]>([])
   const [inName, setInName] = useState('')
@@ -62,7 +64,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [])
+  }, [language])
 
   const handleNameChange = useCallback((value: string) => {
     const titled = toTitleCase(value)
@@ -75,7 +77,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
     searchTimeout.current = setTimeout(async () => {
       setIsSearching(true)
       try {
-        const res = await fetch(`/api/players/search?q=${encodeURIComponent(titled)}`)
+        const res = await fetch(`/api/players/search?q=${encodeURIComponent(titled)}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setSuggestions(data.players || [])
       } catch {
@@ -170,7 +172,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                           : 'hover:bg-[#EEF2F7] dark:hover:bg-slate-700/30 text-slate-600 dark:text-slate-300'
                       }`}
                     >
-                      <span className="text-xs">{p.name}</span>
+                      <span className="text-xs">{(p as SquadPlayer & { displayName?: string }).displayName || p.name}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400 dark:text-slate-600 text-[10px]">{t('common.ageLabel', { age: p.age })}</span>
                         {selected && <X className="w-3 h-3 text-red-400" />}
@@ -200,7 +202,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                   key={i}
                   className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 dark:text-emerald-300"
                 >
-                  {p.name}
+                  {localizeText(p.name)}
                   <button onClick={() => removeIn(i)} className="hover:text-white dark:hover:text-white transition-colors">
                     <X className="w-3 h-3" />
                   </button>
@@ -238,8 +240,8 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                       className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#EEF2F7] dark:hover:bg-slate-700 transition-colors text-left border-b border-slate-200/50 dark:border-slate-700/50 last:border-0"
                     >
                       <div>
-                        <span className="text-slate-900 dark:text-white text-xs font-medium">{p.name}</span>
-                        <span className="text-slate-400 dark:text-slate-500 text-[10px] ml-2">{p.club}</span>
+                        <span className="text-slate-900 dark:text-white text-xs font-medium">{p.displayName || p.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 text-[10px] ml-2">{p.displayClub || p.club}</span>
                       </div>
                       <span className="text-slate-400 dark:text-slate-500 text-[10px] flex-shrink-0">{translatePosition(p.position)}</span>
                     </button>
@@ -293,7 +295,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                         onClick={() => addFromRec(rec)}
                         className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-[#EEF2F7] dark:hover:bg-slate-700/50 transition-colors text-left"
                       >
-                        <span className="text-slate-600 dark:text-slate-300 text-xs">{rec.playerName}</span>
+                        <span className="text-slate-600 dark:text-slate-300 text-xs">{rec.displayName || rec.playerName}</span>
                         <span className="text-slate-400 dark:text-slate-500 text-[10px]">{translatePosition(rec.position)} · {t('common.ageLabel', { age: rec.age })}</span>
                       </button>
                     ))}

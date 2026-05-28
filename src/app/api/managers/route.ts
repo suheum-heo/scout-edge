@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getCoachLiveContext, getLiveCoachByName } from '@/lib/api-football'
 import { normalizeClubDisplayName } from '@/lib/club-names'
+import { localizeManagerSearchResults } from '@/lib/entity-localization'
+import { normalizeLanguage } from '@/lib/i18n'
 import { getAllManagers, getManagerById } from '@/lib/managers'
 import { createServerTiming } from '@/lib/server-timing'
 import { searchManager } from '@/lib/transfermarkt'
@@ -41,12 +43,14 @@ function makeCacheKey(ids: string[] | null) {
 export async function GET(request: Request) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
+  const language = normalizeLanguage(new URL(request.url).searchParams.get('language'))
   const requestedIds = parseRequestedIds(request)
   const cacheKey = makeCacheKey(requestedIds)
 
   const cached = managersCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
-    const response = NextResponse.json({ managers: cached.data })
+    const localizedManagers = await localizeManagerSearchResults(cached.data, language)
+    const response = NextResponse.json({ managers: localizedManagers })
     timing.end('cache_hit', requestStartedAt, `served ${cached.data.length} managers from process cache`)
     timing.apply(response.headers)
     return response
@@ -87,8 +91,9 @@ export async function GET(request: Request) {
   )
 
   managersCache.set(cacheKey, { data: enriched, expiresAt: Date.now() + MANAGERS_TTL })
+  const localizedManagers = await localizeManagerSearchResults(enriched, language)
   const response = NextResponse.json(
-    { managers: enriched },
+    { managers: localizedManagers },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   )
   timing.end('total', requestStartedAt)

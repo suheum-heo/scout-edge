@@ -17,6 +17,7 @@ const VERDICT_CONFIG: Record<VerdictLabel, { bg: string; border: string; text: s
 interface Team {
   id: number | string
   name: string
+  displayName?: string
   country: string
   logo: string
   source?: string
@@ -26,8 +27,10 @@ interface Team {
 interface PlayerResult {
   id: string
   name: string
+  displayName?: string
   position: string
   club: string
+  displayClub?: string
   age?: number | null
 }
 
@@ -39,7 +42,7 @@ const EXAMPLES: { player: string; team: Team }[] = [
 ]
 
 export default function VerdictPage() {
-  const { language, t, translatePosition, translateVerdictLabel } = useLanguage()
+  const { language, t, translatePosition, translateVerdictLabel, localizeText } = useLanguage()
   const [playerQuery, setPlayerQuery] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerResult[]>([])
@@ -83,7 +86,7 @@ export default function VerdictPage() {
     setPlayerDropdownOpen(true)
     playerDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/players/search?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/players/search?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setPlayerSuggestions(data.players || [])
       } catch { setPlayerSuggestions([]) }
@@ -100,7 +103,7 @@ export default function VerdictPage() {
     setClubDropdownOpen(true)
     clubDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setClubSuggestions((data.teams || []).map((t: { team: Team }) => t.team))
       } catch { setClubSuggestions([]) }
@@ -195,8 +198,8 @@ export default function VerdictPage() {
               {isSearchingPlayer && playerSuggestions.length === 0
                 ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : playerSuggestions.map((p) => (
-                    <button key={p.id} onMouseDown={() => { setPlayerQuery(p.name); setSelectedPlayer(p); setPlayerDropdownOpen(false) }} className={dropdownItem}>
-                      <div><span className="font-medium">{p.name}</span><span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{p.club}</span></div>
+                    <button key={p.id} onMouseDown={() => { setPlayerQuery(p.displayName || p.name); setSelectedPlayer(p); setPlayerDropdownOpen(false) }} className={dropdownItem}>
+                      <div><span className="font-medium">{p.displayName || p.name}</span><span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{p.displayClub || p.club}</span></div>
                       <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{translatePosition(p.position)}</span>
                     </button>
                   ))
@@ -220,17 +223,17 @@ export default function VerdictPage() {
               onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
               placeholder={t('verdict.clubPlaceholder')} className={inputText} />
             {isSearchingClub && <div className="w-3 h-3 border border-slate-300 dark:border-slate-600 border-t-slate-400 rounded-full animate-spin flex-shrink-0" />}
-            {selectedTeam && !isSearchingClub && <span className="text-amber-400 text-xs flex-shrink-0">&#10003; {selectedTeam.name}</span>}
+            {selectedTeam && !isSearchingClub && <span className="text-amber-400 text-xs flex-shrink-0">&#10003; {selectedTeam.displayName || selectedTeam.name}</span>}
           </div>
           {clubDropdownOpen && (clubSuggestions.length > 0 || isSearchingClub) && (
             <div className={`${dropdownBase} max-h-48`}>
               {isSearchingClub && clubSuggestions.length === 0
                 ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : clubSuggestions.map((club) => (
-                    <button key={club.id} onMouseDown={() => { setClubQuery(club.name); setSelectedTeam(club); setClubDropdownOpen(false); setClubSuggestions([]) }} className={dropdownItem}>
+                    <button key={club.id} onMouseDown={() => { setClubQuery(club.displayName || club.name); setSelectedTeam(club); setClubDropdownOpen(false); setClubSuggestions([]) }} className={dropdownItem}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
-                      <span className="font-medium">{club.name}</span>
+                      <span className="font-medium">{club.displayName || club.name}</span>
                       <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.country}</span>
                     </button>
                   ))
@@ -269,12 +272,12 @@ export default function VerdictPage() {
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
                   {tmPlayer.imageUrl
-                    ? <img src={tmPlayer.imageUrl} alt={tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
-                    : <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-400 dark:from-slate-600 to-slate-600 dark:to-slate-800 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">{result.playerName.split(' ').map((n) => n[0]).join('').slice(0, 2)}</div>
+                    ? <img src={tmPlayer.imageUrl} alt={tmPlayer.displayName || tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                    : <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-400 dark:from-slate-600 to-slate-600 dark:to-slate-800 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">{(result.displayPlayerName || result.playerName).split(' ').map((n) => n[0]).join('').slice(0, 2)}</div>
                   }
                   <div>
-                    <p className="text-slate-900 dark:text-white font-semibold">{tmPlayer.name}</p>
-                    <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer.currentClub}</p>
+                    <p className="text-slate-900 dark:text-white font-semibold">{tmPlayer.displayName || tmPlayer.name}</p>
+                    <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer.displayCurrentClub || tmPlayer.currentClub}</p>
                     <p className="text-slate-400 dark:text-slate-500 text-xs">{translatePosition(tmPlayer.position)}{tmPlayer.age !== null ? ` · ${t('common.ageLabel', { age: tmPlayer.age })}` : ''} · {tmPlayer.nationality}</p>
                   </div>
                 </div>
@@ -297,8 +300,8 @@ export default function VerdictPage() {
                   <span className={`text-3xl font-black tracking-tight ${cfg.text}`}>{translateVerdictLabel(result.verdictLabel)}</span>
                   <span className="text-slate-600 dark:text-slate-400 text-sm font-medium">{t('verdict.fitScore', { score: result.fitScore })}</span>
                 </div>
-                <p className="text-slate-900 dark:text-white font-medium leading-snug">{result.headline}</p>
-                {detectedManager && <p className="text-slate-400 dark:text-slate-500 text-xs mt-1.5">{t('common.managerDetected', { name: detectedManager })}</p>}
+                <p className="text-slate-900 dark:text-white font-medium leading-snug">{localizeText(result.headline)}</p>
+                {detectedManager && <p className="text-slate-400 dark:text-slate-500 text-xs mt-1.5">{t('common.managerDetected', { name: localizeText(detectedManager) })}</p>}
               </div>
             </div>
           </div>
@@ -311,7 +314,7 @@ export default function VerdictPage() {
                 <ul className="space-y-2">
                   {result.whyItWorks.map((w, i) => (
                     <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
-                      <span className="text-emerald-400 mt-0.5 flex-shrink-0">+</span>{w}
+                      <span className="text-emerald-400 mt-0.5 flex-shrink-0">+</span>{localizeText(w)}
                     </li>
                   ))}
                 </ul>
@@ -323,7 +326,7 @@ export default function VerdictPage() {
                 <ul className="space-y-2">
                   {result.whyItDoesnt.map((w, i) => (
                     <li key={i} className="text-slate-600 dark:text-slate-300 text-sm flex items-start gap-2">
-                      <span className="text-red-400 mt-0.5 flex-shrink-0">&#8722;</span>{w}
+                      <span className="text-red-400 mt-0.5 flex-shrink-0">&#8722;</span>{localizeText(w)}
                     </li>
                   ))}
                 </ul>
@@ -335,19 +338,19 @@ export default function VerdictPage() {
           <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4 space-y-3">
             <div>
               <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.roleInSystem')}</p>
-              <p className="text-slate-600 dark:text-slate-300 text-sm">{result.roleInSystem}</p>
+              <p className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(result.roleInSystem)}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200/50 dark:border-slate-700/50">
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.need')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.needAssessment}</p></div>
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.value')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.valueAssessment}</p></div>
-              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.timing')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{result.timing}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.need')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{localizeText(result.needAssessment)}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.value')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{localizeText(result.valueAssessment)}</p></div>
+              <div><p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-0.5">{t('verdict.timing')}</p><p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">{localizeText(result.timing)}</p></div>
             </div>
           </div>
 
           {/* Scout verdict */}
           <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-4">
             <p className="text-slate-400 dark:text-slate-500 text-[10px] uppercase tracking-wider mb-2">{t('verdict.scoutVerdict')}</p>
-            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{result.scoutVerdict}&rdquo;</p>
+            <p className="text-slate-600 dark:text-slate-300 text-sm leading-relaxed italic">&ldquo;{localizeText(result.scoutVerdict)}&rdquo;</p>
           </div>
 
           {/* Try another */}
@@ -369,8 +372,8 @@ export default function VerdictPage() {
               <button key={player + team.name}
                 onClick={() => { setPlayerQuery(player); setSelectedPlayer(null); setClubQuery(team.name); setSelectedTeam(team); handleCheck(player, team) }}
                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
-                <p className="text-slate-900 dark:text-white text-sm font-medium">{player}</p>
-                <p className="text-slate-400 dark:text-slate-500 text-xs">&#8594; {team.name}</p>
+                <p className="text-slate-900 dark:text-white text-sm font-medium">{localizeText(player)}</p>
+                <p className="text-slate-400 dark:text-slate-500 text-xs">&#8594; {team.displayName || team.name}</p>
               </button>
             ))}
           </div>

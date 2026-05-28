@@ -19,21 +19,25 @@ import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
 interface Team {
-  team: { id: number | string; name: string; country: string; logo: string; source?: 'af' | 'fotmob' | 'tm'; fotmobId?: number }
+  team: { id: number | string; name: string; displayName?: string; country: string; logo: string; source?: 'af' | 'fotmob' | 'tm'; fotmobId?: number }
   venue: { name: string; city: string }
 }
 
 interface Manager {
   id: string
   name: string
+  displayName?: string
   currentClub: string
+  displayCurrentClub?: string
   formations: string[]
 }
 
 interface ManagerResult {
   id: string | null
   name: string | null
+  displayName?: string | null
   currentClub: string
+  displayCurrentClub?: string
   formations: string[]
   style: Record<string, string> | null
   tacticalSummary: string | null
@@ -53,7 +57,7 @@ function makeTeamKey(team?: Team | null): string {
 }
 
 export default function HomePage() {
-  const { language, t, pluralSuffix, translatePosition } = useLanguage()
+  const { language, t, pluralSuffix, translatePosition, localizeText } = useLanguage()
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null)
@@ -64,6 +68,7 @@ export default function HomePage() {
   // Manager override (secondary, collapsed by default)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [managers, setManagers] = useState<Manager[]>([])
+  const [managersLoadedLanguage, setManagersLoadedLanguage] = useState<string | null>(null)
   const [selectedManagerId, setSelectedManagerId] = useState<string>('')
   const [managerDropdownOpen, setManagerDropdownOpen] = useState(false)
 
@@ -103,15 +108,16 @@ export default function HomePage() {
   const previousLanguageRef = useRef(language)
 
   const loadManagers = useCallback(async () => {
-    if (managers.length > 0) return
+    if (managers.length > 0 && managersLoadedLanguage === language) return
     try {
-      const res = await fetch('/api/managers')
+      const res = await fetch(`/api/managers?language=${encodeURIComponent(language)}`)
       const data = await res.json()
       setManagers(data.managers || [])
+      setManagersLoadedLanguage(language)
     } catch {
       // silently fail
     }
-  }, [managers.length])
+  }, [language, managers.length, managersLoadedLanguage])
 
   const handleTeamSearch = useCallback((value: string) => {
     setTeamQuery(value)
@@ -139,7 +145,7 @@ export default function HomePage() {
       searchAbort.current = controller
       setIsSearching(true)
       try {
-        const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}`, { signal: controller.signal })
+        const res = await fetch(`/api/teams?q=${encodeURIComponent(value)}&language=${encodeURIComponent(language)}`, { signal: controller.signal })
         const data = await res.json()
         const nextTeams = data.teams || []
         setTeamResults(nextTeams)
@@ -152,11 +158,11 @@ export default function HomePage() {
         setIsSearching(false)
       }
     }, 150)
-  }, [])
+  }, [language])
 
   const handleSelectTeam = (team: Team) => {
     setSelectedTeam(team)
-    setTeamQuery(team.team.name)
+    setTeamQuery(team.team.displayName || localizeText(team.team.name))
     setTeamResults([])
     setHighlightedTeamIndex(-1)
     setError(null)
@@ -617,10 +623,10 @@ export default function HomePage() {
                 >
                   {team.team.logo && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={team.team.logo} alt={team.team.name} className="w-6 h-6 object-contain" />
+                    <img src={team.team.logo} alt={team.team.displayName || localizeText(team.team.name)} className="w-6 h-6 object-contain" />
                   )}
                   <div>
-                    <p className="text-slate-900 dark:text-white text-sm font-medium">{team.team.name}</p>
+                    <p className="text-slate-900 dark:text-white text-sm font-medium">{team.team.displayName || localizeText(team.team.name)}</p>
                     <p className="text-slate-600 text-xs">{team.team.country}</p>
                   </div>
                 </button>
@@ -641,7 +647,7 @@ export default function HomePage() {
             >
               <Settings2 className="w-3 h-3" />
               {selectedManagerId
-                ? t('home.overrideSelected', { name: selectedManagerOverride?.name || '' })
+                ? t('home.overrideSelected', { name: selectedManagerOverride?.displayName || selectedManagerOverride?.name || '' })
                 : t('home.overrideOptional')}
               <ChevronDown className={`w-3 h-3 transition-transform ${overrideOpen ? 'rotate-180' : ''}`} />
             </button>
@@ -654,7 +660,7 @@ export default function HomePage() {
                 >
                   <span className={`text-sm ${selectedManagerOverride ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500'}`}>
                     {selectedManagerOverride
-                      ? `${selectedManagerOverride.name} · ${selectedManagerOverride.currentClub}`
+                      ? `${selectedManagerOverride.displayName || selectedManagerOverride.name} · ${selectedManagerOverride.displayCurrentClub || selectedManagerOverride.currentClub}`
                       : t('home.overrideSelectManager')}
                   </span>
                   <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${managerDropdownOpen ? 'rotate-180' : ''}`} />
@@ -682,8 +688,8 @@ export default function HomePage() {
                           selectedManagerId === m.id ? 'bg-blue-500/10 text-blue-400' : 'text-slate-900 dark:text-white'
                         }`}
                       >
-                        <span className="font-medium">{m.name}</span>
-                        <span className="text-slate-400 dark:text-slate-600 ml-2 text-xs">{m.currentClub}</span>
+                        <span className="font-medium">{m.displayName || m.name}</span>
+                        <span className="text-slate-400 dark:text-slate-600 ml-2 text-xs">{m.displayCurrentClub || m.currentClub}</span>
                       </button>
                     ))}
                   </div>
@@ -695,7 +701,7 @@ export default function HomePage() {
 
         {hasPendingTeamSelection && selectedTeam && analyzedTeam && (
           <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-            {t('home.pendingTeamSwitch', { currentTeam: analyzedTeam.team.name, nextTeam: selectedTeam.team.name })}
+            {t('home.pendingTeamSwitch', { currentTeam: analyzedTeam.team.displayName || localizeText(analyzedTeam.team.name), nextTeam: selectedTeam.team.displayName || localizeText(selectedTeam.team.name) })}
           </div>
         )}
 
@@ -736,14 +742,14 @@ export default function HomePage() {
                   {managerResult.photoUrl ? (
                     <img
                       src={managerResult.photoUrl}
-                      alt={managerResult.name ?? t('home.managerUnavailable')}
+                      alt={managerResult.displayName ?? managerResult.name ?? t('home.managerUnavailable')}
                       className="w-9 h-9 rounded-full object-cover border border-slate-200 dark:border-slate-700 flex-shrink-0"
                       loading="lazy"
                       referrerPolicy="no-referrer"
                     />
                   ) : (
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                      {(managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                      {(managerResult.displayName ?? managerResult.name ?? '?').split(' ').map((n) => n[0]).join('').slice(0, 2)}
                     </div>
                   )}
                   <div>
@@ -754,12 +760,12 @@ export default function HomePage() {
                         rel="noopener noreferrer"
                         className="text-slate-900 dark:text-white font-bold hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
                       >
-                        {managerResult.name ?? t('home.managerUnavailable')}
+                        {managerResult.displayName ?? managerResult.name ?? t('home.managerUnavailable')}
                       </a>
                     ) : (
-                      <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.name ?? t('home.managerUnavailable')}</h2>
+                      <h2 className="text-slate-900 dark:text-white font-bold">{managerResult.displayName ?? managerResult.name ?? t('home.managerUnavailable')}</h2>
                     )}
-                    <p className="text-slate-600 text-xs">{managerResult.currentClub}</p>
+                    <p className="text-slate-600 text-xs">{managerResult.displayCurrentClub || managerResult.currentClub}</p>
                   </div>
                 </div>
                 {managerResult.verified === false && (
@@ -1082,7 +1088,7 @@ export default function HomePage() {
                   </div>
                 )}
                 {!isLoadingFit && squadFit.length > 0 && (
-                  <SquadFitMap fits={squadFit} managerName={managerResult.name ?? undefined} />
+                  <SquadFitMap fits={squadFit} managerName={managerResult.displayName ?? managerResult.name ?? undefined} />
                 )}
               </div>
             )}

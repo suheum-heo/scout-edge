@@ -32,22 +32,24 @@ function buildTransfermarktSearchUrl(playerName: string): string {
 }
 
 function PlayerCard({ player }: { player: IdealPlayer }) {
-  const { t } = useLanguage()
+  const { t, localizeText } = useLanguage()
   const href = player.transfermarktUrl
   const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
+  const displayName = player.displayName || player.playerName
+  const displayClub = player.displayCurrentClub || player.currentClub
   const cardContent = (
     <>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="bg-violet-500/20 border border-violet-500/30 text-violet-500 dark:text-violet-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.archetypeLabel}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{localizeText(player.archetypeLabel)}</span>
       </div>
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-1.5">
           <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight group-hover:text-violet-600 dark:group-hover:text-violet-300 transition-colors">
-            {player.playerName}
+            {displayName}
           </span>
           {href && <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-violet-500 dark:group-hover:text-violet-300 transition-colors flex-shrink-0 mt-0.5" />}
         </div>
@@ -65,7 +67,7 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
 
       <div className="flex items-center gap-1">
         {player.tmVerified ? (
-          <span className="text-slate-500 dark:text-slate-400 text-xs">{player.currentClub}</span>
+          <span className="text-slate-500 dark:text-slate-400 text-xs">{displayClub}</span>
         ) : (
           <a
             href={fallbackSearchUrl}
@@ -82,7 +84,7 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
       <div className="text-blue-500 dark:text-blue-400 text-xs font-semibold">{player.estimatedFee}</div>
 
       <p className="text-slate-500 dark:text-slate-400 text-xs leading-relaxed border-t border-slate-200 dark:border-slate-700/50 pt-2 mt-1">
-        {player.whyIdeal}
+        {localizeText(player.whyIdeal)}
       </p>
     </>
   )
@@ -111,7 +113,9 @@ interface CoachResult {
   id: string
   profileId: string | null
   name: string
+  displayName?: string
   currentClub: string
+  displayCurrentClub?: string
   hasProfile: boolean
 }
 
@@ -129,7 +133,7 @@ export default function BuildPage() {
   const [result, setResult] = useState<ManagerXIResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [exampleManagers, setExampleManagers] = useState<{ id: string; name: string; currentClub: string }[]>([])
+  const [exampleManagers, setExampleManagers] = useState<Array<{ id: string; name: string; displayName?: string; currentClub: string; displayCurrentClub?: string }>>([])
   const previousLanguageRef = useRef(language)
 
   const EXAMPLE_IDS = ['pep-guardiola', 'diego-simeone', 'arne-slot', 'mikel-arteta']
@@ -144,14 +148,14 @@ export default function BuildPage() {
 
   useEffect(() => {
     const ids = EXAMPLE_IDS.join(',')
-    fetch(`/api/managers?ids=${encodeURIComponent(ids)}`)
+    fetch(`/api/managers?ids=${encodeURIComponent(ids)}&language=${encodeURIComponent(language)}`)
       .then((r) => r.json())
       .then((data) => {
         setExampleManagers(data.managers || [])
       })
       .catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [language])
 
   const handleManagerInput = (value: string) => {
     setManagerQuery(value)
@@ -162,7 +166,7 @@ export default function BuildPage() {
     setManagerDropdownOpen(true)
     managerDebounce.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/managers/search?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/managers/search?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setManagerSuggestions(data.coaches || [])
       } catch { setManagerSuggestions([]) }
@@ -182,7 +186,7 @@ export default function BuildPage() {
         body: JSON.stringify({
           budget,
           managerId: selectedManager?.profileId || undefined,
-          managerName: selectedManager?.profileId ? undefined : managerQuery.trim(),
+          managerName: selectedManager?.profileId ? undefined : selectedManager?.name || managerQuery.trim(),
           language,
         }),
       })
@@ -252,11 +256,11 @@ export default function BuildPage() {
                 ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : managerSuggestions.map((coach) => (
                     <button key={coach.id}
-                      onMouseDown={() => { setManagerQuery(coach.name); setSelectedManager(coach); setManagerDropdownOpen(false) }}
+                      onMouseDown={() => { setManagerQuery(coach.displayName || coach.name); setSelectedManager(coach); setManagerDropdownOpen(false) }}
                       className="w-full px-4 py-2.5 text-left hover:bg-[#EEF2F7] dark:hover:bg-slate-800 transition-colors text-sm text-slate-900 dark:text-white flex items-center justify-between gap-3">
                       <div>
-                        <span className="font-medium">{coach.name}</span>
-                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
+                        <span className="font-medium">{coach.displayName || coach.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.displayCurrentClub || coach.currentClub}</span>
                       </div>
                       {coach.hasProfile && <span className="text-violet-400 text-xs flex-shrink-0">{t('common.fullProfile')}</span>}
                     </button>
@@ -317,7 +321,7 @@ export default function BuildPage() {
           <div className="bg-slate-50 dark:bg-slate-800/60 border border-violet-500/20 rounded-xl p-5">
             <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
               <div className="flex items-center gap-3">
-                <span className="text-slate-900 dark:text-white font-bold text-lg">{result.managerName}</span>
+                <span className="text-slate-900 dark:text-white font-bold text-lg">{result.displayManagerName || result.managerName}</span>
                 <span className="text-slate-400 dark:text-slate-500 text-sm">{result.formation}</span>
               </div>
               <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${
@@ -361,12 +365,12 @@ export default function BuildPage() {
             {exampleManagers.map((m) => (
               <button key={m.id}
                 onClick={() => {
-                  setManagerQuery(m.name)
-                  setSelectedManager({ id: m.id, profileId: m.id, name: m.name, currentClub: m.currentClub, hasProfile: true })
+                  setManagerQuery(m.displayName || m.name)
+                  setSelectedManager({ id: m.id, profileId: m.id, name: m.name, displayName: m.displayName, currentClub: m.currentClub, displayCurrentClub: m.displayCurrentClub, hasProfile: true })
                 }}
                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3 text-left transition-colors">
-                <p className="text-slate-900 dark:text-white text-sm font-medium">{m.name}</p>
-                <p className="text-slate-400 dark:text-slate-500 text-xs">{m.currentClub}</p>
+                <p className="text-slate-900 dark:text-white text-sm font-medium">{m.displayName || m.name}</p>
+                <p className="text-slate-400 dark:text-slate-500 text-xs">{m.displayCurrentClub || m.currentClub}</p>
               </button>
             ))}
           </div>

@@ -8,6 +8,7 @@ import { analyzeSquadSystemFit } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { createServerTiming } from '@/lib/server-timing'
+import { localizeSquadFitResults } from '@/lib/entity-localization'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
 const SQUAD_FIT_TTL_MS = 15 * 60 * 1000
@@ -117,10 +118,11 @@ export async function POST(request: NextRequest) {
         : undefined,
       language
     )
-    timing.end('fit_analysis', fitStartedAt, `players:${fits.length}`)
-    setCachedSquadFit(cacheKey, fits)
+    const localizedFits = await localizeSquadFitResults(fits, language)
+    timing.end('fit_analysis', fitStartedAt, `players:${localizedFits.length}`)
+    setCachedSquadFit(cacheKey, localizedFits)
 
-    const response = NextResponse.json({ fits })
+    const response = NextResponse.json({ fits: localizedFits })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response

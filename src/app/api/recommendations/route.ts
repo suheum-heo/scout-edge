@@ -8,6 +8,7 @@ import { getManagerById } from '@/lib/managers'
 import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeTransferTargets } from '@/lib/entity-localization'
 import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
@@ -222,7 +223,9 @@ export async function POST(request: NextRequest) {
       return (b.tacticalFitScore ?? 0) - (a.tacticalFitScore ?? 0)
     })
 
-    return NextResponse.json({ recommendations: sorted })
+    const localized = await localizeTransferTargets(sorted, language)
+
+    return NextResponse.json({ recommendations: localized })
   } catch (error) {
     console.error('Recommendations error:', error)
     const details = getAIErrorDetails(error, 'Failed to generate recommendations')

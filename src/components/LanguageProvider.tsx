@@ -20,6 +20,7 @@ import {
   translateVerdictLabel,
   translateValueLabel,
 } from '@/lib/i18n'
+import { localizeGeneratedContent } from '@/lib/football-localization'
 
 interface LanguageContextValue {
   language: LanguageCode
@@ -30,6 +31,7 @@ interface LanguageContextValue {
   translateValueLabel: (label: 'Undervalued' | 'Fair Value' | 'Overpriced') => string
   translateAvailabilityLabel: (label: 'Likely available' | 'Possible' | 'Hard to get') => string
   translateVerdictLabel: (label: 'Do it' | 'Consider it' | 'Risky' | 'Avoid') => string
+  localizeText: (value: string) => string
   pluralSuffix: (count: number) => string
 }
 
@@ -134,6 +136,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     translateValueLabel: (label) => translateValueLabel(language, label, resolvedCatalog),
     translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label, resolvedCatalog),
     translateVerdictLabel: (label) => translateVerdictLabel(language, label, resolvedCatalog),
+    localizeText: (value) => localizeGeneratedContent(value, language),
     pluralSuffix: (count) => pluralSuffix(language, count),
   }), [language, resolvedCatalog])
 

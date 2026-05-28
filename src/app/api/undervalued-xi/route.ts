@@ -12,6 +12,7 @@ import {
 } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeUndervaluedXIResult } from '@/lib/entity-localization'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import { createServerTiming } from '@/lib/server-timing'
 import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
@@ -19,7 +20,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v5'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v6'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -958,7 +959,9 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    await persistUndervaluedXIResult(cacheKey, resolvedResult, {
+    const localizedResult = await localizeUndervaluedXIResult(resolvedResult, language)
+
+    await persistUndervaluedXIResult(cacheKey, localizedResult, {
       source: resolvedSource,
       formation: resolvedFormation,
       budget,
@@ -967,7 +970,7 @@ export async function POST(request: NextRequest) {
       attemptsUsed,
     })
 
-    const response = NextResponse.json(resolvedResult)
+    const response = NextResponse.json(localizedResult)
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response

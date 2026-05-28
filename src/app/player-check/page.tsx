@@ -12,7 +12,9 @@ interface CoachResult {
   id: string
   profileId: string | null
   name: string
+  displayName?: string
   currentClub: string
+  displayCurrentClub?: string
   formations: string[]
   hasProfile: boolean
 }
@@ -20,16 +22,18 @@ interface CoachResult {
 interface PlayerResult {
   id: string
   name: string
+  displayName?: string
   position: string
   club: string
+  displayClub?: string
   age?: number | null
   nationality: string
 }
 
 export default function PlayerCheckPage() {
-  const { language, t, translatePosition } = useLanguage()
+  const { language, t, translatePosition, localizeText } = useLanguage()
   const [clubQuery, setClubQuery] = useState('')
-  const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; country: string; logo: string }>>([])
+  const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; displayName?: string; country: string; logo: string }>>([])
   const [isSearchingClub, setIsSearchingClub] = useState(false)
   const [clubDropdownOpen, setClubDropdownOpen] = useState(false)
   const clubRef = useRef<HTMLDivElement>(null)
@@ -76,7 +80,7 @@ export default function PlayerCheckPage() {
     setClubDropdownOpen(true)
     clubDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setClubSuggestions((data.teams || []).map((t: { team: { id: number; name: string; country: string; logo: string } }) => t.team))
       } catch { setClubSuggestions([]) }
@@ -93,7 +97,7 @@ export default function PlayerCheckPage() {
     setPlayerDropdownOpen(true)
     playerDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/players/search?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/players/search?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setPlayerSuggestions(data.players || [])
       } catch { setPlayerSuggestions([]) }
@@ -102,7 +106,7 @@ export default function PlayerCheckPage() {
   }
 
   const handleSelectPlayer = (player: PlayerResult) => {
-    setPlayerQuery(player.name)
+    setPlayerQuery(player.displayName || player.name)
     setSelectedPlayer(player)
     setPlayerDropdownOpen(false)
     setPlayerSuggestions([])
@@ -117,7 +121,7 @@ export default function PlayerCheckPage() {
     setManagerDropdownOpen(true)
     managerDebounceRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/managers/search?q=${encodeURIComponent(value.trim())}`)
+        const res = await fetch(`/api/managers/search?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
         setManagerSuggestions(data.coaches || [])
       } catch { setManagerSuggestions([]) }
@@ -126,7 +130,7 @@ export default function PlayerCheckPage() {
   }
 
   const handleSelectManager = (coach: CoachResult) => {
-    setManagerQuery(coach.name)
+    setManagerQuery(coach.displayName || coach.name)
     setSelectedManager(coach)
     setManagerDropdownOpen(false)
     setManagerSuggestions([])
@@ -148,7 +152,7 @@ export default function PlayerCheckPage() {
           tmPlayerId: selectedPlayer?.id || undefined,
           playerAge: selectedPlayer?.age,
           managerId: selectedManager?.profileId || undefined,
-          managerName: selectedManager?.profileId ? undefined : managerQuery.trim(),
+          managerName: selectedManager?.profileId ? undefined : selectedManager?.name || managerQuery.trim(),
           targetTeam: clubQuery.trim() || undefined,
           language,
         }),
@@ -219,8 +223,8 @@ export default function PlayerCheckPage() {
                 : playerSuggestions.map((player) => (
                     <button key={player.id} onClick={() => handleSelectPlayer(player)} className={dropdownItem}>
                       <div>
-                        <span className="font-medium">{player.name}</span>
-                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{player.club}</span>
+                        <span className="font-medium">{player.displayName || player.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{player.displayClub || player.club}</span>
                       </div>
                       <span className="text-slate-400 dark:text-slate-500 text-xs flex-shrink-0">{translatePosition(player.position)}</span>
                     </button>
@@ -252,8 +256,8 @@ export default function PlayerCheckPage() {
                 : managerSuggestions.map((coach) => (
                     <button key={coach.id} onClick={() => handleSelectManager(coach)} className={dropdownItem}>
                       <div>
-                        <span className="font-medium">{coach.name}</span>
-                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.currentClub}</span>
+                        <span className="font-medium">{coach.displayName || coach.name}</span>
+                        <span className="text-slate-400 dark:text-slate-500 ml-2 text-xs">{coach.displayCurrentClub || coach.currentClub}</span>
                       </div>
                       {coach.hasProfile && <span className="text-purple-400 text-xs flex-shrink-0">{t('common.fullProfile')}</span>}
                     </button>
@@ -282,11 +286,11 @@ export default function PlayerCheckPage() {
               {isSearchingClub && clubSuggestions.length === 0
                 ? <div className="px-4 py-3 text-slate-400 dark:text-slate-500 text-sm">{t('common.searching')}</div>
                 : clubSuggestions.map((club) => (
-                    <button key={club.id} onClick={() => { setClubQuery(club.name); setClubDropdownOpen(false); setClubSuggestions([]) }}
+                    <button key={club.id} onClick={() => { setClubQuery(club.displayName || club.name); setClubDropdownOpen(false); setClubSuggestions([]) }}
                       className={dropdownItem}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
-                      <span className="font-medium">{club.name}</span>
+                      <span className="font-medium">{club.displayName || club.name}</span>
                       <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.country}</span>
                     </button>
                   ))
@@ -329,15 +333,15 @@ export default function PlayerCheckPage() {
               <div className="flex items-center gap-3">
                 {tmPlayer?.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={tmPlayer.imageUrl} alt={tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
+                  <img src={tmPlayer.imageUrl} alt={tmPlayer.displayName || tmPlayer.name} className="w-12 h-12 rounded-full object-cover bg-slate-200 dark:bg-slate-700 flex-shrink-0" />
                 ) : (
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-400 dark:from-slate-600 to-slate-600 dark:to-slate-800 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                    {result.playerName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                    {(result.displayPlayerName || result.playerName).split(' ').map((n) => n[0]).join('').slice(0, 2)}
                   </div>
                 )}
                 <div>
-                  <p className="text-slate-900 dark:text-white font-semibold">{result.playerName}</p>
-                  <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer?.currentClub || result.currentClub || '—'}</p>
+                  <p className="text-slate-900 dark:text-white font-semibold">{result.displayPlayerName || result.playerName}</p>
+                  <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer?.displayCurrentClub || result.displayCurrentClub || tmPlayer?.currentClub || result.currentClub || '—'}</p>
                   <p className="text-slate-400 dark:text-slate-500 text-xs">
                     {translatePosition(tmPlayer?.position || result.position || '')}
                     {(tmPlayer?.age || result.age) ? ` · ${t('common.ageLabel', { age: tmPlayer?.age || result.age || '' })}` : ''}
@@ -381,8 +385,8 @@ export default function PlayerCheckPage() {
                 }}
                 className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 rounded-xl p-3 text-left transition-colors"
               >
-                <p className="text-slate-900 dark:text-white text-sm font-medium">{player}</p>
-                <p className="text-slate-400 dark:text-slate-500 text-xs">→ {manager}</p>
+                <p className="text-slate-900 dark:text-white text-sm font-medium">{localizeText(player)}</p>
+                <p className="text-slate-400 dark:text-slate-500 text-xs">→ {localizeText(manager)}</p>
               </button>
             ))}
           </div>

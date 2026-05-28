@@ -89,7 +89,7 @@ export default function AvailabilityEditor({ squad, unavailableIds, onToggle }: 
                             : 'bg-slate-200/30 dark:bg-slate-700/30 border border-transparent hover:border-slate-300 dark:hover:border-slate-600 text-slate-600 dark:text-slate-300'
                         }`}
                       >
-                        <span className="truncate">{p.name}</span>
+                        <span className="truncate">{(p as SquadPlayer & { displayName?: string }).displayName || p.name}</span>
                         {out && <UserX className="w-3 h-3 flex-shrink-0 ml-1" />}
                       </button>
                     )

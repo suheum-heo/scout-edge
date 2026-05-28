@@ -7,6 +7,7 @@ import { getManagerById } from '@/lib/managers'
 import { analyzeScenario, ScenarioResult, ScenarioOutPlayer, ScenarioInPlayer } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeScenarioResult } from '@/lib/entity-localization'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
 export async function POST(request: NextRequest) {
@@ -64,7 +65,9 @@ export async function POST(request: NextRequest) {
       ...partial,
     }
 
-    return NextResponse.json({ result })
+    const localizedResult = await localizeScenarioResult(result, language)
+
+    return NextResponse.json({ result: localizedResult })
   } catch (error) {
     console.error('Scenario error:', error)
     const details = getAIErrorDetails(error, 'Scenario analysis failed. Please try again.')

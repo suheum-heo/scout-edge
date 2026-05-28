@@ -7,6 +7,7 @@ import { getManagerByName } from '@/lib/managers'
 import { analyzeTransferVerdict } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
+import { localizeTMPlayerData, localizeTransferVerdictResult } from '@/lib/entity-localization'
 import { searchPlayer, getPlayerData, getClubManager, searchClub, searchManagerByClub } from '@/lib/transfermarkt'
 import { getTeamData, APICoach, isLikelyYouthOnlySquad } from '@/lib/football-data'
 import { getSquadAndCoach as fotmobGetSquadAndCoach } from '@/lib/fotmob'
@@ -112,10 +113,14 @@ export async function POST(request: NextRequest) {
         : undefined,
       language
     )
+    const [localizedVerdict, localizedPlayer] = await Promise.all([
+      localizeTransferVerdictResult(verdict, language),
+      localizeTMPlayerData(tmPlayer ?? null, language),
+    ])
 
     return NextResponse.json({
-      verdict,
-      player: tmPlayer,
+      verdict: localizedVerdict,
+      player: localizedPlayer,
       playerVerified: Boolean(tmPlayer),
       detectedManager: coachName || null,
     })

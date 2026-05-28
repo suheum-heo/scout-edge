@@ -26,7 +26,7 @@ function getNeedScoreBar(score: number): string {
 }
 
 export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
-  const { t, translatePosition } = useLanguage()
+  const { t, translatePosition, localizeText } = useLanguage()
   const needScore = gap.needScore ?? 0
 
   return (
@@ -44,10 +44,10 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
             <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${getUrgencyColor(gap.urgency)}`}>
               {t(`urgency.${gap.urgency}`)}
             </span>
-            <span className="text-slate-500 dark:text-slate-400 text-xs">{gap.positionCode}</span>
+            <span className="text-slate-500 dark:text-slate-400 text-xs">{gap.displayPositionCode || localizeText(gap.positionCode)}</span>
           </div>
           <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{translatePosition(gap.position)}</h3>
-          <p className="text-blue-500 dark:text-blue-400 text-xs font-medium mt-0.5">{gap.profileLabel}</p>
+          <p className="text-blue-500 dark:text-blue-400 text-xs font-medium mt-0.5">{gap.displayProfileLabel || localizeText(gap.profileLabel)}</p>
           <p className={`text-slate-500 dark:text-slate-400 text-xs leading-relaxed mt-2 ${isSelected ? '' : 'line-clamp-2'}`}>
             {gap.reasoning}
           </p>
@@ -74,9 +74,9 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
         />
       </div>
       <div className="flex flex-wrap gap-1.5 mt-3">
-        {gap.keyStatsPriority.slice(0, 3).map((stat) => (
+        {(gap.displayKeyStatsPriority || gap.keyStatsPriority).slice(0, 3).map((stat) => (
           <span key={stat} className="bg-slate-200/50 dark:bg-slate-700/50 text-slate-500 dark:text-slate-400 text-xs px-2 py-0.5 rounded">
-            {stat.replace(/_/g, ' ')}
+            {localizeText(stat.replace(/_/g, ' '))}
           </span>
         ))}
       </div>

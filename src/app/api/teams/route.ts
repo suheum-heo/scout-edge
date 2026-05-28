@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { searchTeams as searchAFTeams, type APITeam } from '@/lib/api-football'
 import { getCanonicalClubLogo } from '@/lib/club-crests'
 import { normalizeCountryDisplayName } from '@/lib/country-names'
+import { localizeTeamSearchResults } from '@/lib/entity-localization'
 import { searchFDTeams } from '@/lib/football-data'
+import { normalizeLanguage } from '@/lib/i18n'
 import { createServerTiming } from '@/lib/server-timing'
 import { searchLocalTeams } from '@/lib/teams-db'
 import { searchClubs as tmSearchClubs } from '@/lib/transfermarkt'
@@ -287,6 +289,7 @@ export async function GET(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
   const query = request.nextUrl.searchParams.get('q')?.trim()
+  const language = normalizeLanguage(request.nextUrl.searchParams.get('language'))
 
   if (!query || query.length < 2) {
     const response = NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
@@ -298,7 +301,8 @@ export async function GET(request: NextRequest) {
   try {
     const localResults = timing.measure('local_db', () => searchLocalTeams(query), 'local team lookup')
     if (localResults.length > 0) {
-      const response = NextResponse.json({ teams: localResults.slice(0, 8) })
+      const localizedTeams = await localizeTeamSearchResults(localResults.slice(0, 8), language)
+      const response = NextResponse.json({ teams: localizedTeams })
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
@@ -307,7 +311,8 @@ export async function GET(request: NextRequest) {
     const cacheKey = timing.measure('cache_key', () => normalizeName(query))
     const cachedResults = timing.measure('cache_lookup', () => getCachedRemoteSearch(cacheKey), 'in-memory remote search cache')
     if (cachedResults) {
-      const response = NextResponse.json({ teams: cachedResults })
+      const localizedTeams = await localizeTeamSearchResults(cachedResults, language)
+      const response = NextResponse.json({ teams: localizedTeams })
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
@@ -339,7 +344,8 @@ export async function GET(request: NextRequest) {
 
     timing.measure('cache_store', () => setCachedRemoteSearch(cacheKey, teams), 'store merged remote results')
 
-    const response = NextResponse.json({ teams })
+    const localizedTeams = await localizeTeamSearchResults(teams, language)
+    const response = NextResponse.json({ teams: localizedTeams })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
     return response

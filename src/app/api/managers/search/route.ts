@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { APICoach, getCoachLiveContext, getLiveCoachByName, searchCoachesByName } from '@/lib/api-football'
 import { normalizeClubDisplayName } from '@/lib/club-names'
+import { localizeManagerSearchResults } from '@/lib/entity-localization'
+import { normalizeLanguage } from '@/lib/i18n'
 import { getAllManagers, getManagerByName } from '@/lib/managers'
 import { buildFullName, namesMatch } from '@/lib/person-names'
 import { createServerTiming } from '@/lib/server-timing'
@@ -24,6 +26,7 @@ export async function GET(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
   const q = request.nextUrl.searchParams.get('q')?.trim()
+  const language = normalizeLanguage(request.nextUrl.searchParams.get('language'))
   if (!q || q.length < 2) {
     const response = NextResponse.json({ coaches: [] })
     timing.end('total', requestStartedAt)
@@ -146,8 +149,9 @@ export async function GET(request: NextRequest) {
       .slice(0, 10)
   }, 'merge and dedupe manager suggestions')
 
+  const localizedCoaches = await localizeManagerSearchResults(coaches, language)
   const response = NextResponse.json(
-    { coaches },
+    { coaches: localizedCoaches },
     { headers: { 'Cache-Control': 'no-store, max-age=0' } }
   )
   timing.end('total', requestStartedAt)
