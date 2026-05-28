@@ -36,7 +36,7 @@ const NAME_LOCALIZATION_SCOPE = 'entity-localization-v6'
 const NAME_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const NAME_BATCH_SIZE = 8
 const inMemoryNameCache = new Map<string, string>()
-const SHORT_LABEL_LOCALIZATION_SCOPE = 'short-label-localization-v1'
+const SHORT_LABEL_LOCALIZATION_SCOPE = 'short-label-localization-v2'
 const SHORT_LABEL_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const SHORT_LABEL_BATCH_SIZE = 24
 const inMemoryShortLabelCache = new Map<string, string>()
@@ -219,6 +219,14 @@ function buildDisplayGlossary(nameMap: Record<string, string>): Record<string, s
   return glossary
 }
 
+function normalizeLocalizedLabel(
+  value: string,
+  language: LanguageCode,
+  glossary: Record<string, string>
+): string {
+  return localizeGeneratedContent(value, language, { glossary })
+}
+
 function entityMentionedInTexts(name: string, texts: string[]): boolean {
   const haystack = normalizeCacheValue(texts.join(' '))
   if (!haystack) return false
@@ -327,11 +335,20 @@ async function resolveLocalizedShortLabelMap(
   const unresolved: Array<{ source: string; prelocalized: string }> = []
 
   for (const source of uniqueValues) {
-    const prelocalized = localizeGeneratedContent(source, language, { glossary })
+    const prelocalized = normalizeLocalizedLabel(source, language, glossary)
     const cached = await readCachedLocalizedShortLabel(language, source)
 
     if (cached) {
-      resolved.set(source, cached)
+      const normalizedCached = normalizeLocalizedLabel(cached, language, glossary)
+      if (
+        !normalizedTextEquals(normalizedCached, cached) ||
+        (normalizedTextEquals(cached, source) && !normalizedTextEquals(prelocalized, source))
+      ) {
+        resolved.set(source, prelocalized)
+        await writeCachedLocalizedShortLabel(language, source, prelocalized)
+      } else {
+        resolved.set(source, normalizedCached)
+      }
       continue
     }
 
@@ -391,7 +408,7 @@ async function localizeEntityBatchWithLLM(
           `For ${getLanguageDisplayName(language)}, use the standard localized script for player, manager, and club names whenever a reliable football transliteration exists.`,
           'Do not leave names in Latin script unless there is genuinely no reliable localized rendering.',
           language === 'ko'
-            ? 'Examples: "Guglielmo Vicario" -> "굴리엘모 비카리오", "James Maddison" -> "제임스 매디슨", "Micky van de Ven" -> "미키 판더펜".'
+            ? 'Examples: "Guglielmo Vicario" -> "굴리엘모 비카리오", "James Maddison" -> "제임스 매디슨", "Micky van de Ven" -> "미키 판더벤".'
             : 'Examples: "Guglielmo Vicario" -> "グリエルモ・ヴィカーリオ", "James Maddison" -> "ジェームズ・マディソン", "Micky van de Ven" -> "ミッキー・ファン・デ・フェン".',
         ].join(' ')
       : 'If a proper noun normally remains in its official original spelling in this language, keeping the original is acceptable.',
@@ -500,6 +517,7 @@ export async function resolveLocalizedEntityMap(
 
   const resolved = new Map<string, string>()
   const unresolved: LocalizableEntity[] = []
+  const glossary = getManualGlossaryEntries(language)
 
   for (const entry of uniqueEntries) {
     const manual = lookupManualLocalizedName(entry.name, entry.entityType, language)
@@ -511,7 +529,11 @@ export async function resolveLocalizedEntityMap(
 
     const cached = await readCachedLocalizedName(language, entry.entityType, entry.name)
     if (cached) {
-      resolved.set(entry.name, cached)
+      const normalizedCached = normalizeLocalizedLabel(cached, language, glossary)
+      if (!normalizedTextEquals(normalizedCached, cached)) {
+        await writeCachedLocalizedName(language, entry.entityType, entry.name, normalizedCached)
+      }
+      resolved.set(entry.name, normalizedCached)
       continue
     }
 

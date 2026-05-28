@@ -7,6 +7,11 @@ import {
   getStaticMessages,
   needsRuntimeMessages,
 } from '@/lib/i18n'
+import {
+  buildLocalizedOutputGuidance,
+  getManualGlossaryEntries,
+  localizeGeneratedContent,
+} from '@/lib/football-localization'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 
 const anthropic = new Anthropic({
@@ -14,7 +19,7 @@ const anthropic = new Anthropic({
 })
 
 const MESSAGE_SCOPE = 'runtime-i18n-catalog-v5'
-const MANAGER_SCOPE = 'runtime-i18n-manager-v1'
+const MANAGER_SCOPE = 'runtime-i18n-manager-v2'
 const MESSAGE_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MANAGER_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MESSAGE_CHUNK_SIZE = 24
@@ -296,6 +301,26 @@ function localizedStringArray(value: unknown, fallback: string[]): string[] {
     : fallback
 }
 
+function normalizeLocalizedManagerProfile(profile: ManagerProfile, language: LanguageCode): ManagerProfile {
+  if (language === 'en') return profile
+
+  const glossary = getManualGlossaryEntries(language)
+
+  return {
+    ...profile,
+    tacticalSummary: localizeGeneratedContent(profile.tacticalSummary, language, { glossary }),
+    keyPrinciples: localizeGeneratedContent(profile.keyPrinciples, language, { glossary }),
+    positionalRequirements: profile.positionalRequirements.map((requirement) => ({
+      ...requirement,
+      profileLabel: localizeGeneratedContent(requirement.profileLabel, language, { glossary }),
+      tacticalDescription: localizeGeneratedContent(requirement.tacticalDescription, language, { glossary }),
+      mustHave: localizeGeneratedContent(requirement.mustHave, language, { glossary }),
+      niceToHave: localizeGeneratedContent(requirement.niceToHave, language, { glossary }),
+      avoidIf: localizeGeneratedContent(requirement.avoidIf, language, { glossary }),
+    })),
+  }
+}
+
 async function translateManagerProfilePayload(manager: ManagerProfile, language: LanguageCode): Promise<LocalizedManagerPayload> {
   const sourcePayload = {
     tacticalSummary: manager.tacticalSummary,
@@ -319,8 +344,10 @@ async function translateManagerProfilePayload(manager: ManagerProfile, language:
 Rules:
 - Return JSON only.
 - Keep the same structure and array lengths.
-- Preserve football codes, stats keys, and proper names in their official spelling.
-- Do not rename players, clubs, managers, or tactical codes.
+- Keep JSON keys, football tactical codes, formation strings, and schema structure exact.
+- ${buildLocalizedOutputGuidance(language)}
+- Use the known glossary exactly when it applies to players, clubs, or managers.
+- Do not leave football positions, role titles, attribute labels, or tactical terms in raw English if a natural ${languageNames[language]} form exists.
 
 ${JSON.stringify(sourcePayload)}`,
     }],
@@ -363,12 +390,13 @@ export async function localizeManagerProfile(
 
   const cacheKey = `${manager.id}:${language}`
   const memoryHit = managerMemoryCache.get(cacheKey)
-  if (memoryHit) return memoryHit
+  if (memoryHit) return normalizeLocalizedManagerProfile(memoryHit, language)
 
   const sharedHit = await getSharedCacheEntry<ManagerProfile>(MANAGER_SCOPE, cacheKey)
   if (sharedHit) {
-    managerMemoryCache.set(cacheKey, sharedHit)
-    return sharedHit
+    const normalizedSharedHit = normalizeLocalizedManagerProfile(sharedHit, language)
+    managerMemoryCache.set(cacheKey, normalizedSharedHit)
+    return normalizedSharedHit
   }
 
   try {
@@ -401,13 +429,14 @@ export async function localizeManagerProfile(
         }
       }),
     }
+    const normalizedProfile = normalizeLocalizedManagerProfile(localizedProfile, language)
 
-    managerMemoryCache.set(cacheKey, localizedProfile)
-    await setSharedCacheEntry(MANAGER_SCOPE, cacheKey, localizedProfile, MANAGER_TTL_MS, {
+    managerMemoryCache.set(cacheKey, normalizedProfile)
+    await setSharedCacheEntry(MANAGER_SCOPE, cacheKey, normalizedProfile, MANAGER_TTL_MS, {
       language,
       managerId: manager.id,
     })
-    return localizedProfile
+    return normalizedProfile
   } catch (error) {
     console.error(`[i18n] manager localization failed for ${manager.id}:${language}:`, error)
     return manager
