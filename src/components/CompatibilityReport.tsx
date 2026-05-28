@@ -41,7 +41,7 @@ export default function CompatibilityReport({ result }: CompatibilityReportProps
           <Info className="w-4 h-4 text-blue-400" />
           <span className="text-blue-500 dark:text-blue-400 text-sm font-medium">{t('playerCheck.tacticalRole')}</span>
         </div>
-        <p className="text-slate-600 dark:text-slate-300 text-sm">{localizeText(result.tacticalRole)}</p>
+        <p className="text-slate-600 dark:text-slate-300 text-sm">{result.displayTacticalRole || localizeText(result.tacticalRole)}</p>
       </div>
 
       {/* Strengths and Concerns */}

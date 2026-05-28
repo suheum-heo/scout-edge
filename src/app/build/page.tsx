@@ -43,7 +43,7 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
         <span className="bg-violet-500/20 border border-violet-500/30 text-violet-500 dark:text-violet-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{localizeText(player.archetypeLabel)}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.displayArchetypeLabel || localizeText(player.archetypeLabel)}</span>
       </div>
 
       <div className="flex items-start justify-between gap-2">

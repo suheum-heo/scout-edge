@@ -17,6 +17,7 @@ import type { LanguageCode } from '@/lib/i18n'
 import type { TMPlayerData } from '@/lib/transfermarkt'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
 import {
+  canonicalizeUrgency,
   type EntityType,
   buildLocalizedOutputGuidance,
   getLanguageDisplayName,
@@ -31,10 +32,19 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const NAME_LOCALIZATION_SCOPE = 'entity-localization-v1'
+const NAME_LOCALIZATION_SCOPE = 'entity-localization-v6'
 const NAME_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
-const NAME_BATCH_SIZE = 24
+const NAME_BATCH_SIZE = 8
 const inMemoryNameCache = new Map<string, string>()
+const SHORT_LABEL_LOCALIZATION_SCOPE = 'short-label-localization-v1'
+const SHORT_LABEL_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const SHORT_LABEL_BATCH_SIZE = 24
+const inMemoryShortLabelCache = new Map<string, string>()
+
+const NAME_PARTICLES = new Set([
+  'da', 'de', 'del', 'della', 'der', 'den', 'di', 'du', 'la', 'le', 'van', 'von', 'bin',
+  '데', '드', '데라', '데이', 'デ', 'デラ', 'ファン', 'フォン',
+])
 
 interface LocalizableEntity {
   name: string
@@ -46,7 +56,11 @@ interface ResolveLocalizedEntityMapOptions {
 }
 
 function shouldUseLLMNameLocalization(language: LanguageCode): boolean {
-  return language === 'ko' || language === 'ja'
+  return language !== 'en'
+}
+
+function shouldUseLLMShortLabelLocalization(language: LanguageCode): boolean {
+  return language !== 'en'
 }
 
 function normalizeCacheValue(value: string): string {
@@ -58,7 +72,11 @@ function normalizeCacheValue(value: string): string {
 }
 
 function getNameCacheKey(language: LanguageCode, entityType: EntityType, name: string): string {
-  return `${language}|${entityType}|${normalizeCacheValue(name)}`
+  return `${NAME_LOCALIZATION_SCOPE}|${language}|${entityType}|${normalizeCacheValue(name)}`
+}
+
+function getShortLabelCacheKey(language: LanguageCode, value: string): string {
+  return `${SHORT_LABEL_LOCALIZATION_SCOPE}|${language}|short-label|${normalizeCacheValue(value)}`
 }
 
 function dedupeEntities(entries: LocalizableEntity[]): LocalizableEntity[] {
@@ -109,6 +127,244 @@ async function writeCachedLocalizedName(
   })
 }
 
+async function readCachedLocalizedShortLabel(
+  language: LanguageCode,
+  source: string
+): Promise<string | null> {
+  const cacheKey = getShortLabelCacheKey(language, source)
+  const memoryHit = inMemoryShortLabelCache.get(cacheKey)
+  if (memoryHit) return memoryHit
+
+  const sharedHit = await getSharedCacheEntry<string>(SHORT_LABEL_LOCALIZATION_SCOPE, cacheKey)
+  if (sharedHit) {
+    inMemoryShortLabelCache.set(cacheKey, sharedHit)
+    return sharedHit
+  }
+
+  return null
+}
+
+async function writeCachedLocalizedShortLabel(
+  language: LanguageCode,
+  source: string,
+  localized: string
+) {
+  const cacheKey = getShortLabelCacheKey(language, source)
+  inMemoryShortLabelCache.set(cacheKey, localized)
+  await setSharedCacheEntry(
+    SHORT_LABEL_LOCALIZATION_SCOPE,
+    cacheKey,
+    localized,
+    SHORT_LABEL_LOCALIZATION_TTL_MS,
+    { source, language }
+  )
+}
+
+function normalizedTextEquals(left: string, right: string): boolean {
+  return normalizeCacheValue(left) === normalizeCacheValue(right)
+}
+
+function containsLatinLetters(value: string): boolean {
+  return /[A-Za-z]/.test(value)
+}
+
+function extractTrailingNameVariants(name: string): string[] {
+  const tokens = name
+    .split(/[\s・]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+
+  if (tokens.length < 2) return []
+
+  const variants = new Set<string>()
+  let start = tokens.length - 1
+
+  while (start - 1 >= 0 && NAME_PARTICLES.has(tokens[start - 1].toLowerCase())) {
+    start -= 1
+  }
+
+  const compound = tokens.slice(start).join(name.includes('・') ? '・' : ' ')
+  if (compound) variants.add(compound)
+  const last = tokens.at(-1)
+  if (last) variants.add(last)
+
+  return Array.from(variants).filter((variant) => normalizeCacheValue(variant).length >= 4)
+}
+
+function buildDisplayGlossary(nameMap: Record<string, string>): Record<string, string> {
+  const glossary: Record<string, string> = { ...nameMap }
+  const shortVariantCandidates = new Map<string, Set<string>>()
+
+  for (const [source, localized] of Object.entries(nameMap)) {
+    if (!source || !localized || normalizedTextEquals(source, localized)) continue
+
+    const sourceVariants = extractTrailingNameVariants(source)
+    const localizedVariants = extractTrailingNameVariants(localized)
+
+    sourceVariants.forEach((variant, index) => {
+      const localizedVariant = localizedVariants[index] || localizedVariants.at(-1) || localized
+      if (!localizedVariant) return
+      const candidates = shortVariantCandidates.get(variant) || new Set<string>()
+      candidates.add(localizedVariant)
+      shortVariantCandidates.set(variant, candidates)
+    })
+  }
+
+  for (const [variant, candidates] of shortVariantCandidates.entries()) {
+    if (candidates.size === 1 && !glossary[variant]) {
+      glossary[variant] = Array.from(candidates)[0]
+    }
+  }
+
+  return glossary
+}
+
+function entityMentionedInTexts(name: string, texts: string[]): boolean {
+  const haystack = normalizeCacheValue(texts.join(' '))
+  if (!haystack) return false
+
+  const candidates = [name, ...extractTrailingNameVariants(name)]
+  return candidates.some((candidate) => {
+    const needle = normalizeCacheValue(candidate)
+    return needle.length >= 4 && haystack.includes(needle)
+  })
+}
+
+async function localizeShortLabelBatchWithLLM(
+  labels: string[],
+  language: LanguageCode,
+  glossary: Record<string, string>
+): Promise<Record<string, string>> {
+  if (!labels.length || !process.env.ANTHROPIC_API_KEY) {
+    return Object.fromEntries(labels.map((label) => [label, label]))
+  }
+
+  const glossaryLines = Object.entries(glossary)
+    .slice(0, 24)
+    .map(([source, localized]) => `- "${source}" -> "${localized}"`)
+    .join('\n')
+
+  const list = labels.map((label, index) => `${index + 1}. ${label}`).join('\n')
+  const prompt = [
+    `You localize short football UI labels for ${getLanguageDisplayName(language)} product UI.`,
+    buildLocalizedOutputGuidance(language),
+    'Translate short role titles, position labels, archetype labels, tactical labels, and attribute tags.',
+    'Use the glossary exactly when it applies to proper names.',
+    glossaryLines ? `Glossary:\n${glossaryLines}` : '',
+    'Return ONLY valid JSON in this exact shape:',
+    '[{"source":"Original label","localized":"Localized label"}]',
+    'Rules:',
+    '- Preserve the exact "source" text in output.',
+    '- Localize football terms and short prose labels naturally for UI.',
+    '- Keep unknown proper nouns in original form only if no reliable localized form exists.',
+    '- Do not add commentary, markdown, or extra keys.',
+    '',
+    'Labels to localize:',
+    list,
+  ].filter(Boolean).join('\n')
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1400,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '[]'
+    const start = text.indexOf('[')
+    const end = text.lastIndexOf(']')
+    const rawJson = start >= 0 && end >= 0 ? text.slice(start, end + 1) : '[]'
+    const parsed = JSON.parse(rawJson) as Array<{ source?: string; localized?: string }>
+
+    const map: Record<string, string> = {}
+    for (const entry of parsed) {
+      if (!entry?.source) continue
+      map[entry.source] = entry.localized?.trim() || entry.source
+    }
+
+    return map
+  } catch (error) {
+    console.warn('Short-label localization fallback failed:', error)
+    return Object.fromEntries(labels.map((label) => [label, label]))
+  }
+}
+
+function shouldFallbackShortLabelWithLLM(
+  source: string,
+  localized: string,
+  language: LanguageCode
+): boolean {
+  if (!shouldUseLLMShortLabelLocalization(language) || !source.trim()) return false
+  if (!containsLatinLetters(source)) return false
+
+  if (normalizedTextEquals(source, localized)) {
+    return true
+  }
+
+  if ((language === 'ko' || language === 'ja') && containsLatinLetters(localized)) {
+    return true
+  }
+
+  return false
+}
+
+async function resolveLocalizedShortLabelMap(
+  values: string[],
+  language: LanguageCode,
+  nameMap: Record<string, string>
+): Promise<Record<string, string>> {
+  const uniqueValues = Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
+  )
+
+  if (!uniqueValues.length || language === 'en') {
+    return Object.fromEntries(uniqueValues.map((value) => [value, value]))
+  }
+
+  const glossary = buildDisplayGlossary(nameMap)
+  const resolved = new Map<string, string>()
+  const unresolved: Array<{ source: string; prelocalized: string }> = []
+
+  for (const source of uniqueValues) {
+    const prelocalized = localizeGeneratedContent(source, language, { glossary })
+    const cached = await readCachedLocalizedShortLabel(language, source)
+
+    if (cached) {
+      resolved.set(source, cached)
+      continue
+    }
+
+    if (!shouldFallbackShortLabelWithLLM(source, prelocalized, language)) {
+      resolved.set(source, prelocalized)
+      continue
+    }
+
+    unresolved.push({ source, prelocalized })
+  }
+
+  for (let index = 0; index < unresolved.length; index += SHORT_LABEL_BATCH_SIZE) {
+    const chunk = unresolved.slice(index, index + SHORT_LABEL_BATCH_SIZE)
+    const localizedChunk = await localizeShortLabelBatchWithLLM(
+      chunk.map((entry) => entry.source),
+      language,
+      glossary
+    )
+
+    await Promise.all(chunk.map(async ({ source, prelocalized }) => {
+      const localized = localizeGeneratedContent(
+        localizedChunk[source] || prelocalized || source,
+        language,
+        { glossary }
+      )
+      resolved.set(source, localized)
+      await writeCachedLocalizedShortLabel(language, source, localized)
+    }))
+  }
+
+  return Object.fromEntries(uniqueValues.map((value) => [value, resolved.get(value) || value]))
+}
+
 async function localizeEntityBatchWithLLM(
   entries: LocalizableEntity[],
   language: LanguageCode
@@ -130,6 +386,15 @@ async function localizeEntityBatchWithLLM(
     `You localize football proper nouns for ${getLanguageDisplayName(language)} product UI.`,
     buildLocalizedOutputGuidance(language),
     'Use the glossary exactly when applicable.',
+    language === 'ko' || language === 'ja'
+      ? [
+          `For ${getLanguageDisplayName(language)}, use the standard localized script for player, manager, and club names whenever a reliable football transliteration exists.`,
+          'Do not leave names in Latin script unless there is genuinely no reliable localized rendering.',
+          language === 'ko'
+            ? 'Examples: "Guglielmo Vicario" -> "굴리엘모 비카리오", "James Maddison" -> "제임스 매디슨", "Micky van de Ven" -> "미키 판더펜".'
+            : 'Examples: "Guglielmo Vicario" -> "グリエルモ・ヴィカーリオ", "James Maddison" -> "ジェームズ・マディソン", "Micky van de Ven" -> "ミッキー・ファン・デ・フェン".',
+        ].join(' ')
+      : 'If a proper noun normally remains in its official original spelling in this language, keeping the original is acceptable.',
     glossaryLines ? `Glossary:\n${glossaryLines}` : '',
     'Return ONLY valid JSON in this shape:',
     '[{"name":"Original Name","localizedName":"Localized Name"}]',
@@ -166,6 +431,59 @@ async function localizeEntityBatchWithLLM(
     return map
   } catch (error) {
     console.warn('Entity-name localization fallback failed:', error)
+    return Object.fromEntries(entries.map((entry) => [entry.name, entry.name]))
+  }
+}
+
+async function transliterateEntityBatchForCjk(
+  entries: LocalizableEntity[],
+  language: LanguageCode
+): Promise<Record<string, string>> {
+  if (!entries.length || !process.env.ANTHROPIC_API_KEY || (language !== 'ko' && language !== 'ja')) {
+    if (entries.length && (language === 'ko' || language === 'ja') && !process.env.ANTHROPIC_API_KEY) {
+      console.warn('[entity-localization] ANTHROPIC_API_KEY missing for CJK transliteration fallback')
+    }
+    return Object.fromEntries(entries.map((entry) => [entry.name, entry.name]))
+  }
+
+  const list = entries.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n')
+  const prompt = [
+    `Transliterate these football names into standard ${getLanguageDisplayName(language)} script for product UI.`,
+    'Return JSON array objects with keys name and localizedName only.',
+    'Do not keep Latin letters if a standard football transliteration exists.',
+    language === 'ko'
+      ? 'localizedName should be written in natural Hangul, not Latin letters.'
+      : 'localizedName should be written in natural Japanese script, not Latin letters.',
+    language === 'ko'
+      ? 'Example localizedName for Guglielmo Vicario: 굴리엘모 비카리오'
+      : 'Example localizedName for Guglielmo Vicario: グリエルモ・ヴィカーリオ',
+    'Names:',
+    list,
+  ].join('\n')
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 800,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '[]'
+    const start = text.indexOf('[')
+    const end = text.lastIndexOf(']')
+    const rawJson = start >= 0 && end >= 0 ? text.slice(start, end + 1) : '[]'
+    const parsed = JSON.parse(rawJson) as Array<{ name?: string; localizedName?: string }>
+
+    const map: Record<string, string> = {}
+    for (const entry of parsed) {
+      if (!entry?.name) continue
+      map[entry.name] = entry.localizedName?.trim() || entry.name
+    }
+
+    return map
+  } catch (error) {
+    console.warn('CJK entity transliteration fallback failed:', error)
     return Object.fromEntries(entries.map((entry) => [entry.name, entry.name]))
   }
 }
@@ -208,10 +526,14 @@ export async function resolveLocalizedEntityMap(
     } else {
       for (let index = 0; index < unresolved.length; index += NAME_BATCH_SIZE) {
         const chunk = unresolved.slice(index, index + NAME_BATCH_SIZE)
-        const localizedChunk = await localizeEntityBatchWithLLM(chunk, language)
+        const localizedChunk = language === 'ko' || language === 'ja'
+          ? await transliterateEntityBatchForCjk(chunk, language)
+          : await localizeEntityBatchWithLLM(chunk, language)
 
         await Promise.all(chunk.map(async (entry) => {
-          const localized = localizedChunk[entry.name] || entry.name
+          const localized =
+            localizedChunk[entry.name] ||
+            entry.name
           resolved.set(entry.name, localized)
           await writeCachedLocalizedName(language, entry.entityType, entry.name, localized)
         }))
@@ -232,7 +554,7 @@ export async function localizeEntityName(
 }
 
 function localizeDisplayText<T>(content: T, language: LanguageCode, nameMap: Record<string, string>): T {
-  return localizeGeneratedContent(content, language, { glossary: nameMap })
+  return localizeGeneratedContent(content, language, { glossary: buildDisplayGlossary(nameMap) })
 }
 
 function localizeDisplayLabel(
@@ -246,12 +568,28 @@ function localizeDisplayLabel(
 
 export async function localizeSquadAnalysisResult(
   analysis: SquadAnalysisResult,
-  language: LanguageCode
+  language: LanguageCode,
+  extraEntities: LocalizableEntity[] = []
 ): Promise<SquadAnalysisResult> {
+  const analysisTexts = [
+    analysis.overallAssessment,
+    ...analysis.squadStrengths,
+    ...analysis.squadWeaknesses,
+    ...analysis.gaps.map((gap) => gap.reasoning),
+  ]
+  const relevantExtraEntities = extraEntities.filter((entry) =>
+    entry.entityType !== 'player' || entityMentionedInTexts(entry.name, analysisTexts)
+  )
   const nameMap = await resolveLocalizedEntityMap([
     { name: analysis.managerName, entityType: 'manager' },
     { name: analysis.teamName, entityType: 'club' },
+    ...relevantExtraEntities,
   ], language)
+  const shortLabelMap = await resolveLocalizedShortLabelMap(
+    analysis.gaps.flatMap((gap) => [gap.position, gap.profileLabel, ...gap.keyStatsPriority]),
+    language,
+    nameMap
+  )
 
   return {
     ...analysis,
@@ -262,10 +600,14 @@ export async function localizeSquadAnalysisResult(
     squadWeaknesses: localizeDisplayText(analysis.squadWeaknesses, language, nameMap),
     gaps: analysis.gaps.map((gap) => ({
       ...gap,
+      urgency: canonicalizeUrgency(gap.urgency),
       reasoning: localizeDisplayText(gap.reasoning, language, nameMap),
+      displayPosition: shortLabelMap[gap.position] || localizeDisplayText(gap.position, language, nameMap),
       displayPositionCode: translateFootballTerm(language, gap.positionCode),
-      displayProfileLabel: localizeDisplayText(gap.profileLabel, language, nameMap),
-      displayKeyStatsPriority: gap.keyStatsPriority.map((stat) => translateFootballTerm(language, stat)),
+      displayProfileLabel: shortLabelMap[gap.profileLabel] || localizeDisplayText(gap.profileLabel, language, nameMap),
+      displayKeyStatsPriority: gap.keyStatsPriority.map(
+        (stat) => shortLabelMap[stat] || translateFootballTerm(language, stat)
+      ),
     })),
   }
 }
@@ -317,6 +659,7 @@ export async function localizePlayerCompatibilityResult(
     ...(result.currentClub ? [{ name: result.currentClub, entityType: 'club' as const }] : []),
   ]
   const nameMap = await resolveLocalizedEntityMap(entries, language)
+  const shortLabelMap = await resolveLocalizedShortLabelMap([result.tacticalRole], language, nameMap)
 
   return {
     ...result,
@@ -324,7 +667,7 @@ export async function localizePlayerCompatibilityResult(
     displayManagerName: nameMap[result.managerName] || result.managerName,
     displayCurrentClub: localizeDisplayLabel(result.currentClub, language, nameMap),
     verdict: localizeDisplayText(result.verdict, language, nameMap),
-    tacticalRole: localizeDisplayText(result.tacticalRole, language, nameMap),
+    displayTacticalRole: shortLabelMap[result.tacticalRole] || localizeDisplayText(result.tacticalRole, language, nameMap),
     strengths: localizeDisplayText(result.strengths, language, nameMap),
     concerns: localizeDisplayText(result.concerns, language, nameMap),
     conditions: localizeDisplayText(result.conditions, language, nameMap),
@@ -421,10 +764,18 @@ export async function localizeUndervaluedXIResult(
   language: LanguageCode
 ): Promise<UndervaluedXIResult> {
   const { players, nameMap } = await localizeDisplayPlayers<UndervaluedPlayer>(result.players, language)
+  const shortLabelMap = await resolveLocalizedShortLabelMap(
+    result.players.map((player) => player.archetypeLabel),
+    language,
+    nameMap
+  )
   return {
     ...result,
     concept: localizeDisplayText(result.concept, language, nameMap),
-    players,
+    players: players.map((player) => ({
+      ...player,
+      displayArchetypeLabel: shortLabelMap[player.archetypeLabel] || localizeDisplayText(player.archetypeLabel, language, nameMap),
+    })),
   }
 }
 
@@ -440,10 +791,16 @@ export async function localizeManagerXIResult(
     ]),
   ]
   const nameMap = await resolveLocalizedEntityMap(entries, language)
+  const shortLabelMap = await resolveLocalizedShortLabelMap(
+    result.players.map((player) => player.archetypeLabel),
+    language,
+    nameMap
+  )
   const players = result.players.map((player) => ({
     ...player,
     displayName: nameMap[player.playerName] || player.playerName,
     displayCurrentClub: localizeDisplayLabel(player.currentClub, language, nameMap) || player.currentClub,
+    displayArchetypeLabel: shortLabelMap[player.archetypeLabel] || localizeDisplayText(player.archetypeLabel, language, nameMap),
     whyIdeal: localizeDisplayText(player.whyIdeal, language, nameMap),
   }))
 

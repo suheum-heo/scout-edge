@@ -66,6 +66,7 @@ function extractJSON(text: string, type: 'object' | 'array'): unknown {
 
 export interface SquadGap {
   position: string
+  displayPosition?: string
   positionCode: string
   displayPositionCode?: string
   urgency: 'critical' | 'high' | 'medium' | 'low'
@@ -170,6 +171,7 @@ export interface PlayerCompatibilityResult {
   overallFitScore: number // 1-10
   verdict: string
   tacticalRole: string
+  displayTacticalRole?: string
   strengths: string[]
   concerns: string[]
   conditions: string[] // conditions under which this works
@@ -1150,6 +1152,7 @@ export interface UndervaluedPlayer {
   displayName?: string
   position: string           // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string     // e.g. "Ball-Playing GK", "Inverted Winger", "Press-Resistant #6"
+  displayArchetypeLabel?: string
   age: number
   nationality: string
   currentClub: string
@@ -1707,6 +1710,7 @@ export interface IdealPlayer {
   displayName?: string
   position: string        // "GK", "LCB", "CB", "RCB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
+  displayArchetypeLabel?: string
   displayOrder?: number   // preserves canonical formation slot order for UI rendering
   age: number
   nationality: string

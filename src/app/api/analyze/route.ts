@@ -745,10 +745,15 @@ export async function POST(request: NextRequest) {
         managerName: factualManagerName,
       }
     }
-    const localizedAnalysis = await localizeSquadAnalysisResult(analysis, language)
+    const localizedAnalysis = await localizeSquadAnalysisResult(
+      analysis,
+      language,
+      squadPlayers.map((player) => ({ name: player.name, entityType: 'player' as const }))
+    )
     const squadNameMap = await resolveLocalizedEntityMap(
       squadPlayers.map((player) => ({ name: player.name, entityType: 'player' as const })),
-      language
+      language,
+      { allowLlmFallback: false }
     )
     const localizedSquadPlayers = squadPlayers.map((player) => ({
       ...player,

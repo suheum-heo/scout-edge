@@ -34,7 +34,7 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
         <span className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
           {player.position}
         </span>
-        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{localizeText(player.archetypeLabel)}</span>
+        <span className="text-slate-400 dark:text-slate-500 text-[10px] truncate">{player.displayArchetypeLabel || localizeText(player.archetypeLabel)}</span>
       </div>
 
       {/* Name + score */}

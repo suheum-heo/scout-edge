@@ -26,8 +26,17 @@ function getNeedScoreBar(score: number): string {
 }
 
 export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
-  const { t, translatePosition, localizeText } = useLanguage()
+  const { t, localizeText } = useLanguage()
   const needScore = gap.needScore ?? 0
+  const urgencyKey = gap.urgency.toLowerCase().includes('moderate')
+    ? 'medium'
+    : gap.urgency.toLowerCase().includes('critical')
+    ? 'critical'
+    : gap.urgency.toLowerCase().includes('high')
+    ? 'high'
+    : gap.urgency.toLowerCase().includes('low')
+    ? 'low'
+    : 'medium'
 
   return (
     <button
@@ -41,12 +50,12 @@ export default function GapCard({ gap, onClick, isSelected }: GapCardProps) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-2">
-            <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${getUrgencyColor(gap.urgency)}`}>
-              {t(`urgency.${gap.urgency}`)}
+            <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${getUrgencyColor(urgencyKey)}`}>
+              {t(`urgency.${urgencyKey}`)}
             </span>
             <span className="text-slate-500 dark:text-slate-400 text-xs">{gap.displayPositionCode || localizeText(gap.positionCode)}</span>
           </div>
-          <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{translatePosition(gap.position)}</h3>
+          <h3 className="text-slate-900 dark:text-white font-semibold text-sm">{gap.displayPosition || localizeText(gap.position)}</h3>
           <p className="text-blue-500 dark:text-blue-400 text-xs font-medium mt-0.5">{gap.displayProfileLabel || localizeText(gap.profileLabel)}</p>
           <p className={`text-slate-500 dark:text-slate-400 text-xs leading-relaxed mt-2 ${isSelected ? '' : 'line-clamp-2'}`}>
             {gap.reasoning}

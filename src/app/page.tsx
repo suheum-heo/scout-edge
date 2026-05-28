@@ -58,7 +58,7 @@ function makeTeamKey(team?: Team | null): string {
 }
 
 export default function HomePage() {
-  const { language, t, pluralSuffix, translatePosition, localizeText } = useLanguage()
+  const { language, t, pluralSuffix, localizeText } = useLanguage()
   const seededSearchPlaceholder = getSeededMessages(language)['home.searchPlaceholder']
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
@@ -454,12 +454,12 @@ export default function HomePage() {
 
       const data = await res.json()
       if (!res.ok) {
-        setRecsError(data.error || t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) }))
+        setRecsError(data.error || t('home.recsLoadingTitle', { position: selectedGap.displayPosition || localizeText(selectedGap.position) }))
       } else {
         setRecommendations(data.recommendations || [])
       }
     } catch {
-      setRecsError(t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) }))
+      setRecsError(t('home.recsLoadingTitle', { position: selectedGap.displayPosition || localizeText(selectedGap.position) }))
     } finally {
       setIsLoadingRecs(false)
     }
@@ -1013,7 +1013,7 @@ export default function HomePage() {
                   {selectedGap && !isLoadingRecs && (
                     <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 mb-4">
                       <p className="text-slate-900 dark:text-white font-semibold text-sm mb-1">
-                        {t('home.chooseBudgetTitle', { position: translatePosition(selectedGap.position) })}
+                        {t('home.chooseBudgetTitle', { position: selectedGap.displayPosition || localizeText(selectedGap.position) })}
                       </p>
                       <p className="text-slate-600 text-xs mb-3">
                         {t('home.chooseBudgetSubtitle')}
@@ -1038,7 +1038,7 @@ export default function HomePage() {
 
                   {selectedGap && isLoadingRecs && (
                     <LoadingSpinner
-                      message={t('home.recsLoadingTitle', { position: translatePosition(selectedGap.position) })}
+                      message={t('home.recsLoadingTitle', { position: selectedGap.displayPosition || localizeText(selectedGap.position) })}
                       submessage={t('home.recsLoadingSub')}
                       durationHint={t('home.recsLoadingHint')}
                     />
@@ -1055,7 +1055,7 @@ export default function HomePage() {
                     <div className={`space-y-3 transition-opacity ${!selectedBudget ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
                       <div className="flex items-center justify-between">
                         <h3 className="text-slate-900 dark:text-white font-semibold">
-                          {t('home.targetsTitle', { position: translatePosition(selectedGap?.position || '') })}
+                          {t('home.targetsTitle', { position: selectedGap?.displayPosition || localizeText(selectedGap?.position || '') })}
                         </h3>
                         <span className="text-slate-600 text-xs">
                           {selectedBudget
