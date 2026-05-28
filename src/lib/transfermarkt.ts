@@ -628,6 +628,79 @@ function managerNameScore(resultName: string, query: string): number {
   return 0
 }
 
+function normalizePersonLookupKey(value?: string | null): string {
+  return stripDiacritics(String(value || ''))
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function normalizeLooseLookupKey(value?: string | null): string {
+  return stripDiacritics(String(value || ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+function normalizedCountrySet(values?: string[] | null): Set<string> {
+  return new Set(
+    (values || [])
+      .map((value) => normalizeCountryDisplayName(value))
+      .map((value) => normalizeLooseLookupKey(value))
+      .filter(Boolean)
+  )
+}
+
+function isReliableTMPlayerIdentityMatch(
+  player: TMIdentityInput,
+  searchResult: TMPlayerSearchResult
+): boolean {
+  const inputName = normalizePersonLookupKey(player.playerName)
+  const resultName = normalizePersonLookupKey(searchResult.name)
+  if (!inputName || !resultName) return false
+
+  const exactNameMatch = inputName === resultName
+  const containsNameMatch =
+    inputName.length >= 8 &&
+    resultName.length >= 8 &&
+    (inputName.includes(resultName) || resultName.includes(inputName))
+
+  if (!exactNameMatch && !containsNameMatch) return false
+
+  if (player.age && searchResult.age !== null) {
+    const diff = Math.abs(searchResult.age - player.age)
+    if (diff > 4) return false
+  }
+
+  let supportSignals = 0
+
+  if (player.age && searchResult.age !== null) {
+    const diff = Math.abs(searchResult.age - player.age)
+    if (diff <= 1) supportSignals += 2
+    else if (diff <= 2) supportSignals += 1
+  }
+
+  if (player.currentClub && searchResult.club?.name && isReliableTMClubMatch(player.currentClub, searchResult.club.name)) {
+    supportSignals += 2
+  }
+
+  if (player.nationality) {
+    const expectedNationality = normalizeLooseLookupKey(normalizeCountryDisplayName(player.nationality))
+    if (expectedNationality && normalizedCountrySet(searchResult.nationalities).has(expectedNationality)) {
+      supportSignals += 1
+    }
+  }
+
+  if (exactNameMatch && supportSignals >= 1) return true
+  if (exactNameMatch && !player.age && !player.currentClub && !player.nationality && inputName.split(' ').length >= 2) return true
+  if (containsNameMatch && supportSignals >= 2) return true
+
+  return false
+}
+
 /**
  * Search players by name, return top result.
  * Fallback chain: original name → diacritic-stripped → last name only (≥5 chars).
@@ -803,21 +876,23 @@ function buildSearchBasedTMEnrichment(
 ): TMEnrichmentResult {
   const searchClub = searchResult.club?.name
   const reliableClubMatch = !player.currentClub || !searchClub || isReliableTMClubMatch(player.currentClub, searchClub)
+  const reliableIdentityMatch = isReliableTMPlayerIdentityMatch(player, searchResult)
   const searchTransfermarktUrl = canUseTMClubFact(searchClub)
     ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
     : player.transfermarktUrl
+  const allowVerifiedSearchClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch)
 
   return {
     playerName: searchResult.name || player.playerName,
-    currentClub: canUseTMClubFact(searchClub) && reliableClubMatch ? searchClub : (player.currentClub || ''),
+    currentClub: allowVerifiedSearchClub ? searchClub : (player.currentClub || ''),
     age: searchResult.age ?? player.age ?? null,
     nationality: searchResult.nationalities?.[0] || player.nationality,
     position: searchResult.position || player.position,
     estimatedValue: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : player.estimatedValue,
     contractUntil: player.contractUntil,
-    tmVerified: canUseTMClubFact(searchClub) && reliableClubMatch,
-    transfermarktUrl: canUseTMClubFact(searchClub) && reliableClubMatch ? searchTransfermarktUrl : player.transfermarktUrl,
-    tmVerificationSource: canUseTMClubFact(searchClub) && reliableClubMatch ? 'search' : 'none',
+    tmVerified: allowVerifiedSearchClub,
+    transfermarktUrl: allowVerifiedSearchClub ? searchTransfermarktUrl : player.transfermarktUrl,
+    tmVerificationSource: allowVerifiedSearchClub ? 'search' : 'none',
   }
 }
 
