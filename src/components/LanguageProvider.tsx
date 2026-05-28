@@ -156,7 +156,7 @@ export function LanguageSelector() {
   const { language, setLanguage, t } = useLanguage()
 
   return (
-    <label className="relative inline-flex min-w-[140px] shrink-0 items-center gap-2 rounded-lg border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 text-xs text-slate-500 dark:text-slate-400">
+    <label className="relative inline-flex min-w-[116px] shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 px-2 py-1.5 text-xs text-slate-500 dark:text-slate-400 lg:min-w-[140px] lg:gap-2 lg:px-2.5">
       <Languages className="h-3.5 w-3.5 shrink-0" />
       <select
         value={language}
@@ -170,7 +170,7 @@ export function LanguageSelector() {
           </option>
         ))}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400 lg:right-2.5" />
     </label>
   )
 }
