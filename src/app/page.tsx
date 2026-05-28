@@ -577,7 +577,7 @@ export default function HomePage() {
           {t('home.heroTitleLine1')}<br />
           <span className="text-blue-400">{t('home.heroTitleLine2')}</span>
         </h1>
-        <p className="text-slate-600 dark:text-slate-400 text-lg max-w-2xl mx-auto leading-relaxed">
+        <p className="text-slate-600 dark:text-slate-400 text-lg max-w-4xl mx-auto leading-relaxed text-pretty">
           {t('home.heroSubtitle')}
         </p>
       </div>
@@ -1202,7 +1202,7 @@ export default function HomePage() {
               <div key={step} className="text-center">
                 <div className="text-blue-500/30 font-bold text-4xl mb-3">{step}</div>
                 <h3 className="text-slate-900 dark:text-white font-semibold mb-2">{title}</h3>
-                <p className="text-slate-600 text-sm leading-relaxed">{desc}</p>
+                <p className="text-slate-500 dark:text-slate-400 text-sm leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
