@@ -20,7 +20,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v7'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v8'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -171,6 +171,29 @@ function getBudgetCap(budget: string): number | null {
   if (budget === '€100–150M') return 150_000_000
   if (budget === '€150–200M') return 200_000_000
   return null
+}
+
+function getBudgetOverrunAllowance(budget: string): number | null {
+  if (budget === '< €50M') return 5_000_000
+  if (budget === '€50–100M') return 10_000_000
+  if (budget === '€100–150M') return 15_000_000
+  if (budget === '€150–200M') return 20_000_000
+  return null
+}
+
+function getBudgetOverrun(total: number, budget: string): number {
+  const cap = getBudgetCap(budget)
+  if (cap === null) return 0
+  return Math.max(0, total - cap)
+}
+
+function isBudgetTotalAcceptable(total: number, budget: string): boolean {
+  const overrun = getBudgetOverrun(total, budget)
+  if (overrun <= 0) return true
+
+  const allowance = getBudgetOverrunAllowance(budget)
+  if (allowance === null) return false
+  return overrun <= allowance
 }
 
 function parseEstimatedValue(value?: string | null): number | null {
@@ -938,11 +961,15 @@ export async function POST(request: NextRequest) {
         enrichedStarters,
         budget
       )
+      const starterBudgetAcceptable = isBudgetTotalAcceptable(
+        calculateTotalEstimatedCost(enrichedStarters),
+        budget
+      )
 
       const starterPathUsable =
         enrichedStarters.length === estimatedSlots.length &&
         !hasDuplicateUndervaluedPlayers(enrichedStarters) &&
-        starterResult.budgetStatus === 'within' &&
+        starterBudgetAcceptable &&
         !hasUnverifiedPlayers(enrichedStarters) &&
         starterEvaluations.every((evaluation) => evaluation.positionCompatible)
 
@@ -1019,6 +1046,10 @@ export async function POST(request: NextRequest) {
         selectedPlayers,
         budget
       )
+      if (!isBudgetTotalAcceptable(calculateTotalEstimatedCost(selectedPlayers), budget)) {
+        resolvedResult = null
+        continue
+      }
       resolvedFormation = pool.formation
       resolvedSource = 'reserve-path'
       break
@@ -1026,8 +1057,8 @@ export async function POST(request: NextRequest) {
 
     if (!resolvedResult || !resolvedFormation || !resolvedSource) {
       const response = NextResponse.json(
-        { error: translate(language, 'error.analysisFailed') },
-        { status: 500 }
+        { error: translate(language, 'xi.noValidBudgetXi') },
+        { status: 422 }
       )
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
