@@ -278,6 +278,46 @@ async function createMessageWithPromptCacheFallback(params: Anthropic.MessageCre
   }
 }
 
+async function createStructuredResponseWithEnglishFallback<T>({
+  buildPrompt,
+  system,
+  language,
+  expectedType,
+  maxTokens,
+  logLabel,
+}: {
+  buildPrompt: (language: LanguageCode) => string
+  system: Anthropic.MessageCreateParamsNonStreaming['system']
+  language: LanguageCode
+  expectedType: 'object' | 'array'
+  maxTokens: number
+  logLabel: string
+}): Promise<T> {
+  const requestStructured = async (requestedLanguage: LanguageCode): Promise<T> => {
+    const response = await createMessageWithPromptCacheFallback({
+      model: 'claude-sonnet-4-6',
+      system,
+      max_tokens: maxTokens,
+      temperature: 0,
+      messages: [{ role: 'user', content: buildPrompt(requestedLanguage) }],
+    })
+
+    const raw = response.content[0].type === 'text' ? response.content[0].text : ''
+    return extractJSON(sanitizeHomoglyphs(raw), expectedType) as T
+  }
+
+  try {
+    return await requestStructured(language)
+  } catch (error) {
+    if (language === 'en') {
+      throw error
+    }
+
+    console.warn(`${logLabel} parse failed for ${language}; retrying with English-safe structured prompt`, error)
+    return requestStructured('en')
+  }
+}
+
 function buildFallbackSystemFit(player: SquadPlayer, language: LanguageCode = DEFAULT_LANGUAGE): PlayerSystemFit {
   return {
     playerName: player.name,
@@ -429,19 +469,16 @@ async function analyzeSquadSystemFitChunk(
   chunkLabel: string,
   language: LanguageCode
 ): Promise<PlayerSystemFit[]> {
-  const prompt = buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate, language)
   const maxTokens = Math.min(1800, Math.max(1000, 320 + chunk.length * 95))
-
-  const res = await createMessageWithPromptCacheFallback({
-    model: 'claude-sonnet-4-6',
+  const parsed = await createStructuredResponseWithEnglishFallback<Array<Partial<PlayerSystemFit>>>({
+    buildPrompt: (requestedLanguage) =>
+      buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate, requestedLanguage),
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: maxTokens,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
+    language,
+    expectedType: 'array',
+    maxTokens,
+    logLabel: `Squad fit chunk ${chunkLabel} (${teamName})`,
   })
-
-  const text = res.content[0].type === 'text' ? res.content[0].text : ''
-  const parsed = extractJSON(sanitizeHomoglyphs(text), 'array') as Array<Partial<PlayerSystemFit>>
   const parsedByPlayer = mapSystemFitsByPlayer(parsed)
   const matchedCount = chunk.reduce((count, player) => (
     parsedByPlayer.has(systemFitPlayerKey(player)) ? count + 1 : count
@@ -1213,7 +1250,7 @@ export async function generateUndervaluedXI(
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
     : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
-  const prompt = withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
+  const buildPrompt = (requestedLanguage: LanguageCode) => withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build the best possible XI of UNDERVALUED players that fits ${resolvedName}'s tactical system within the stated budget.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -1259,18 +1296,16 @@ Return ONLY this JSON (no other text):
 }
 
 Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
-Include exactly 11 players covering every position in your chosen formation.`, language)
+Include exactly 11 players covering every position in your chosen formation.`, requestedLanguage)
 
-  const response = await createMessageWithPromptCacheFallback({
-    model: 'claude-sonnet-4-6',
+  return createStructuredResponseWithEnglishFallback<UndervaluedXIResult>({
+    buildPrompt,
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: 3000,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
+    language,
+    expectedType: 'object',
+    maxTokens: 3000,
+    logLabel: `Undervalued XI (${teamName || resolvedName})`,
   })
-
-  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  return extractJSON(sanitizeHomoglyphs(raw), 'object') as UndervaluedXIResult
 }
 
 export async function generateUndervaluedXICandidatePool(
@@ -1291,7 +1326,7 @@ export async function generateUndervaluedXICandidatePool(
 **Key principles**: ${manager.keyPrinciples.slice(0, 3).join('; ')}`
     : `Use your knowledge of ${resolvedName}'s preferred tactical system. ${buildLiveFormationGuidance(liveFormationContext)}`
 
-  const prompt = withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
+  const buildPrompt = (requestedLanguage: LanguageCode) => withOutputLanguage(`You are an elite football scout specialising in undervalued talent. Today is ${currentDate}. Build a SLOT-BY-SLOT candidate board for an undervalued XI that fits ${resolvedName}'s tactical system within the stated budget.
 
 ## Manager: ${resolvedName}
 ${managerSection}
@@ -1344,18 +1379,16 @@ Return ONLY this JSON:
 
 Position values must be exactly one of: GK, CB, LB, RB, CM, CAM, CDM, LW, RW, ST, CF, WB
 Use unique slot ids for repeated positions, e.g. CB-1 and CB-2, CM-1 and CM-2.
-There must be exactly 11 slots and exactly 2 candidates per slot.`, language)
+There must be exactly 11 slots and exactly 2 candidates per slot.`, requestedLanguage)
 
-  const response = await createMessageWithPromptCacheFallback({
-    model: 'claude-sonnet-4-6',
+  return createStructuredResponseWithEnglishFallback<UndervaluedXICandidatePool>({
+    buildPrompt,
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: 2200,
-    temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
+    language,
+    expectedType: 'object',
+    maxTokens: 2200,
+    logLabel: `Undervalued XI candidate pool (${teamName || resolvedName})`,
   })
-
-  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  return extractJSON(sanitizeHomoglyphs(raw), 'object') as UndervaluedXICandidatePool
 }
 
 // ── V3: Transfer Scenario Simulator ──────────────────────────────────────────

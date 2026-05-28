@@ -27,6 +27,8 @@ interface Props {
   isLoading: boolean
 }
 
+type DisplaySquadPlayer = SquadPlayer & { displayName?: string }
+
 type PositionGroup = 'GK' | 'DEF' | 'MID' | 'ATT'
 
 function positionGroup(pos: string): PositionGroup {
@@ -53,6 +55,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const [suggestions, setSuggestions] = useState<PlayerSuggestion[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [selectedSuggestion, setSelectedSuggestion] = useState<PlayerSuggestion | null>(null)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
@@ -69,6 +72,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const handleNameChange = useCallback((value: string) => {
     const titled = toTitleCase(value)
     setInName(titled)
+    setSelectedSuggestion(null)
     setShowDropdown(true)
 
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
@@ -86,11 +90,12 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
         setIsSearching(false)
       }
     }, 300)
-  }, [])
+  }, [language])
 
   const pickSuggestion = (p: PlayerSuggestion) => {
-    setInName(p.name)
+    setInName(p.displayName || p.name)
     setInPosition(p.position || inPosition)
+    setSelectedSuggestion(p)
     setSuggestions([])
     setShowDropdown(false)
   }
@@ -98,27 +103,41 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const toggleOut = (p: SquadPlayer) => {
     setOutIds((prev) => {
       const next = new Set(prev)
-      next.has(p.playerId) ? next.delete(p.playerId) : next.add(p.playerId)
+      if (next.has(p.playerId)) {
+        next.delete(p.playerId)
+      } else {
+        next.add(p.playerId)
+      }
       return next
     })
   }
 
   const addInPlayer = () => {
     if (!inName.trim()) return
+    const normalizedInput = inName.trim()
+    const matchedSuggestion = selectedSuggestion && (
+      selectedSuggestion.name === normalizedInput ||
+      selectedSuggestion.displayName === normalizedInput
+    )
+      ? selectedSuggestion
+      : null
     setInList((prev) => [...prev, {
-      name: toTitleCase(inName.trim()),
+      name: matchedSuggestion?.name || toTitleCase(normalizedInput),
+      displayName: matchedSuggestion?.displayName || (!matchedSuggestion ? normalizedInput : undefined),
       position: inPosition,
       age: parseInt(inAge) || 25,
       fromRecommendations: false,
     }])
     setInName('')
     setInAge('')
+    setSelectedSuggestion(null)
     setSuggestions([])
   }
 
   const addFromRec = (rec: TransferTarget) => {
     setInList((prev) => [...prev, {
       name: rec.playerName,
+      displayName: rec.displayName || rec.playerName,
       position: rec.position,
       age: rec.age,
       fromRecommendations: true,
@@ -131,7 +150,10 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
   const handleRun = () => {
     const playersOut: ScenarioOutPlayer[] = squad
       .filter((p) => outIds.has(p.playerId))
-      .map((p) => ({ playerId: p.playerId, name: p.name, position: p.position, age: p.age }))
+      .map((p) => {
+        const displayName = (p as DisplaySquadPlayer).displayName
+        return { playerId: p.playerId, name: p.name, displayName, position: p.position, age: p.age }
+      })
     onRun(playersOut, inList)
   }
 
@@ -172,7 +194,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                           : 'hover:bg-[#EEF2F7] dark:hover:bg-slate-700/30 text-slate-600 dark:text-slate-300'
                       }`}
                     >
-                      <span className="text-xs">{(p as SquadPlayer & { displayName?: string }).displayName || p.name}</span>
+                        <span className="text-xs">{(p as DisplaySquadPlayer).displayName || p.name}</span>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-400 dark:text-slate-600 text-[10px]">{t('common.ageLabel', { age: p.age })}</span>
                         {selected && <X className="w-3 h-3 text-red-400" />}
@@ -202,7 +224,7 @@ export default function ScenarioBuilder({ squad, recommendations, onRun, isLoadi
                   key={i}
                   className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 dark:text-emerald-300"
                 >
-                  {localizeText(p.name)}
+                  {p.displayName || localizeText(p.name)}
                   <button onClick={() => removeIn(i)} className="hover:text-white dark:hover:text-white transition-colors">
                     <X className="w-3 h-3" />
                   </button>

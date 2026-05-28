@@ -753,7 +753,12 @@ export async function POST(request: NextRequest) {
     const squadNameMap = await resolveLocalizedEntityMap(
       squadPlayers.map((player) => ({ name: player.name, entityType: 'player' as const })),
       language,
-      { allowLlmFallback: false }
+      {
+        displayPolicy:
+          language === 'ko' || language === 'ja'
+            ? 'bulk_display_cjk'
+            : 'latin_safe_display',
+      }
     )
     const localizedSquadPlayers = squadPlayers.map((player) => ({
       ...player,
