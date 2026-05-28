@@ -8,7 +8,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage()
   const navLinkClassName =
-    'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm text-slate-600 transition-colors hover:bg-[#EEF2F7] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white md:px-0 md:py-0 md:text-[13px] lg:text-sm'
+    'whitespace-nowrap rounded-lg px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-[#EEF2F7] hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white md:px-0 md:py-0 md:text-[13px] lg:text-sm'
 
   return (
     <>
