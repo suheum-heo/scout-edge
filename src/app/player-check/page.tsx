@@ -28,12 +28,13 @@ interface PlayerResult {
   displayClub?: string
   age?: number | null
   nationality: string
+  displayNationality?: string
 }
 
 export default function PlayerCheckPage() {
-  const { language, t, translatePosition, localizeText } = useLanguage()
+  const { language, t, translateCountryName, translatePosition, localizeText } = useLanguage()
   const [clubQuery, setClubQuery] = useState('')
-  const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; displayName?: string; country: string; logo: string }>>([])
+  const [clubSuggestions, setClubSuggestions] = useState<Array<{ id: number; name: string; displayName?: string; country: string; displayCountry?: string; logo: string }>>([])
   const [isSearchingClub, setIsSearchingClub] = useState(false)
   const [clubDropdownOpen, setClubDropdownOpen] = useState(false)
   const clubRef = useRef<HTMLDivElement>(null)
@@ -82,7 +83,7 @@ export default function PlayerCheckPage() {
       try {
         const res = await fetch(`/api/teams?q=${encodeURIComponent(value.trim())}&language=${encodeURIComponent(language)}`)
         const data = await res.json()
-        setClubSuggestions((data.teams || []).map((t: { team: { id: number; name: string; country: string; logo: string } }) => t.team))
+        setClubSuggestions((data.teams || []).map((t: { team: { id: number; name: string; displayName?: string; country: string; displayCountry?: string; logo: string } }) => t.team))
       } catch { setClubSuggestions([]) }
       finally { setIsSearchingClub(false) }
     }, 300)
@@ -291,7 +292,7 @@ export default function PlayerCheckPage() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
                       <span className="font-medium">{club.displayName || club.name}</span>
-                      <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.country}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.displayCountry || translateCountryName(club.country)}</span>
                     </button>
                   ))
               }
@@ -345,7 +346,9 @@ export default function PlayerCheckPage() {
                   <p className="text-slate-400 dark:text-slate-500 text-xs">
                     {translatePosition(tmPlayer?.position || result.position || '')}
                     {(tmPlayer?.age || result.age) ? ` · ${t('common.ageLabel', { age: tmPlayer?.age || result.age || '' })}` : ''}
-                    {(tmPlayer?.nationality || result.nationality) ? ` · ${tmPlayer?.nationality || result.nationality}` : ''}
+                    {(tmPlayer?.displayNationality || tmPlayer?.nationality || result.displayNationality || result.nationality)
+                      ? ` · ${tmPlayer?.displayNationality || translateCountryName(tmPlayer?.nationality || result.displayNationality || result.nationality || '')}`
+                      : ''}
                   </p>
                 </div>
               </div>

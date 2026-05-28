@@ -1,6 +1,7 @@
 import 'server-only'
 
 import Anthropic from '@anthropic-ai/sdk'
+import { createHash } from 'node:crypto'
 
 import type {
   PlayerCompatibilityResult,
@@ -16,6 +17,7 @@ import type {
 import type { LanguageCode } from '@/lib/i18n'
 import type { TMPlayerData } from '@/lib/transfermarkt'
 import { getSharedCacheEntry, setSharedCacheEntry } from '@/lib/shared-cache'
+import { translateCountryDisplayName } from '@/lib/country-names'
 import {
   canonicalizeUrgency,
   type EntityType,
@@ -32,14 +34,21 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 })
 
-const NAME_LOCALIZATION_SCOPE = 'entity-localization-v7'
+const NAME_LOCALIZATION_SCOPE = 'entity-localization-v8'
 const NAME_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const inMemoryNameCache = new Map<string, string>()
 const SHORT_LABEL_LOCALIZATION_SCOPE = 'short-label-localization-v2'
 const SHORT_LABEL_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const SHORT_LABEL_BATCH_SIZE = 24
 const inMemoryShortLabelCache = new Map<string, string>()
+const DISPLAY_PROSE_LOCALIZATION_SCOPE = 'display-prose-localization-v1'
+const DISPLAY_PROSE_LOCALIZATION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const DISPLAY_PROSE_BATCH_SIZE = 40
+const inMemoryDisplayProseCache = new Map<string, string>()
 const CJK_BULK_NAME_TIMEOUT_MS = 4500
+const CJK_RETRY_CHUNK_SIZE = 6
+const CJK_RETRY_TIMEOUT_MS = 2500
+const CJK_SINGLE_RETRY_TIMEOUT_MS = 1800
 
 export type NameDisplayPolicy = 'cache_only' | 'bulk_display_cjk' | 'latin_safe_display'
 
@@ -55,6 +64,11 @@ interface LocalizableEntity {
 
 interface ResolveLocalizedEntityMapOptions {
   displayPolicy?: NameDisplayPolicy
+}
+
+interface PreferredDisplayNameRecord {
+  sourceName: string
+  displayName?: string | null
 }
 
 function isCjkLanguage(language: LanguageCode): boolean {
@@ -93,6 +107,14 @@ function getNameCacheKey(language: LanguageCode, entityType: EntityType, name: s
 
 function getShortLabelCacheKey(language: LanguageCode, value: string): string {
   return `${SHORT_LABEL_LOCALIZATION_SCOPE}|${language}|short-label|${normalizeCacheValue(value)}`
+}
+
+function buildStableTextHash(value: string): string {
+  return createHash('sha1').update(value).digest('hex')
+}
+
+function getDisplayProseCacheKey(language: LanguageCode, value: string): string {
+  return `${DISPLAY_PROSE_LOCALIZATION_SCOPE}|${language}|prose|${buildStableTextHash(value)}`
 }
 
 function dedupeEntities(entries: LocalizableEntity[]): LocalizableEntity[] {
@@ -176,12 +198,57 @@ async function writeCachedLocalizedShortLabel(
   )
 }
 
+async function readCachedLocalizedDisplayProse(
+  language: LanguageCode,
+  source: string
+): Promise<string | null> {
+  const cacheKey = getDisplayProseCacheKey(language, source)
+  const memoryHit = inMemoryDisplayProseCache.get(cacheKey)
+  if (memoryHit) return memoryHit
+
+  const sharedHit = await getSharedCacheEntry<string>(DISPLAY_PROSE_LOCALIZATION_SCOPE, cacheKey)
+  if (sharedHit) {
+    inMemoryDisplayProseCache.set(cacheKey, sharedHit)
+    return sharedHit
+  }
+
+  return null
+}
+
+async function writeCachedLocalizedDisplayProse(
+  language: LanguageCode,
+  source: string,
+  localized: string
+) {
+  const cacheKey = getDisplayProseCacheKey(language, source)
+  inMemoryDisplayProseCache.set(cacheKey, localized)
+  await setSharedCacheEntry(
+    DISPLAY_PROSE_LOCALIZATION_SCOPE,
+    cacheKey,
+    localized,
+    DISPLAY_PROSE_LOCALIZATION_TTL_MS,
+    { source, language }
+  )
+}
+
 function normalizedTextEquals(left: string, right: string): boolean {
   return normalizeCacheValue(left) === normalizeCacheValue(right)
 }
 
 function containsLatinLetters(value: string): boolean {
   return /[A-Za-z]/.test(value)
+}
+
+function shouldRetryCjkTransliteration(
+  source: string,
+  localized: string,
+  language: LanguageCode
+): boolean {
+  if (!isCjkLanguage(language)) return false
+  if (!containsLatinLetters(source)) return false
+  if (!localized.trim()) return true
+  if (normalizedTextEquals(source, localized)) return true
+  return containsLatinLetters(localized)
 }
 
 function extractTrailingNameVariants(name: string): string[] {
@@ -241,6 +308,42 @@ function normalizeLocalizedLabel(
   glossary: Record<string, string>
 ): string {
   return localizeGeneratedContent(value, language, { glossary })
+}
+
+function countLatinWords(value: string): number {
+  return (value.match(/\b[A-Za-z][A-Za-z'-]{2,}\b/g) || []).length
+}
+
+function countEnglishHintWords(value: string): number {
+  return (
+    value.match(
+      /\b(the|and|for|with|this|that|within|budget|player|players|system|built|profile|value|first|fit|rather|than|signing|market|cost|while|stay|page|analysis|live|values|over|choose|higher|role|correct)\b/gi
+    ) || []
+  ).length
+}
+
+function shouldFallbackProseWithLLM(
+  source: string,
+  localized: string,
+  language: LanguageCode
+): boolean {
+  if (language === 'en') return false
+  if (!source.trim()) return false
+  if (!containsLatinLetters(localized)) return false
+
+  if (!isCjkLanguage(language)) {
+    const englishHintCount = countEnglishHintWords(localized)
+    if (englishHintCount < 2) return false
+    return normalizedTextEquals(source, localized) || englishHintCount >= 3
+  }
+
+  const latinWordCount = countLatinWords(localized)
+  if (latinWordCount < 2) return false
+
+  const tokenCount = localized.trim().split(/\s+/).length
+  if (tokenCount < 4 && localized.length < 24) return false
+
+  return normalizedTextEquals(source, localized) || latinWordCount >= 3
 }
 
 function entityMentionedInTexts(name: string, texts: string[]): boolean {
@@ -413,6 +516,122 @@ async function resolveLocalizedShortLabelMap(
   return Object.fromEntries(uniqueValues.map((value) => [value, resolved.get(value) || value]))
 }
 
+async function localizeDisplayProseBatchWithLLM(
+  values: string[],
+  language: LanguageCode,
+  glossary: Record<string, string>
+): Promise<Record<string, string>> {
+  if (!values.length || language === 'en' || !process.env.ANTHROPIC_API_KEY) {
+    return Object.fromEntries(values.map((value) => [value, value]))
+  }
+
+  const glossaryLines = Object.entries(glossary)
+    .slice(0, 24)
+    .map(([source, localized]) => `- "${source}" -> "${localized}"`)
+    .join('\n')
+  const list = values.map((value, index) => `${index + 1}. ${value}`).join('\n')
+  const prompt = [
+    `Translate the following football analysis UI prose into ${getLanguageDisplayName(language)}.`,
+    buildLocalizedOutputGuidance(language),
+    'These are user-facing summaries, reasons, or tactical explanations. Translate the full prose naturally, not just the keywords.',
+    'Use the glossary exactly when it applies to proper names.',
+    glossaryLines ? `Glossary:\n${glossaryLines}` : '',
+    'Return ONLY valid JSON in this exact shape:',
+    '[{"source":"Original text","localized":"Localized text"}]',
+    'Rules:',
+    '- Preserve the exact "source" text in output.',
+    '- Translate the full sentence or paragraph naturally for football product UI.',
+    '- Do not leave English football terms behind when a natural localized equivalent exists.',
+    '- Keep unknown proper nouns in original form only if no reliable localized form exists.',
+    '- Do not add markdown, commentary, or extra keys.',
+    '',
+    'Texts to localize:',
+    list,
+  ].filter(Boolean).join('\n')
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 2400,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '[]'
+    const start = text.indexOf('[')
+    const end = text.lastIndexOf(']')
+    const rawJson = start >= 0 && end >= 0 ? text.slice(start, end + 1) : '[]'
+    const parsed = JSON.parse(rawJson) as Array<{ source?: string; localized?: string }>
+
+    const map: Record<string, string> = {}
+    for (const entry of parsed) {
+      if (!entry?.source) continue
+      map[entry.source] = entry.localized?.trim() || entry.source
+    }
+
+    return map
+  } catch (error) {
+    console.warn('Display prose localization fallback failed:', error)
+    return Object.fromEntries(values.map((value) => [value, value]))
+  }
+}
+
+async function resolveLocalizedProseMap(
+  values: Array<string | undefined | null>,
+  language: LanguageCode,
+  nameMap: Record<string, string>
+): Promise<Record<string, string>> {
+  const uniqueValues = Array.from(
+    new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))
+  )
+
+  if (!uniqueValues.length || language === 'en') {
+    return Object.fromEntries(uniqueValues.map((value) => [value, value]))
+  }
+
+  const glossary = buildDisplayGlossary(nameMap)
+  const resolved = new Map<string, string>()
+  const unresolved: Array<{ source: string; prelocalized: string }> = []
+
+  for (const source of uniqueValues) {
+    const prelocalized = normalizeLocalizedLabel(source, language, glossary)
+    const cached = await readCachedLocalizedDisplayProse(language, source)
+
+    if (cached) {
+      const normalizedCached = normalizeLocalizedLabel(cached, language, glossary)
+      resolved.set(source, normalizedCached)
+      if (!normalizedTextEquals(normalizedCached, cached)) {
+        await writeCachedLocalizedDisplayProse(language, source, normalizedCached)
+      }
+      continue
+    }
+
+    if (!shouldFallbackProseWithLLM(source, prelocalized, language)) {
+      resolved.set(source, prelocalized)
+      continue
+    }
+
+    unresolved.push({ source, prelocalized })
+  }
+
+  for (let index = 0; index < unresolved.length; index += DISPLAY_PROSE_BATCH_SIZE) {
+    const chunk = unresolved.slice(index, index + DISPLAY_PROSE_BATCH_SIZE)
+    const translatedChunk = await localizeDisplayProseBatchWithLLM(
+      chunk.map((entry) => entry.source),
+      language,
+      glossary
+    )
+
+    await Promise.all(chunk.map(async ({ source, prelocalized }) => {
+      const localized = normalizeLocalizedLabel(translatedChunk[source] || prelocalized || source, language, glossary)
+      resolved.set(source, localized)
+      await writeCachedLocalizedDisplayProse(language, source, localized)
+    }))
+  }
+
+  return Object.fromEntries(uniqueValues.map((value) => [value, resolved.get(value) || value]))
+}
+
 async function transliterateEntityBatchForCjk(
   entries: LocalizableEntity[],
   language: LanguageCode
@@ -425,16 +644,32 @@ async function transliterateEntityBatchForCjk(
   }
 
   const list = entries.map((entry, index) => `${index + 1}. ${entry.name}`).join('\n')
+  const fewShotExamples = language === 'ko'
+    ? [
+        '"Roberto De Zerbi" -> "로베르토 데 제르비"',
+        '"Xavi Simons" -> "사비 시몬스"',
+        '"Destiny Udogie" -> "데스티니 우도기"',
+        '"Mohammed Kudus" -> "모하메드 쿠두스"',
+      ]
+    : [
+        '"Roberto De Zerbi" -> "ロベルト・デ・ゼルビ"',
+        '"Xavi Simons" -> "シャビ・シモンズ"',
+        '"Destiny Udogie" -> "デスティニー・ウドギー"',
+        '"Mohammed Kudus" -> "モハメド・クドゥス"',
+      ]
   const prompt = [
     `Transliterate these football names into standard ${getLanguageDisplayName(language)} script for product UI.`,
     'Return JSON array objects with keys name and localizedName only.',
     'Do not keep Latin letters if a standard football transliteration exists.',
+    'Every localizedName must be written in the target script only unless the name is an unavoidable acronym.',
     language === 'ko'
       ? 'localizedName should be written in natural Hangul, not Latin letters.'
       : 'localizedName should be written in natural Japanese script, not Latin letters.',
     language === 'ko'
       ? 'Example localizedName for Guglielmo Vicario: 굴리엘모 비카리오'
       : 'Example localizedName for Guglielmo Vicario: グリエルモ・ヴィカーリオ',
+    'Use these examples exactly for style and established football spellings:',
+    ...fewShotExamples,
     'Names:',
     list,
   ].join('\n')
@@ -464,6 +699,63 @@ async function transliterateEntityBatchForCjk(
     console.warn('CJK entity transliteration fallback failed:', error)
     return Object.fromEntries(entries.map((entry) => [entry.name, entry.name]))
   }
+}
+
+async function transliterateSingleEntityForCjk(
+  entry: LocalizableEntity,
+  language: LanguageCode
+): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY || (language !== 'ko' && language !== 'ja')) {
+    return entry.name
+  }
+
+  const prompt = [
+    `Transliterate this football proper name into standard ${getLanguageDisplayName(language)} script for product UI.`,
+    'Return ONLY the localized name string with no quotes or extra text.',
+    'Do not leave Latin letters in the answer if a normal football transliteration exists.',
+    language === 'ko'
+      ? 'Use natural Hangul football spelling.'
+      : 'Use natural Japanese football spelling.',
+    language === 'ko'
+      ? 'Examples: Roberto De Zerbi -> 로베르토 데 제르비, Xavi Simons -> 사비 시몬스, Destiny Udogie -> 데스티니 우도기'
+      : 'Examples: Roberto De Zerbi -> ロベルト・デ・ゼルビ, Xavi Simons -> シャビ・シモンズ, Destiny Udogie -> デスティニー・ウドギー',
+    `Name: ${entry.name}`,
+  ].join('\n')
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 80,
+      temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    })
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text.trim() : entry.name
+    return text || entry.name
+  } catch (error) {
+    console.warn('Single-name CJK transliteration fallback failed:', error)
+    return entry.name
+  }
+}
+
+function buildPreferredDisplayNameMap(
+  records: PreferredDisplayNameRecord[] | undefined,
+  language: LanguageCode
+): Record<string, string> {
+  if (!records?.length) return {}
+
+  return records.reduce<Record<string, string>>((acc, record) => {
+    if (!record.sourceName || !record.displayName) return acc
+    const localized = localizeGeneratedContent(record.displayName, language)
+    if (!localized.trim() || normalizedTextEquals(localized, record.sourceName)) return acc
+    acc[record.sourceName] = localized
+    return acc
+  }, {})
+}
+
+function localizeCountryLabel(value: string | undefined, language: LanguageCode): string | undefined {
+  if (!value) return value
+  return translateCountryDisplayName(value, language)
 }
 
 export async function resolveLocalizedEntityMap(
@@ -518,9 +810,46 @@ export async function resolveLocalizedEntityMap(
         CJK_BULK_NAME_TIMEOUT_MS,
         () => fallbackMap
       ).catch(() => fallbackMap)
+      const retryCandidates = unresolved.filter((entry) =>
+        shouldRetryCjkTransliteration(entry.name, localizedChunk[entry.name] || entry.name, language)
+      )
+      const retriedMap: Record<string, string> = {}
+
+      for (let index = 0; index < retryCandidates.length; index += CJK_RETRY_CHUNK_SIZE) {
+        const chunk = retryCandidates.slice(index, index + CJK_RETRY_CHUNK_SIZE)
+        const fallbackChunk = Object.fromEntries(chunk.map((entry) => [entry.name, entry.name]))
+        const retryChunk = await withTimeout(
+          transliterateEntityBatchForCjk(chunk, language),
+          CJK_RETRY_TIMEOUT_MS,
+          () => fallbackChunk
+        ).catch(() => fallbackChunk)
+
+        Object.assign(retriedMap, retryChunk)
+      }
+
+      const finalSingleRetryCandidates = unresolved.filter((entry) =>
+        shouldRetryCjkTransliteration(
+          entry.name,
+          retriedMap[entry.name] || localizedChunk[entry.name] || entry.name,
+          language
+        )
+      )
+      const singleRetriedMap: Record<string, string> = {}
+      for (const entry of finalSingleRetryCandidates) {
+        const localized = await withTimeout(
+          transliterateSingleEntityForCjk(entry, language),
+          CJK_SINGLE_RETRY_TIMEOUT_MS,
+          () => entry.name
+        ).catch(() => entry.name)
+        singleRetriedMap[entry.name] = localized
+      }
 
       await Promise.all(unresolved.map(async (entry) => {
-        const localized = localizedChunk[entry.name] || entry.name
+        const localized =
+          singleRetriedMap[entry.name] ||
+          retriedMap[entry.name] ||
+          localizedChunk[entry.name] ||
+          entry.name
         resolved.set(entry.name, localized)
         if (!normalizedTextEquals(localized, entry.name)) {
           await writeCachedLocalizedName(language, entry.entityType, entry.name, localized)
@@ -619,32 +948,53 @@ export async function localizeTransferTargets(
   const nameMap = await resolveLocalizedEntityMap(entries, language, {
     displayPolicy: getSurfaceNameDisplayPolicy(language),
   })
+  const proseMap = await resolveLocalizedProseMap(
+    targets.flatMap((target) => [target.fitSummary, ...target.strengths, ...target.concerns, target.whyThisPlayer]),
+    language,
+    nameMap
+  )
 
   return targets.map((target) => ({
     ...target,
     displayName: nameMap[target.playerName] || target.playerName,
     displayCurrentClub: localizeDisplayLabel(target.currentClub, language, nameMap) || target.currentClub,
-    fitSummary: localizeDisplayText(target.fitSummary, language, nameMap),
-    strengths: localizeDisplayText(target.strengths, language, nameMap),
-    concerns: localizeDisplayText(target.concerns, language, nameMap),
-    whyThisPlayer: localizeDisplayText(target.whyThisPlayer, language, nameMap),
+    displayNationality: localizeCountryLabel(target.nationality, language),
+    fitSummary: proseMap[target.fitSummary] || localizeDisplayText(target.fitSummary, language, nameMap),
+    strengths: target.strengths.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    concerns: target.concerns.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    whyThisPlayer: proseMap[target.whyThisPlayer] || localizeDisplayText(target.whyThisPlayer, language, nameMap),
   }))
 }
 
 export async function localizeSquadFitResults(
   fits: PlayerSystemFit[],
-  language: LanguageCode
+  language: LanguageCode,
+  preferredDisplayNames?: PreferredDisplayNameRecord[]
 ): Promise<PlayerSystemFit[]> {
-  const nameMap = await resolveLocalizedEntityMap(
-    fits.map((fit) => ({ name: fit.playerName, entityType: 'player' as const })),
+  const preferredNameMap = buildPreferredDisplayNameMap(preferredDisplayNames, language)
+  const unresolvedEntries = fits
+    .filter((fit) => !preferredNameMap[fit.playerName])
+    .map((fit) => ({ name: fit.playerName, entityType: 'player' as const }))
+  const resolvedNameMap = await resolveLocalizedEntityMap(
+    unresolvedEntries,
     language,
-    { displayPolicy: getSurfaceNameDisplayPolicy(language) }
+    {
+      displayPolicy: preferredDisplayNames?.length
+        ? 'cache_only'
+        : getSurfaceNameDisplayPolicy(language),
+    }
+  )
+  const nameMap = { ...resolvedNameMap, ...preferredNameMap }
+  const proseMap = await resolveLocalizedProseMap(
+    fits.map((fit) => fit.reason),
+    language,
+    nameMap
   )
 
   return fits.map((fit) => ({
     ...fit,
     displayName: nameMap[fit.playerName] || fit.playerName,
-    reason: localizeDisplayText(fit.reason, language, nameMap),
+    reason: proseMap[fit.reason] || localizeDisplayText(fit.reason, language, nameMap),
   }))
 }
 
@@ -661,18 +1011,24 @@ export async function localizePlayerCompatibilityResult(
     displayPolicy: getSurfaceNameDisplayPolicy(language),
   })
   const shortLabelMap = await resolveLocalizedShortLabelMap([result.tacticalRole], language, nameMap)
+  const proseMap = await resolveLocalizedProseMap(
+    [result.verdict, ...result.strengths, ...result.concerns, ...result.conditions, result.comparison],
+    language,
+    nameMap
+  )
 
   return {
     ...result,
     displayPlayerName: nameMap[result.playerName] || result.playerName,
     displayManagerName: nameMap[result.managerName] || result.managerName,
     displayCurrentClub: localizeDisplayLabel(result.currentClub, language, nameMap),
-    verdict: localizeDisplayText(result.verdict, language, nameMap),
+    displayNationality: localizeCountryLabel(result.nationality, language),
+    verdict: proseMap[result.verdict] || localizeDisplayText(result.verdict, language, nameMap),
     displayTacticalRole: shortLabelMap[result.tacticalRole] || localizeDisplayText(result.tacticalRole, language, nameMap),
-    strengths: localizeDisplayText(result.strengths, language, nameMap),
-    concerns: localizeDisplayText(result.concerns, language, nameMap),
-    conditions: localizeDisplayText(result.conditions, language, nameMap),
-    comparison: localizeDisplayText(result.comparison, language, nameMap),
+    strengths: result.strengths.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    concerns: result.concerns.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    conditions: result.conditions.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    comparison: proseMap[result.comparison] || localizeDisplayText(result.comparison, language, nameMap),
   }
 }
 
@@ -687,39 +1043,60 @@ export async function localizeTransferVerdictResult(
   ], language, {
     displayPolicy: getSurfaceNameDisplayPolicy(language),
   })
+  const proseMap = await resolveLocalizedProseMap(
+    [
+      result.headline,
+      ...result.whyItWorks,
+      ...result.whyItDoesnt,
+      result.roleInSystem,
+      result.needAssessment,
+      result.valueAssessment,
+      result.timing,
+      result.scoutVerdict,
+    ],
+    language,
+    nameMap
+  )
 
   return {
     ...result,
     displayPlayerName: nameMap[result.playerName] || result.playerName,
     displayTargetClub: nameMap[result.targetClub] || result.targetClub,
     displayManagerName: nameMap[result.managerName] || result.managerName,
-    headline: localizeDisplayText(result.headline, language, nameMap),
-    whyItWorks: localizeDisplayText(result.whyItWorks, language, nameMap),
-    whyItDoesnt: localizeDisplayText(result.whyItDoesnt, language, nameMap),
-    roleInSystem: localizeDisplayText(result.roleInSystem, language, nameMap),
-    needAssessment: localizeDisplayText(result.needAssessment, language, nameMap),
-    valueAssessment: localizeDisplayText(result.valueAssessment, language, nameMap),
-    timing: localizeDisplayText(result.timing, language, nameMap),
-    scoutVerdict: localizeDisplayText(result.scoutVerdict, language, nameMap),
+    headline: proseMap[result.headline] || localizeDisplayText(result.headline, language, nameMap),
+    whyItWorks: result.whyItWorks.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    whyItDoesnt: result.whyItDoesnt.map((item) => proseMap[item] || localizeDisplayText(item, language, nameMap)),
+    roleInSystem: proseMap[result.roleInSystem] || localizeDisplayText(result.roleInSystem, language, nameMap),
+    needAssessment: proseMap[result.needAssessment] || localizeDisplayText(result.needAssessment, language, nameMap),
+    valueAssessment: proseMap[result.valueAssessment] || localizeDisplayText(result.valueAssessment, language, nameMap),
+    timing: proseMap[result.timing] || localizeDisplayText(result.timing, language, nameMap),
+    scoutVerdict: proseMap[result.scoutVerdict] || localizeDisplayText(result.scoutVerdict, language, nameMap),
   }
 }
 
 export async function localizeScenarioResult(
   result: ScenarioResult,
-  language: LanguageCode
+  language: LanguageCode,
+  extraEntities: LocalizableEntity[] = []
 ): Promise<ScenarioResult> {
   const playerEntries: LocalizableEntity[] = [
     ...result.playersOut.map((player) => ({ name: player.name, entityType: 'player' as const })),
     ...result.playersIn.map((player) => ({ name: player.name, entityType: 'player' as const })),
+    ...extraEntities,
   ]
   const nameMap = await resolveLocalizedEntityMap(playerEntries, language, {
     displayPolicy: getSurfaceNameDisplayPolicy(language),
   })
+  const proseMap = await resolveLocalizedProseMap(
+    [result.verdict, ...result.risks, ...result.dimensions.map((dimension) => dimension.insight)],
+    language,
+    nameMap
+  )
 
   return {
     ...result,
-    verdict: localizeDisplayText(result.verdict, language, nameMap),
-    risks: localizeDisplayText(result.risks, language, nameMap),
+    verdict: proseMap[result.verdict] || localizeDisplayText(result.verdict, language, nameMap),
+    risks: result.risks.map((risk) => proseMap[risk] || localizeDisplayText(risk, language, nameMap)),
     playersOut: result.playersOut.map((player) => ({
       ...player,
       displayName: nameMap[player.name] || player.name,
@@ -731,7 +1108,7 @@ export async function localizeScenarioResult(
     dimensions: result.dimensions.map((dimension) => ({
       ...dimension,
       label: translateScenarioDimensionLabel(language, dimension.key, dimension.label),
-      insight: localizeDisplayText(dimension.insight, language, nameMap),
+      insight: proseMap[dimension.insight] || localizeDisplayText(dimension.insight, language, nameMap),
     })),
   }
 }
@@ -755,6 +1132,7 @@ async function localizeDisplayPlayers<T extends { playerName: string; currentClu
       ...player,
       displayName: nameMap[player.playerName] || player.playerName,
       displayCurrentClub: localizeDisplayLabel(player.currentClub, language, nameMap) || player.currentClub,
+      displayNationality: localizeCountryLabel((player as T & { nationality?: string }).nationality, language),
       ...(typeof player.whyUndervalued === 'string'
         ? { whyUndervalued: localizeDisplayText(player.whyUndervalued, language, nameMap) }
         : {}),
@@ -767,20 +1145,43 @@ async function localizeDisplayPlayers<T extends { playerName: string; currentClu
 
 export async function localizeUndervaluedXIResult(
   result: UndervaluedXIResult,
-  language: LanguageCode
+  language: LanguageCode,
+  options?: {
+    managerName?: string
+    teamName?: string
+  }
 ): Promise<UndervaluedXIResult> {
-  const { players, nameMap } = await localizeDisplayPlayers<UndervaluedPlayer>(result.players, language)
+  const extraEntries: LocalizableEntity[] = [
+    ...(options?.managerName ? [{ name: options.managerName, entityType: 'manager' as const }] : []),
+    ...(options?.teamName ? [{ name: options.teamName, entityType: 'club' as const }] : []),
+  ]
+  const { players, nameMap: baseNameMap } = await localizeDisplayPlayers<UndervaluedPlayer>(result.players, language)
+  const extraNameMap = extraEntries.length
+    ? await resolveLocalizedEntityMap(extraEntries, language, {
+        displayPolicy: getSurfaceNameDisplayPolicy(language),
+      })
+    : {}
+  const nameMap = { ...baseNameMap, ...extraNameMap }
   const shortLabelMap = await resolveLocalizedShortLabelMap(
     result.players.map((player) => player.archetypeLabel),
     language,
     nameMap
   )
+  const proseMap = await resolveLocalizedProseMap(
+    [result.concept, ...players.map((player) => player.whyUndervalued)],
+    language,
+    nameMap
+  )
   return {
     ...result,
-    concept: localizeDisplayText(result.concept, language, nameMap),
+    concept: proseMap[result.concept] || localizeDisplayText(result.concept, language, nameMap),
     players: players.map((player) => ({
       ...player,
       displayArchetypeLabel: shortLabelMap[player.archetypeLabel] || localizeDisplayText(player.archetypeLabel, language, nameMap),
+      whyUndervalued:
+        player.whyUndervalued
+          ? proseMap[player.whyUndervalued] || localizeDisplayText(player.whyUndervalued, language, nameMap)
+          : player.whyUndervalued,
     })),
   }
 }
@@ -804,18 +1205,24 @@ export async function localizeManagerXIResult(
     language,
     nameMap
   )
+  const proseMap = await resolveLocalizedProseMap(
+    [result.identity, ...result.players.map((player) => player.whyIdeal)],
+    language,
+    nameMap
+  )
   const players = result.players.map((player) => ({
     ...player,
     displayName: nameMap[player.playerName] || player.playerName,
     displayCurrentClub: localizeDisplayLabel(player.currentClub, language, nameMap) || player.currentClub,
+    displayNationality: localizeCountryLabel(player.nationality, language),
     displayArchetypeLabel: shortLabelMap[player.archetypeLabel] || localizeDisplayText(player.archetypeLabel, language, nameMap),
-    whyIdeal: localizeDisplayText(player.whyIdeal, language, nameMap),
+    whyIdeal: proseMap[player.whyIdeal] || localizeDisplayText(player.whyIdeal, language, nameMap),
   }))
 
   return {
     ...result,
     displayManagerName: nameMap[result.managerName] || result.managerName,
-    identity: localizeDisplayText(result.identity, language, nameMap),
+    identity: proseMap[result.identity] || localizeDisplayText(result.identity, language, nameMap),
     players,
   }
 }
@@ -823,7 +1230,7 @@ export async function localizeManagerXIResult(
 export async function localizeTMPlayerData(
   player: TMPlayerData | null,
   language: LanguageCode
-): Promise<(TMPlayerData & { displayName?: string; displayCurrentClub?: string }) | null> {
+): Promise<(TMPlayerData & { displayName?: string; displayCurrentClub?: string; displayNationality?: string }) | null> {
   if (!player) return null
   const nameMap = await resolveLocalizedEntityMap([
     { name: player.name, entityType: 'player' },
@@ -836,13 +1243,14 @@ export async function localizeTMPlayerData(
     ...player,
     displayName: nameMap[player.name] || player.name,
     displayCurrentClub: localizeDisplayLabel(player.currentClub, language, nameMap) || player.currentClub,
+    displayNationality: localizeCountryLabel(player.nationality, language),
   }
 }
 
 export async function localizeTeamSearchResults<T extends { team: { name: string } }>(
   teams: T[],
   language: LanguageCode
-): Promise<Array<T & { team: T['team'] & { displayName?: string } }>> {
+): Promise<Array<T & { team: T['team'] & { displayName?: string; displayCountry?: string } }>> {
   const nameMap = await resolveLocalizedEntityMap(
     teams.map((entry) => ({ name: entry.team.name, entityType: 'club' as const })),
     language,
@@ -854,6 +1262,7 @@ export async function localizeTeamSearchResults<T extends { team: { name: string
     team: {
       ...entry.team,
       displayName: nameMap[entry.team.name] || entry.team.name,
+      displayCountry: localizeCountryLabel((entry.team as { country?: string }).country, language),
     },
   }))
 }
@@ -881,7 +1290,7 @@ export async function localizeManagerSearchResults<T extends { name: string; cur
 export async function localizePlayerSearchResults<T extends { name: string; club?: string }>(
   players: T[],
   language: LanguageCode
-): Promise<Array<T & { displayName?: string; displayClub?: string }>> {
+): Promise<Array<T & { displayName?: string; displayClub?: string; displayNationality?: string }>> {
   const baseEntries = players.flatMap((player) => [
     { name: player.name, entityType: 'player' as const },
     ...(player.club ? [{ name: player.club, entityType: 'club' as const }] : []),
@@ -890,7 +1299,7 @@ export async function localizePlayerSearchResults<T extends { name: string; club
     displayPolicy: 'cache_only',
   })
 
-  const eagerEntries = (isCjkLanguage(language) ? players.slice(0, 8) : players).flatMap((player) => [
+  const eagerEntries = (isCjkLanguage(language) ? players.slice(0, 12) : players).flatMap((player) => [
     { name: player.name, entityType: 'player' as const },
     ...(player.club ? [{ name: player.club, entityType: 'club' as const }] : []),
   ])
@@ -905,5 +1314,6 @@ export async function localizePlayerSearchResults<T extends { name: string; club
     ...player,
     displayName: nameMap[player.name] || player.name,
     displayClub: localizeDisplayLabel(player.club, language, nameMap),
+    displayNationality: localizeCountryLabel((player as T & { nationality?: string }).nationality, language),
   }))
 }

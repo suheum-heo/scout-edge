@@ -104,6 +104,7 @@ export interface TMPlayerData {
   imageUrl: string | null
   age: number | null
   nationality: string
+  displayNationality?: string
   position: string
   currentClub: string
   displayCurrentClub?: string

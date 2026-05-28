@@ -36,13 +36,14 @@ function rankStyle(rank: number): { ring: string; text: string; label: string } 
 }
 
 export default function TransferTargetCard({ target, rank }: TransferTargetCardProps) {
-  const { t, translateAvailabilityLabel, translatePosition, localizeText } = useLanguage()
+  const { t, translateAvailabilityLabel, translatePosition, translateCountryName, localizeText } = useLanguage()
   const [expanded, setExpanded] = useState(rank === 1)
   const score = target.tacticalFitScore
   const badge = getMarketBadge(target)
   const rs = rankStyle(rank)
   const displayName = target.displayName || target.playerName
   const displayClub = target.displayCurrentClub || target.currentClub
+  const playerHref = target.transfermarktUrl || `https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche?query=${encodeURIComponent(target.playerName)}`
   const localizedBadge = badge
     ? {
         ...badge,
@@ -71,7 +72,15 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
           {/* Name + club */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-slate-900 dark:text-white font-semibold text-sm">{displayName}</span>
+              <a
+                href={playerHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-slate-900 dark:text-white font-semibold text-sm hover:text-blue-500 dark:hover:text-blue-300 transition-colors"
+              >
+                {displayName}
+              </a>
               {localizedBadge && (
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border uppercase tracking-wide ${localizedBadge.className}`}>
                   {localizedBadge.label}
@@ -144,7 +153,7 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               {translateAvailabilityLabel(target.availability)}
             </span>
             <span className="text-slate-400 dark:text-slate-500 text-xs px-1 py-1">
-              {translatePosition(target.position)} · {target.nationality}
+              {translatePosition(target.position)} · {(target.displayNationality || translateCountryName(target.nationality))}
             </span>
           </div>
 

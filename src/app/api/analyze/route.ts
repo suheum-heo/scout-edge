@@ -51,6 +51,7 @@ import { getManagerById, getManagerByName } from '@/lib/managers'
 import { getCachedSquadAnalysisCore, getCachedSquadAnalysisDetails } from '@/lib/analyze-cache'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { localizeSquadAnalysisResult, resolveLocalizedEntityMap } from '@/lib/entity-localization'
+import { translateCountryDisplayName } from '@/lib/country-names'
 import { localizeManagerProfile } from '@/lib/runtime-localization'
 import { createServerTiming } from '@/lib/server-timing'
 import type { SquadPlayer } from '@/lib/role-profiles'
@@ -763,6 +764,7 @@ export async function POST(request: NextRequest) {
     const localizedSquadPlayers = squadPlayers.map((player) => ({
       ...player,
       displayName: squadNameMap[player.name] || player.name,
+      displayNationality: translateCountryDisplayName(player.nationality, language),
     }))
     timing.end(
       requestedAnalysisMode === 'details' ? 'claude_analysis_details' : 'claude_analysis_core',

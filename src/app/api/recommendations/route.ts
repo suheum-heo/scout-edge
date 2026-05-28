@@ -1,6 +1,6 @@
 
 import { NextRequest, NextResponse } from 'next/server'
-import { normalizeLanguage } from '@/lib/i18n'
+import { normalizeLanguage, translate } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -9,7 +9,7 @@ import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeTransferTargets } from '@/lib/entity-localization'
-import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult } from '@/lib/transfermarkt'
+import { searchPlayer, getPlayerData, formatMarketValue, TMPlayerSearchResult, buildTMPlayerProfileUrl } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
 
@@ -110,6 +110,7 @@ function mergeSearchResult(target: TransferTarget, searchResult: TMPlayerSearchR
     position: normalizeTMPositionLabel(searchResult.position) || target.position,
     estimatedFee: searchResult.marketValue ? formatMarketValue(searchResult.marketValue) : target.estimatedFee,
     tmVerified: isUsableTMClubName(searchClub),
+    transfermarktUrl: searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name),
   }
 }
 
@@ -135,6 +136,7 @@ async function enrichOne(target: TransferTarget): Promise<TransferTarget> {
     contractUntil: tmData.contractYear,
     estimatedFee: tmData.marketValue ? formatMarketValue(tmData.marketValue) : verifiedFromSearch.estimatedFee,
     tmVerified: isUsableTMClubName(tmData.currentClub) || verifiedFromSearch.tmVerified === true,
+    transfermarktUrl: verifiedFromSearch.transfermarktUrl,
   }
 }
 
@@ -144,6 +146,7 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
 }
 
 export async function POST(request: NextRequest) {
+  let language = normalizeLanguage(undefined)
   try {
     const body = await request.json()
     const { gap, managerId, managerName, teamName, budget, squad, nationalTeamCountry } = body as {
@@ -157,10 +160,10 @@ export async function POST(request: NextRequest) {
       language?: string
     }
 
+    language = normalizeLanguage(body.language)
     if (!gap || !teamName || !budget) {
-      return NextResponse.json({ error: 'gap, teamName, and budget are required' }, { status: 400 })
+      return NextResponse.json({ error: translate(language, 'error.analysisFailed') }, { status: 400 })
     }
-    const language = normalizeLanguage(body.language)
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
@@ -228,7 +231,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ recommendations: localized })
   } catch (error) {
     console.error('Recommendations error:', error)
-    const details = getAIErrorDetails(error, 'Failed to generate recommendations')
+    const details = getAIErrorDetails(error, translate(language, 'error.analysisFailed'))
     return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

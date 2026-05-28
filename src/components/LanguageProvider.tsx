@@ -20,6 +20,7 @@ import {
   translateVerdictLabel,
   translateValueLabel,
 } from '@/lib/i18n'
+import { translateCountryDisplayName } from '@/lib/country-names'
 import { localizeGeneratedContent } from '@/lib/football-localization'
 
 interface LanguageContextValue {
@@ -31,15 +32,12 @@ interface LanguageContextValue {
   translateValueLabel: (label: 'Undervalued' | 'Fair Value' | 'Overpriced') => string
   translateAvailabilityLabel: (label: 'Likely available' | 'Possible' | 'Hard to get') => string
   translateVerdictLabel: (label: 'Do it' | 'Consider it' | 'Risky' | 'Avoid') => string
+  translateCountryName: (country: string) => string
   localizeText: (value: string) => string
   pluralSuffix: (count: number) => string
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null)
-
-const SEEDED_PREFERRED_KEYS = new Set<string>([
-  'home.searchPlaceholder',
-])
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(DEFAULT_LANGUAGE)
@@ -123,9 +121,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     const merged = { ...(runtimeCatalog || {}) }
 
     for (const [key, value] of Object.entries(seeded)) {
-      if (SEEDED_PREFERRED_KEYS.has(key) || !(key in merged) || merged[key] === english[key]) {
-        merged[key] = value
-      }
+      merged[key] = value
     }
 
     return merged
@@ -140,6 +136,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     translateValueLabel: (label) => translateValueLabel(language, label, resolvedCatalog),
     translateAvailabilityLabel: (label) => translateAvailabilityLabel(language, label, resolvedCatalog),
     translateVerdictLabel: (label) => translateVerdictLabel(language, label, resolvedCatalog),
+    translateCountryName: (country) => translateCountryDisplayName(country, language),
     localizeText: (value) => localizeGeneratedContent(value, language),
     pluralSuffix: (count) => pluralSuffix(language, count),
   }), [language, resolvedCatalog])

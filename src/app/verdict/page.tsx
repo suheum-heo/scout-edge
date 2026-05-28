@@ -19,6 +19,7 @@ interface Team {
   name: string
   displayName?: string
   country: string
+  displayCountry?: string
   logo: string
   source?: string
   fotmobId?: number
@@ -32,6 +33,7 @@ interface PlayerResult {
   club: string
   displayClub?: string
   age?: number | null
+  displayNationality?: string
 }
 
 const EXAMPLES: { player: string; team: Team }[] = [
@@ -42,7 +44,7 @@ const EXAMPLES: { player: string; team: Team }[] = [
 ]
 
 export default function VerdictPage() {
-  const { language, t, translatePosition, translateVerdictLabel, localizeText } = useLanguage()
+  const { language, t, translateCountryName, translatePosition, translateVerdictLabel, localizeText } = useLanguage()
   const [playerQuery, setPlayerQuery] = useState('')
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerResult | null>(null)
   const [playerSuggestions, setPlayerSuggestions] = useState<PlayerResult[]>([])
@@ -234,7 +236,7 @@ export default function VerdictPage() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       {club.logo && <img src={club.logo} alt="" className="w-5 h-5 object-contain flex-shrink-0" />}
                       <span className="font-medium">{club.displayName || club.name}</span>
-                      <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.country}</span>
+                      <span className="text-slate-400 dark:text-slate-500 text-xs ml-auto">{club.displayCountry || translateCountryName(club.country)}</span>
                     </button>
                   ))
               }
@@ -278,7 +280,12 @@ export default function VerdictPage() {
                   <div>
                     <p className="text-slate-900 dark:text-white font-semibold">{tmPlayer.displayName || tmPlayer.name}</p>
                     <p className="text-slate-600 dark:text-slate-400 text-sm">{tmPlayer.displayCurrentClub || tmPlayer.currentClub}</p>
-                    <p className="text-slate-400 dark:text-slate-500 text-xs">{translatePosition(tmPlayer.position)}{tmPlayer.age !== null ? ` · ${t('common.ageLabel', { age: tmPlayer.age })}` : ''} · {tmPlayer.nationality}</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs">
+                      {translatePosition(tmPlayer.position)}
+                      {tmPlayer.age !== null ? ` · ${t('common.ageLabel', { age: tmPlayer.age })}` : ''}
+                      {' · '}
+                      {tmPlayer.displayNationality || translateCountryName(tmPlayer.nationality)}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 flex-wrap">

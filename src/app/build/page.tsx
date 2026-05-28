@@ -32,7 +32,7 @@ function buildTransfermarktSearchUrl(playerName: string): string {
 }
 
 function PlayerCard({ player }: { player: IdealPlayer }) {
-  const { t, localizeText } = useLanguage()
+  const { t, translateCountryName, localizeText } = useLanguage()
   const href = player.transfermarktUrl
   const fallbackSearchUrl = buildTransfermarktSearchUrl(player.playerName)
   const displayName = player.displayName || player.playerName
@@ -63,7 +63,9 @@ function PlayerCard({ player }: { player: IdealPlayer }) {
         </div>
       </div>
 
-      <div className="text-slate-400 dark:text-slate-500 text-xs">{player.age} · {player.nationality}</div>
+      <div className="text-slate-400 dark:text-slate-500 text-xs">
+        {player.age} · {(player.displayNationality || translateCountryName(player.nationality))}
+      </div>
 
       <div className="flex items-center gap-1">
         {player.tmVerified ? (

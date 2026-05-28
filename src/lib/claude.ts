@@ -100,6 +100,7 @@ export interface TransferTarget {
   currentClub: string
   displayCurrentClub?: string
   nationality: string
+  displayNationality?: string
   age: number
   position: string
   estimatedFee: string        // "€45-55M", "Free agent", "~€15M loan fee"
@@ -111,6 +112,7 @@ export interface TransferTarget {
   whyThisPlayer: string       // 2-3 sentences of scout reasoning
   availability: 'Likely available' | 'Possible' | 'Hard to get'
   tmVerified?: boolean        // true if Transfermarkt confirmed current club & contract
+  transfermarktUrl?: string
 }
 
 export interface SquadAnalysisResult {
@@ -160,8 +162,8 @@ export interface LiveFormationContext {
 
 const FIT_LABELS = new Set<FitLabel>(['Key Man', 'Good Fit', 'Rotation', 'Poor Fit', 'Sell Candidate'])
 const VALUE_LABELS = new Set<PlayerSystemFit['valueLabel']>(['Undervalued', 'Fair Value', 'Overpriced'])
-const SQUAD_FIT_BATCH_SIZE = 12
-const MIN_SQUAD_FIT_BATCH_SIZE = 5
+const SQUAD_FIT_BATCH_SIZE = 20
+const MIN_SQUAD_FIT_BATCH_SIZE = 6
 
 export interface PlayerCompatibilityResult {
   playerName: string
@@ -182,6 +184,7 @@ export interface PlayerCompatibilityResult {
   displayCurrentClub?: string
   age?: number
   nationality?: string
+  displayNationality?: string
   position?: string
 }
 
@@ -469,7 +472,7 @@ async function analyzeSquadSystemFitChunk(
   chunkLabel: string,
   language: LanguageCode
 ): Promise<PlayerSystemFit[]> {
-  const maxTokens = Math.min(1800, Math.max(1000, 320 + chunk.length * 95))
+  const maxTokens = Math.min(2400, Math.max(1100, 320 + chunk.length * 95))
   const parsed = await createStructuredResponseWithEnglishFallback<Array<Partial<PlayerSystemFit>>>({
     buildPrompt: (requestedLanguage) =>
       buildSquadFitPrompt(chunk, chunkLabel, teamName, resolvedName, currentDate, requestedLanguage),
@@ -1062,14 +1065,19 @@ export async function analyzeSquadSystemFit(
   if (!squad.length) return []
 
   const resolvedName = manager?.name || managerName || 'the manager'
+  const compactRolePriorities = manager
+    ? manager.positionalRequirements
+        .slice(0, 6)
+        .map((requirement) => `${requirement.position}: ${requirement.mustHave.slice(0, 2).join(', ')}`)
+        .join('; ')
+    : ''
 
   const managerSection = manager
     ? `**System**: ${buildLiveFormationDisplay(liveFormationContext)} | **Style**: ${manager.style.pressing} press, ${manager.style.defensiveLine} line, ${manager.style.buildUp} build-up
 **Summary**: ${manager.tacticalSummary}
 **Live Formation Guidance**: ${buildLiveFormationGuidance(liveFormationContext)}
 **Key Principles**: ${manager.keyPrinciples.slice(0, 4).join('; ')}
-**Positional Requirements**:
-${manager.positionalRequirements.map((r) => `  ${r.position} (${r.profileLabel}): must have ${r.mustHave.join(', ')}`).join('\n')}`
+**Core Role Priorities**: ${compactRolePriorities}`
     : `Use your knowledge of ${resolvedName}'s tactical system — pressing intensity, build-up style, and what he demands from players in each role. ${buildLiveFormationGuidance(liveFormationContext)}`
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
@@ -1192,6 +1200,7 @@ export interface UndervaluedPlayer {
   displayArchetypeLabel?: string
   age: number
   nationality: string
+  displayNationality?: string
   currentClub: string
   displayCurrentClub?: string
   estimatedValue: string     // "€12M", "€8M", "Free agent"
@@ -1747,6 +1756,7 @@ export interface IdealPlayer {
   displayOrder?: number   // preserves canonical formation slot order for UI rendering
   age: number
   nationality: string
+  displayNationality?: string
   currentClub: string
   displayCurrentClub?: string
   estimatedFee: string    // "€80M", "€120M", "Free agent", "Loan"

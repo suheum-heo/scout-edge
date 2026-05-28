@@ -20,7 +20,7 @@ import { buildTMPlayerProfileUrl, searchPlayer, formatMarketValue, TMPlayerSearc
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v6'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v7'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -120,6 +120,37 @@ async function persistUndervaluedXIResult(
     UNDERVALUED_XI_TTL_MS,
     metadata
   )
+}
+
+async function normalizeLocalizedUndervaluedXIResult(
+  result: UndervaluedXIResult,
+  language: LanguageCode,
+  budget: string,
+  options?: {
+    managerName?: string
+    teamName?: string
+  }
+): Promise<UndervaluedXIResult> {
+  const normalizedPlayers = result.players.map((player) => ({
+    ...player,
+    whyUndervalued: resolveWhyUndervaluedText(player, language),
+  }))
+  const normalizedResult = withComputedBudget(
+    {
+      ...result,
+      concept: buildLocalizedUndervaluedConcept(
+        result.formation,
+        options?.managerName || 'this system',
+        budget,
+        language,
+        result.concept
+      ),
+    },
+    normalizedPlayers,
+    budget
+  )
+
+  return localizeUndervaluedXIResult(normalizedResult, language, options)
 }
 
 function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promise<T | F> {
@@ -498,7 +529,7 @@ async function enrichDirectPlayers(
       return {
         ...enriched,
         contractUntil: player.contractUntil || 'Unknown',
-        whyUndervalued: player.whyUndervalued || buildWhyUndervaluedSummary(enriched, language),
+        whyUndervalued: resolveWhyUndervaluedText(enriched, language),
       }
     }
   )
@@ -612,6 +643,28 @@ function buildWhyUndervaluedSummary(player: UndervaluedPlayer, language: Languag
       })
 }
 
+function resolveWhyUndervaluedText(player: UndervaluedPlayer, language: LanguageCode): string {
+  if (language === 'en' && player.whyUndervalued?.trim()) {
+    return player.whyUndervalued
+  }
+  return buildWhyUndervaluedSummary(player, language)
+}
+
+function buildLocalizedUndervaluedConcept(
+  formation: string,
+  managerName: string,
+  budget: string,
+  language: LanguageCode,
+  fallback: string
+): string {
+  if (language === 'en') return fallback
+  return translate(language, 'xi.generatedConcept', {
+    formation,
+    manager: managerName,
+    budget,
+  })
+}
+
 function getAlternativeEntriesForSelection(
   slots: UndervaluedXISlot[],
   selection: SelectionSummary,
@@ -655,7 +708,7 @@ function buildSelectedPlayers(chosen: CandidateEvaluation[], language: LanguageC
 
     return {
       ...finalizedPlayer,
-      whyUndervalued: candidate.player.whyUndervalued || buildWhyUndervaluedSummary(finalizedPlayer, language),
+      whyUndervalued: resolveWhyUndervaluedText(finalizedPlayer, language),
     }
   })
 }
@@ -733,6 +786,7 @@ function withComputedBudget(result: UndervaluedXIResult, players: UndervaluedPla
 export async function POST(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
+  let language = normalizeLanguage(undefined)
 
   try {
     const body = await request.json()
@@ -743,14 +797,14 @@ export async function POST(request: NextRequest) {
       teamName?: string
       language?: string
     }
+    language = normalizeLanguage(body.language)
 
     if (!budget) {
-      const response = NextResponse.json({ error: 'budget is required' }, { status: 400 })
+      const response = NextResponse.json({ error: translate(language, 'error.analysisFailed') }, { status: 400 })
       timing.end('total', requestStartedAt)
       timing.apply(response.headers)
       return response
     }
-    const language = normalizeLanguage(body.language)
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
@@ -763,8 +817,13 @@ export async function POST(request: NextRequest) {
     )
     const cachedResult = getCachedUndervaluedXI(cacheKey)
     if (cachedResult) {
-      const response = NextResponse.json(cachedResult)
-      timing.end('cache_hit', requestStartedAt, `source:memory,players:${cachedResult.players.length}`)
+      const normalizedCachedResult = await normalizeLocalizedUndervaluedXIResult(cachedResult, language, budget, {
+        managerName: factualManagerName ?? managerName ?? undefined,
+        teamName,
+      })
+      setCachedUndervaluedXI(cacheKey, normalizedCachedResult)
+      const response = NextResponse.json(normalizedCachedResult)
+      timing.end('cache_hit', requestStartedAt, `source:memory,players:${normalizedCachedResult.players.length}`)
       timing.apply(response.headers)
       return response
     }
@@ -774,9 +833,13 @@ export async function POST(request: NextRequest) {
       cacheKey
     )
     if (sharedCachedResult) {
-      setCachedUndervaluedXI(cacheKey, sharedCachedResult)
-      const response = NextResponse.json(sharedCachedResult)
-      timing.end('cache_hit', requestStartedAt, `source:shared,players:${sharedCachedResult.players.length}`)
+      const normalizedSharedResult = await normalizeLocalizedUndervaluedXIResult(sharedCachedResult, language, budget, {
+        managerName: factualManagerName ?? managerName ?? undefined,
+        teamName,
+      })
+      setCachedUndervaluedXI(cacheKey, normalizedSharedResult)
+      const response = NextResponse.json(normalizedSharedResult)
+      timing.end('cache_hit', requestStartedAt, `source:shared,players:${normalizedSharedResult.players.length}`)
       timing.apply(response.headers)
       return response
     }
@@ -823,7 +886,7 @@ export async function POST(request: NextRequest) {
         teamName,
         instructions,
         liveFormationContext,
-        language
+        'en'
       )
       timing.end(`candidate_pool${attemptSuffix}`, candidatePoolStartedAt, `formation:${pool.formation},slots:${pool.slots.length}`)
 
@@ -855,14 +918,20 @@ export async function POST(request: NextRequest) {
       const enrichedStarters = starterEvaluations.map((evaluation) => ({
         ...evaluation.player,
         contractUntil: evaluation.player.contractUntil || 'Unknown',
-        whyUndervalued: evaluation.player.whyUndervalued || buildWhyUndervaluedSummary(evaluation.player, language),
+        whyUndervalued: resolveWhyUndervaluedText(evaluation.player, language),
       }))
       timing.end(`starter_tm_enrichment${attemptSuffix}`, starterEnrichmentStartedAt, `players:${enrichedStarters.length}`)
 
       const starterResult = withComputedBudget(
         {
           formation: pool.formation,
-          concept: pool.concept,
+          concept: buildLocalizedUndervaluedConcept(
+            pool.formation,
+            factualManagerName || managerName || 'this system',
+            budget,
+            language,
+            pool.concept
+          ),
           players: enrichedStarters,
           totalEstimatedCost: `≈${formatCompactEuros(initialSelection.total)}`,
         },
@@ -937,7 +1006,13 @@ export async function POST(request: NextRequest) {
       resolvedResult = withComputedBudget(
         {
           formation: pool.formation,
-          concept: pool.concept,
+          concept: buildLocalizedUndervaluedConcept(
+            pool.formation,
+            factualManagerName || managerName || 'this system',
+            budget,
+            language,
+            pool.concept
+          ),
           players: selectedPlayers,
           totalEstimatedCost: `≈${formatCompactEuros(selection.total)}`,
         },
@@ -951,7 +1026,7 @@ export async function POST(request: NextRequest) {
 
     if (!resolvedResult || !resolvedFormation || !resolvedSource) {
       const response = NextResponse.json(
-        { error: 'Failed to build a fully verified Undervalued XI. Please try regenerate.' },
+        { error: translate(language, 'error.analysisFailed') },
         { status: 500 }
       )
       timing.end('total', requestStartedAt)
@@ -959,7 +1034,10 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    const localizedResult = await localizeUndervaluedXIResult(resolvedResult, language)
+    const localizedResult = await normalizeLocalizedUndervaluedXIResult(resolvedResult, language, budget, {
+      managerName: factualManagerName || managerName || undefined,
+      teamName,
+    })
 
     await persistUndervaluedXIResult(cacheKey, localizedResult, {
       source: resolvedSource,
@@ -976,7 +1054,7 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Undervalued XI error:', error)
-    const details = getAIErrorDetails(error, 'Failed to generate Undervalued XI')
+    const details = getAIErrorDetails(error, translate(language, 'error.analysisFailed'))
     const response = NextResponse.json({ error: details.error }, { status: details.status })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)

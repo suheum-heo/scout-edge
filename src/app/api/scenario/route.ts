@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { normalizeLanguage } from '@/lib/i18n'
+import { normalizeLanguage, translate } from '@/lib/i18n'
 
 export const maxDuration = 60
 
@@ -11,6 +11,7 @@ import { localizeScenarioResult } from '@/lib/entity-localization'
 import type { SquadPlayer } from '@/lib/role-profiles'
 
 export async function POST(request: NextRequest) {
+  let language = normalizeLanguage(undefined)
   try {
     const body = await request.json() as {
       squad: SquadPlayer[]
@@ -23,13 +24,13 @@ export async function POST(request: NextRequest) {
     }
 
     const { squad, playersOut, playersIn, managerId, managerName, teamName } = body
-    const language = normalizeLanguage(body.language)
+    language = normalizeLanguage(body.language)
 
     if (!squad?.length || !teamName) {
-      return NextResponse.json({ error: 'squad and teamName are required' }, { status: 400 })
+      return NextResponse.json({ error: translate(language, 'error.analysisFailed') }, { status: 400 })
     }
     if (!playersOut?.length && !playersIn?.length) {
-      return NextResponse.json({ error: 'Add at least one player in or out' }, { status: 400 })
+      return NextResponse.json({ error: translate(language, 'error.analysisFailed') }, { status: 400 })
     }
 
     const manager = managerId ? getManagerById(managerId) : undefined
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ result: localizedResult })
   } catch (error) {
     console.error('Scenario error:', error)
-    const details = getAIErrorDetails(error, 'Scenario analysis failed. Please try again.')
+    const details = getAIErrorDetails(error, translate(language, 'error.analysisFailed'))
     return NextResponse.json({ error: details.error }, { status: details.status })
   }
 }

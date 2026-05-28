@@ -20,7 +20,7 @@ import type { SquadPlayer } from '@/lib/role-profiles'
 import { getScoreColor } from '@/lib/utils'
 
 interface Team {
-  team: { id: number | string; name: string; displayName?: string; country: string; logo: string; source?: 'af' | 'fotmob' | 'tm'; fotmobId?: number }
+  team: { id: number | string; name: string; displayName?: string; country: string; displayCountry?: string; logo: string; source?: 'af' | 'fotmob' | 'tm'; fotmobId?: number }
   venue: { name: string; city: string }
 }
 
@@ -58,7 +58,7 @@ function makeTeamKey(team?: Team | null): string {
 }
 
 export default function HomePage() {
-  const { language, t, pluralSuffix, localizeText } = useLanguage()
+  const { language, t, pluralSuffix, translateCountryName, localizeText } = useLanguage()
   const seededSearchPlaceholder = getSeededMessages(language)['home.searchPlaceholder']
   const [teamQuery, setTeamQuery] = useState('')
   const [teamResults, setTeamResults] = useState<Team[]>([])
@@ -539,7 +539,7 @@ export default function HomePage() {
     : []
   const unavailableSummary = unavailablePlayers
     .slice(0, 4)
-    .map((player) => player.name)
+    .map((player) => (player as SquadPlayer & { displayName?: string }).displayName || player.name)
     .join(', ')
   const unavailableOverflow = unavailablePlayers.length > 4
     ? ` ${t('common.moreCount', { count: unavailablePlayers.length - 4 })}`
@@ -635,7 +635,7 @@ export default function HomePage() {
                   )}
                   <div>
                     <p className="text-slate-900 dark:text-white text-sm font-medium">{team.team.displayName || localizeText(team.team.name)}</p>
-                    <p className="text-slate-600 text-xs">{team.team.country}</p>
+                    <p className="text-slate-600 text-xs">{(team.team as typeof team.team & { displayCountry?: string }).displayCountry || translateCountryName(team.team.country)}</p>
                   </div>
                 </button>
               ))}
@@ -1180,7 +1180,7 @@ export default function HomePage() {
             {activeTab === 'xi' && (
               <UndervaluedXI
                 managerId={managerResult?.id}
-                managerName={managerResult?.name ?? undefined}
+                managerName={(managerResult?.displayName ?? managerResult?.name) ?? undefined}
                 teamName={analyzedTeam?.team.name || analysis?.teamName}
                 language={language}
               />
