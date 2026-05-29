@@ -386,6 +386,7 @@ function scoreStaffRole(position: string): number {
   if (normalized === 'manager') return 100
   if (normalized === 'head coach') return 95
   if (normalized === 'head trainer') return 90
+  if (normalized.includes('caretaker') || normalized.includes('interim')) return 85
   if (normalized === 'coach') return 70
 
   if (
