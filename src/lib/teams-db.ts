@@ -195,7 +195,7 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 631,  fotmobId: 9991,  name: 'KAA Gent',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/631.png',  aliases: ['gent', 'aa gent', 'buffalo'] },
   { id: 1393, fotmobId: 7978,  name: 'Union Saint-Gilloise',   country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/1393.png', aliases: ['union', 'saint-gilloise', 'usg', 'union st gilloise'] },
   { id: 742,  fotmobId: 9987,  name: 'KRC Genk',               country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/742.png',  aliases: ['genk', 'racing genk'] },
-  { id: 740,  fotmobId: 9988,  name: 'Antwerp',                country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/740.png',  aliases: ['royal antwerp', 'rafc'] },
+  { id: 740,  fotmobId: 9988,  name: 'Royal Antwerp FC',       country: 'Belgium', source: 'af', logo: 'https://media.api-sports.io/football/teams/740.png',  aliases: ['antwerp', 'royal antwerp', 'rafc'] },
 
   // ── Norwegian Eliteserien (FotMob IDs, source: 'fotmob') ─────────────────
   { id: 8402, source: 'fotmob', name: 'Bodø/Glimt',           country: 'Norway',  logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/8402_small.png', aliases: ['bodo', 'bodo/glimt', 'glimt'] },
