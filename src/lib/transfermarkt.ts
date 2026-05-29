@@ -877,10 +877,21 @@ function buildSearchBasedTMEnrichment(
   const searchClub = searchResult.club?.name
   const reliableClubMatch = !player.currentClub || !searchClub || isReliableTMClubMatch(player.currentClub, searchClub)
   const reliableIdentityMatch = isReliableTMPlayerIdentityMatch(player, searchResult)
+  // Exact or contains name match + live market value = TM independently confirmed an active
+  // registered professional. Trust their club without needing club/age corroboration.
+  // Requires both names ≥ 8 chars for contains-match to avoid short-name false positives.
+  const inputName = normalizePersonLookupKey(player.playerName)
+  const resultName = normalizePersonLookupKey(searchResult.name)
+  const exactNameMatch = inputName === resultName
+  const containsNameMatch =
+    inputName.length >= 8 &&
+    resultName.length >= 8 &&
+    (inputName.includes(resultName) || resultName.includes(inputName))
+  const reliableDirectMatch = (exactNameMatch || containsNameMatch) && (searchResult.marketValue ?? 0) > 0
   const searchTransfermarktUrl = canUseTMClubFact(searchClub)
     ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
     : player.transfermarktUrl
-  const allowVerifiedSearchClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch)
+  const allowVerifiedSearchClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch || reliableDirectMatch)
 
   return {
     playerName: searchResult.name || player.playerName,

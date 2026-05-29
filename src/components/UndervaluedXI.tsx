@@ -40,10 +40,19 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
       {/* Name + score */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-1.5">
-          <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight group-hover:text-emerald-600 dark:group-hover:text-emerald-300 transition-colors">
-            {displayName}
-          </span>
-          {href && <ExternalLink className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 group-hover:text-emerald-500 dark:group-hover:text-emerald-300 transition-colors flex-shrink-0 mt-0.5" />}
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-start gap-1.5 text-slate-900 dark:text-white hover:text-emerald-600 dark:hover:text-emerald-300 transition-colors"
+            >
+              <span className="font-semibold text-sm leading-tight">{displayName}</span>
+              <ExternalLink className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 opacity-50" />
+            </a>
+          ) : (
+            <span className="text-slate-900 dark:text-white font-semibold text-sm leading-tight">{displayName}</span>
+          )}
         </div>
         <div className="flex-shrink-0 text-right">
           <div className="text-slate-400 dark:text-slate-500 text-[9px] font-medium uppercase tracking-wider">
@@ -90,21 +99,8 @@ function PlayerCard({ player }: { player: UndervaluedPlayer }) {
     </>
   )
 
-  if (href) {
-    return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group block bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors"
-      >
-        {cardContent}
-      </a>
-    )
-  }
-
   return (
-    <div className="group bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2 hover:border-slate-300 dark:hover:border-slate-600 transition-colors">
+    <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/60 rounded-xl p-4 flex flex-col gap-2">
       {cardContent}
     </div>
   )

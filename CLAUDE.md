@@ -15,6 +15,13 @@ Always run `npm run build` locally before deploying. Push commits to `origin/mai
 
 ---
 
+## Current Status (as of March 2026)
+- Local dev path: `~/Dev/scout-edge`
+- V3, partial V4 (Undervalued XI + Verdict), and V5 are all implemented
+- Last known working: `npm run dev` on localhost:3000
+
+---
+
 ## Architecture
 
 ### Data source split
@@ -46,13 +53,25 @@ Always run `npm run build` locally before deploying. Push commits to `origin/mai
 - `src/lib/football-data.ts` — squad + coach from football-data.org
 - `src/lib/fotmob.ts` — FotMob unofficial client; use `getSquadAndCoach()` (one call, not two)
 - `src/lib/transfermarkt.ts` — TM scraper; `searchPlayer(name, {age, club})` with scoring
-- `src/lib/claude.ts` — `analyzeSquadGaps`, `recommendPlayersForGap`, `analyzeSquadSystemFit`
+- `src/lib/claude.ts` — `analyzeSquadGaps`, `recommendPlayersForGap`, `analyzeSquadSystemFit`, `analyzeScenario`, `generateUndervaluedXI`, `buildManagerXI`, `analyzeTransferVerdict`
 - `src/lib/teams-db.ts` — local club DB with football-data.org + FotMob IDs
 - `src/app/api/analyze/route.ts` — main analysis endpoint
 - `src/app/api/recommendations/route.ts` — transfer target recommendations + TM enrichment
 - `src/app/api/squad-fit/route.ts` — squad fit map endpoint
+- `src/app/api/scenario/route.ts` — Transfer Scenario Simulator endpoint
+- `src/app/api/undervalued-xi/route.ts` — Undervalued XI endpoint
+- `src/app/api/verdict/route.ts` — ScoutEdge Verdict endpoint
+- `src/app/api/manager-xi/route.ts` — Manager Identity XI endpoint
+- `src/app/verdict/page.tsx` — Verdict page
+- `src/app/build/page.tsx` — Manager Identity (Build page)
 - `src/components/TransferTargetCard.tsx` — tmVerified drives club display logic
 - `src/components/SquadFitMap.tsx` — fit map UI
+- `src/components/ScenarioBuilder.tsx` — scenario IN/OUT builder
+- `src/components/ScenarioCompare.tsx` — scenario A vs B comparison
+- `src/components/ScenarioDimensionChart.tsx` — dimension chart for scenario results
+- `src/components/ScenarioResultCard.tsx` — scenario result display
+- `src/components/AvailabilityEditor.tsx` — player availability editor
+- `src/components/UndervaluedXI.tsx` — Undervalued XI UI
 
 ## Data model notes
 - `TransferTarget.tmVerified: boolean` — true only when TM confirmed active club
@@ -93,40 +112,46 @@ Always run `npm run build` locally before deploying. Push commits to `origin/mai
 - `tmVerified` flag — UI shows `⚠ verify club` for unconfirmed clubs
 - Analyze: FD + FotMob parallelized; single `getSquadAndCoach` call
 
----
-
-## Roadmap
-
 ### ✅ V2.3 — Club attribution guardrail
 - When `tmVerified = false`: hide model-generated club name, show "Unverified — check TM"
 - LLM output should never be treated as a factual club claim in the UI
 
-### 🔲 V3 — Transfer Scenario Simulator
+### ✅ V3 — Transfer Scenario Simulator
+- Scenario Builder: define OUT/IN players, Claude recalculates squad dimensions
+- A vs B comparison with dimension chart
+
+### ✅ V4 (partial) — Squad Intelligence
+- ScoutEdge Verdict page: transfer rumor checker with Do it / Consider it / Risky / Avoid
+- Undervalued XI: Moneyball XI generator under budget
+
+### ✅ V5 — Manager Identity Mode (`/build`)
+- Pick any manager + budget → Claude builds ideal XI with archetype labels + TM enrichment
+
+---
+
+## Roadmap
+
+### ✅ V3 — Transfer Scenario Simulator
 > "What happens to the squad if we sign X instead of Y?"
 - Scenario Builder: define OUT/IN players
 - Claude recalculates: role coverage, system fit, squad balance, age curve, depth
 - Output: Scenario A vs B comparison with % changes per dimension
-- This turns ScoutEdge into a planning tool, not just a recommender
 
-### 🔲 V3.5 — Player Archetype Matching
-> Real scouting works by archetypes, not just positions
-- Replace "Striker" with "Mobile Link-Up Striker", "Inverted Playmaking Winger", etc.
-- Global archetype match search across leagues
-- Hidden value: underpriced players in small leagues with high archetype fit (Moneyball angle)
+### ✅ V3.5 — Player Archetype Matching (integrated into V5)
+- Archetype labels used in Manager Identity XI builder
+- Not a standalone archetype search — embedded in the build flow
 
-### 🔲 V4 — Squad Intelligence
-- **Squad Dependency Risk**: identify players whose absence collapses system output (Saka-level criticality)
-- **Market Timing Intelligence**: contract expiry + value trend → optimal purchase window
-- **ScoutEdge Verdict**: rumor checker — "Arsenal want Osimhen → ⚠ Poor system fit, here's why"
-- **ScoutEdge Score**: composite ranking per player — system fit + market value efficiency + tactical versatility → single number; people love rankings
-- **Undervalued XI**: auto-generate best Moneyball XI under €X budget; high viral potential if posted publicly
+### ✅ V4 (partial) — Squad Intelligence
+- **ScoutEdge Verdict**: `verdict/page.tsx` — rumor checker, returns Do it / Consider it / Risky / Avoid
+- **Undervalued XI**: `UndervaluedXI.tsx` — Moneyball XI under budget, TM-enriched
+- 🔲 Squad Dependency Risk — not yet built
+- 🔲 Market Timing Intelligence — not yet built
+- 🔲 ScoutEdge Score — not yet built
 
-### 🔲 V5 — Manager Identity Mode
-> Detaches ScoutEdge from real squads — unlocks creative/viral usage
-- User picks a manager style (Pep, Klopp, Simeone, etc.) without selecting a real team
-- ScoutEdge builds an ideal squad for that system from scratch
-- No roster constraints → pure tactical imagination
-- "Build Pep's dream pressing team under €200M" is shareable content
+### ✅ V5 — Manager Identity Mode (`/build`)
+- User picks manager + budget → Claude builds ideal XI from scratch
+- Archetype labels per position, TM-enriched player data
+- No real squad needed — pure tactical imagination
 
 ---
 

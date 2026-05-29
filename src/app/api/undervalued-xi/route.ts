@@ -25,7 +25,7 @@ const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_PROFILE_TIMEOUT_MS = 10000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v11'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v13'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -591,7 +591,8 @@ async function enrichUndervaluedPlayer(
     currentClub: enriched.currentClub || player.currentClub,
     age: enriched.age ?? player.age,
     nationality: enriched.nationality || player.nationality,
-    estimatedValue: enriched.estimatedValue || player.estimatedValue,
+    // Keep Claude's scout estimate — TM market value reflects fame, not value gap.
+    estimatedValue: player.estimatedValue,
     contractUntil: enriched.contractUntil || player.contractUntil,
     tmVerified: enriched.tmVerified,
     transfermarktUrl: enriched.transfermarktUrl || player.transfermarktUrl,
@@ -625,8 +626,11 @@ async function finalizeSelectionWithTM(
         }
       })()
 
-      profileCache.set(key, promise)
+      // Only cache verified results so later paths can retry unverified ones.
       const finalizedPlayer = await promise
+      if (finalizedPlayer.tmVerified) {
+        profileCache.set(key, Promise.resolve(finalizedPlayer))
+      }
       return { ...candidate, player: finalizedPlayer }
     }
   )
@@ -678,7 +682,8 @@ async function findSearchResult(
           TM_SEARCH_TIMEOUT_MS,
           TM_SEARCH_TIMED_OUT
         )
-        if (result === TM_SEARCH_TIMED_OUT) return null
+        // On timeout, try the next simpler query rather than giving up.
+        if (result === TM_SEARCH_TIMED_OUT) continue
         if (result) return result
       } catch {
         continue
@@ -688,7 +693,16 @@ async function findSearchResult(
     return null
   })()
 
+  // Cache eagerly so concurrent callers in the same phase share the in-flight promise.
+  // But if the search ultimately returns null (timeout/not found), remove the entry so
+  // finalizeSelectionWithTM can retry — it runs with fewer concurrent searches than the
+  // pre-enrichment phase, so a timed-out search often succeeds on retry.
   searchCache.set(cacheKey, lookup)
+  lookup.then((result) => {
+    if (result === null) searchCache.delete(cacheKey)
+  }).catch(() => {
+    searchCache.delete(cacheKey)
+  })
   return lookup
 }
 
@@ -699,7 +713,8 @@ function buildCandidateEvaluation(
   enrichedPlayer: UndervaluedPlayer
 ): CandidateEvaluation {
   const positionCompatibilityScore = scorePositionCompatibility(slot, searchResult?.position)
-  const positionCompatible = positionCompatibilityScore >= minimumCompatiblePositionScore(slot)
+  // When TM search returned nothing we have no position data; trust Claude's slot assignment.
+  const positionCompatible = searchResult === null || positionCompatibilityScore >= minimumCompatiblePositionScore(slot)
 
   return {
     player: enrichedPlayer,
