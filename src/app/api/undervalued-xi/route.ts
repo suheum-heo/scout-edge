@@ -981,7 +981,7 @@ export async function POST(request: NextRequest) {
 
     const snapshotStartedAt = timing.start()
     const liveManagerSnapshot = factualManagerName
-      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
+      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 5 }).catch(() => null)
       : null
     timing.end('manager_snapshot', snapshotStartedAt, factualManagerName ?? 'none')
     const cap = getBudgetCap(budget)

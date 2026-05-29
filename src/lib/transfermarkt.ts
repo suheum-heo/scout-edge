@@ -924,6 +924,11 @@ export async function enrichTMPlayerIdentityFromSearchResult(
   if (options?.verifyViaProfile === false) {
     return searchBasedResult
   }
+  // Profile adds contract/age detail but isn't needed when the search already
+  // confirmed identity — skip the extra HTTP call for verified players.
+  if (searchBasedResult.tmVerified) {
+    return searchBasedResult
+  }
 
   const profileTimeoutMs = options?.profileTimeoutMs ?? 10_000
 
