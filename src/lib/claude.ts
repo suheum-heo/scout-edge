@@ -103,6 +103,7 @@ export interface TransferTarget {
   displayNationality?: string
   age: number
   position: string
+  otherPositions?: string[]
   estimatedFee: string        // "€45-55M", "Free agent", "~€15M loan fee"
   contractUntil: string       // "2026", "2027", "Unknown"
   tacticalFitScore: number    // 1-10
@@ -601,7 +602,7 @@ Return [] if no players have a meaningfully different real role. No other text.`
 // Analyze a squad against a manager's tactical profile
 // manager can be null — Claude will infer the profile from managerName using its own knowledge
 export interface MinimalSquadPlayer {
-  name: string; position: string; age: number; nationality: string;
+  name: string; position: string; otherPositions?: string[]; age: number; nationality: string;
   appearances: number; goals: number; assists: number; minutes: number;
   rating: string; tackles?: number; interceptions?: number;
 }
@@ -637,17 +638,19 @@ function buildSquadAnalysisPromptContext(
 
   const squadSummary = sortedPlayers
     .map((p) => {
+      const altPos = p!.otherPositions?.length ? ` / ${p!.otherPositions.join(', ')}` : ''
+      const posStr = `${p!.position}${altPos}`
       if (hasFullStats) {
-        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality}) | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
+        return `- ${p!.name} (${posStr}, Age ${p!.age}, ${p!.nationality}) | G:${p!.goals} A:${p!.assists} Rtg:${p!.rating} Apps:${p!.appearances} Mins:${p!.minutes} Tkl:${p!.tackles} Int:${p!.interceptions}`
       }
       if (hasStats) {
         const rtg = parseFloat(p!.rating || '0')
         const rtgStr = rtg > 0 ? ` Rtg:${p!.rating}` : ''
         const goalsStr = p!.goals > 0 ? ` G:${p!.goals}` : ''
         const assistsStr = p!.assists > 0 ? ` A:${p!.assists}` : ''
-        return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})${rtgStr}${goalsStr}${assistsStr}`
+        return `- ${p!.name} (${posStr}, Age ${p!.age}, ${p!.nationality})${rtgStr}${goalsStr}${assistsStr}`
       }
-      return `- ${p!.name} (${p!.position}, Age ${p!.age}, ${p!.nationality})`
+      return `- ${p!.name} (${posStr}, Age ${p!.age}, ${p!.nationality})`
     })
     .join('\n')
 
@@ -1196,6 +1199,7 @@ export interface UndervaluedPlayer {
   playerName: string
   displayName?: string
   position: string           // "GK", "CB", "LB", "RB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
+  otherPositions?: string[]
   archetypeLabel: string     // e.g. "Ball-Playing GK", "Inverted Winger", "Press-Resistant #6"
   displayArchetypeLabel?: string
   age: number
@@ -1752,6 +1756,7 @@ export interface IdealPlayer {
   playerName: string
   displayName?: string
   position: string        // "GK", "LCB", "CB", "RCB", "LB", "RB", "LWB", "RWB", "CM", "CAM", "CDM", "LW", "RW", "ST", "CF"
+  otherPositions?: string[]
   archetypeLabel: string  // e.g. "Press-Resistant #6", "Inverted Winger", "Sweeper-Keeper"
   displayArchetypeLabel?: string
   displayOrder?: number   // preserves canonical formation slot order for UI rendering

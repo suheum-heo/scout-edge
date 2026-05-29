@@ -46,7 +46,7 @@ import {
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
 } from '@/lib/fotmob'
-import { getClubManager, getClubSquad, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
+import { getClubManager, getClubSquad, fetchSquadOtherPositions, normalizePersonLookupKey, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
 import {
   buildCachedSquadAnalysisFingerprint,
@@ -321,6 +321,7 @@ type AnalyzeSquadRow = {
   playerId?: number | string
   name: string
   position: string
+  otherPositions?: string[]
   age: number
   nationality: string
   appearances: number
@@ -448,6 +449,7 @@ function buildAnalysisMinimalPlayer(player: AnalyzeSquadRow): MinimalSquadPlayer
   return {
     name: player.name,
     position: player.position ?? '',
+    otherPositions: player.otherPositions,
     age: Number.isFinite(player.age) ? player.age : 0,
     nationality: player.nationality ?? '',
     appearances: Number.isFinite(player.appearances) ? player.appearances : 0,
@@ -538,6 +540,9 @@ export async function POST(request: NextRequest) {
       }> | null = null
       let coach: APICoach | null = null
       let usedFotmob = false
+      // TM club ID used after squad assembly to batch-fetch other positions per player
+      let squadTmId: string | null = null
+      let squadTmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
 
       if (teamSource === 'tm') {
         console.log(`[analyze] TM team ${teamName} (${teamId}), fetching squad + coach`)
@@ -552,6 +557,8 @@ export async function POST(request: NextRequest) {
         const verifiedAfTeam = getVerifiedAFTeam(teamName, bestAfTeam)
         tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
         coach = tmManagerToCoach(tmManager, teamId, teamName)
+        squadTmId = String(teamId)
+        squadTmPlayers = tmPlayers
 
         const preferredAfTeamId = getAFOverrideTeamId(teamName) ?? verifiedAfTeam?.team.id ?? null
         if (preferredAfTeamId && !coach) {
@@ -609,9 +616,16 @@ export async function POST(request: NextRequest) {
           try {
             const tmId = await searchClub(teamName)
             if (tmId) {
+              squadTmId = tmId
               const tmPlayers = await getClubSquad(tmId)
               tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+              squadTmPlayers = tmPlayers
             }
+          } catch {}
+        } else {
+          try {
+            const tmId = await searchClub(teamName)
+            if (tmId) squadTmId = tmId
           } catch {}
         }
       } else if (teamSource === 'af') {
@@ -630,12 +644,15 @@ export async function POST(request: NextRequest) {
           coach = await resolveLiveManagerCoach(teamId, teamName, tmId)
         }
 
+        if (tmId) squadTmId = tmId
+
         if (fmResult?.squad.length) {
           fotmobSquad = fmResult.squad
           usedFotmob = true
         } else if (tmId) {
           const tmPlayers = await getClubSquad(tmId).catch(() => [])
           tmFormattedSquad = formatTMFallbackSquad(teamName, tmPlayers)
+          squadTmPlayers = tmPlayers
         }
 
         if (!tmFormattedSquad && !usedFotmob) {
@@ -655,11 +672,14 @@ export async function POST(request: NextRequest) {
         let tmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
         let tmCoach: APICoach | null = null
 
+        if (tmId) squadTmId = tmId
+
         if (tmId && (fdSquadLooksYouth || !fdData.coach)) {
           ;[tmPlayers, tmCoach] = await Promise.all([
             getClubSquad(tmId).catch(() => []),
             resolveLiveManagerCoach(teamId, teamName, tmId),
           ])
+          if (tmPlayers.length) squadTmPlayers = tmPlayers
         }
 
         coach = (fotmobResult?.coach as unknown as APICoach | null) ?? fdData.coach ?? tmCoach
@@ -710,6 +730,7 @@ export async function POST(request: NextRequest) {
             try {
               const tmFallbackPlayers = tmPlayers.length ? tmPlayers : await getClubSquad(tmId).catch(() => [])
               tmFormattedSquad = formatTMFallbackSquad(teamName, tmFallbackPlayers)
+              if (tmFallbackPlayers.length) squadTmPlayers = tmFallbackPlayers
             } catch {}
           }
 
@@ -748,6 +769,37 @@ export async function POST(request: NextRequest) {
           return acc
         }, [])
       }
+      // Enrich squad with TM other positions using player IDs when available.
+      // For TM-source squads, squadTmPlayers has IDs already. For FotMob/AF squads,
+      // fetch TM squad to get IDs and name-match back onto resolvedSquad.
+      if (resolvedSquad.length > 0 && squadTmId) {
+        try {
+          const tmPlayersForPositions = squadTmPlayers.length
+            ? squadTmPlayers
+            : await getClubSquad(squadTmId).catch(() => [])
+          if (tmPlayersForPositions.length > 0) {
+            const otherPositionsById = await fetchSquadOtherPositions(tmPlayersForPositions)
+            // Build name-keyed map for FotMob/AF squads that don't have TM player IDs
+            const otherPosByName = new Map<string, string[]>()
+            for (const p of tmPlayersForPositions) {
+              const positions = otherPositionsById.get(p.id)
+              if (positions?.length) {
+                otherPosByName.set(normalizePersonLookupKey(p.name), positions)
+              }
+            }
+            resolvedSquad = resolvedSquad.map((row) => {
+              // TM-source rows already have TM player IDs in playerId
+              const byId = row.playerId ? otherPositionsById.get(String(row.playerId)) : undefined
+              const byName = otherPosByName.get(normalizePersonLookupKey(row.name))
+              const other = byId ?? byName
+              return other?.length ? { ...row, otherPositions: other } : row
+            })
+          }
+        } catch {
+          // non-fatal — squad analysis continues without other positions
+        }
+      }
+
       squad = resolvedSquad
 
       const hasStats = squad.some((p) => p && ((p.appearances ?? 0) > 0 || parseFloat(p.rating || '0') > 0))

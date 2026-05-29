@@ -106,6 +106,7 @@ export interface TMPlayerData {
   nationality: string
   displayNationality?: string
   position: string
+  otherPositions: string[]
   currentClub: string
   displayCurrentClub?: string
   currentClubId: string | null
@@ -130,6 +131,7 @@ export interface TMEnrichmentResult {
   age?: number | null
   nationality?: string
   position?: string
+  otherPositions?: string[]
   estimatedValue?: string
   contractUntil?: string
   tmVerified: boolean
@@ -152,6 +154,7 @@ export interface TMClubPlayer {
   id: string
   name: string
   position: string
+  otherPositions: string[]
   age: number | null
   nationality: string
   contract: string | null          // ISO date
@@ -629,7 +632,7 @@ function managerNameScore(resultName: string, query: string): number {
   return 0
 }
 
-function normalizePersonLookupKey(value?: string | null): string {
+export function normalizePersonLookupKey(value?: string | null): string {
   return stripDiacritics(String(value || ''))
     .toLowerCase()
     .replace(/[’']/g, "'")
@@ -842,6 +845,9 @@ export async function getPlayerData(
       age: profile.age ?? options?.fallbackAge ?? inferAgeFromDescription(profile.description),
       nationality: normalizeCountryDisplayName(profile.citizenship[0]) || 'Unknown',
       position: normalizePositionDisplayName(profile.position.main),
+      otherPositions: (profile.position.other ?? [])
+        .map((p) => normalizePositionDisplayName(p))
+        .filter((p) => p && p !== normalizePositionDisplayName(profile.position.main)),
       currentClub: normalizeClubDisplayName(profile.club.name),
       currentClubId: profile.club.id,
       contractExpires: profile.club.contractExpires,
@@ -949,6 +955,7 @@ export async function enrichTMPlayerIdentityFromSearchResult(
       age: profileData.age ?? searchResult.age ?? player.age ?? null,
       nationality: profileData.nationality || searchResult.nationalities?.[0] || player.nationality,
       position: profileData.position || searchResult.position || player.position,
+      otherPositions: profileData.otherPositions,
       estimatedValue: profileData.marketValue ? formatMarketValue(profileData.marketValue) : player.estimatedValue,
       contractUntil: profileData.contractYear || player.contractUntil,
       tmVerified: true,
@@ -1017,6 +1024,7 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
       id: p.id,
       name: p.name,
       position: normalizePositionDisplayName(p.position),
+      otherPositions: [],
       age: p.age,
       nationality: normalizeCountryDisplayName(p.nationality[0]) || 'Unknown',
       contract: p.contract,
@@ -1027,6 +1035,31 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
   } catch {
     return []
   }
+}
+
+/**
+ * Fetch other positions for a list of TM squad players using their IDs.
+ * Returns a map of TM player ID → otherPositions array.
+ * Runs in parallel batches to avoid overwhelming the proxy.
+ */
+export async function fetchSquadOtherPositions(
+  players: TMClubPlayer[],
+  concurrency = 6
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>()
+  for (let i = 0; i < players.length; i += concurrency) {
+    const batch = players.slice(i, i + concurrency)
+    const profiles = await Promise.allSettled(
+      batch.map((p) => getPlayerData(p.id, { fallbackAge: p.age }))
+    )
+    for (let j = 0; j < batch.length; j++) {
+      const profile = profiles[j]
+      if (profile.status === 'fulfilled' && profile.value) {
+        result.set(batch[j].id, profile.value.otherPositions)
+      }
+    }
+  }
+  return result
 }
 
 /**

@@ -591,6 +591,7 @@ async function enrichUndervaluedPlayer(
     currentClub: enriched.currentClub || player.currentClub,
     age: enriched.age ?? player.age,
     nationality: enriched.nationality || player.nationality,
+    otherPositions: enriched.otherPositions?.length ? enriched.otherPositions : player.otherPositions,
     // Use TM's market value when verified (correct player identified → accurate price).
     // Fall back to Claude's estimate only when unverified (TM may have found the wrong player).
     estimatedValue: enriched.tmVerified ? (enriched.estimatedValue || player.estimatedValue) : player.estimatedValue,
