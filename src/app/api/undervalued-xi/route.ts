@@ -25,7 +25,7 @@ const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_PROFILE_TIMEOUT_MS = 10000
 const TM_ENRICHMENT_CONCURRENCY = 8
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
-const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v13'
+const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v14'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
 const TM_SEARCH_TIMED_OUT = Symbol('tm-search-timed-out')
 
@@ -591,8 +591,9 @@ async function enrichUndervaluedPlayer(
     currentClub: enriched.currentClub || player.currentClub,
     age: enriched.age ?? player.age,
     nationality: enriched.nationality || player.nationality,
-    // Keep Claude's scout estimate — TM market value reflects fame, not value gap.
-    estimatedValue: player.estimatedValue,
+    // Use TM's market value when verified (correct player identified → accurate price).
+    // Fall back to Claude's estimate only when unverified (TM may have found the wrong player).
+    estimatedValue: enriched.tmVerified ? (enriched.estimatedValue || player.estimatedValue) : player.estimatedValue,
     contractUntil: enriched.contractUntil || player.contractUntil,
     tmVerified: enriched.tmVerified,
     transfermarktUrl: enriched.transfermarktUrl || player.transfermarktUrl,

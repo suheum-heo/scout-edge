@@ -732,7 +732,15 @@ async function findSearchResult(
     return null
   })()
 
+  // Cache eagerly so concurrent callers share the in-flight promise.
+  // Evict null results so the enrichment phase can retry timed-out searches
+  // with lower concurrent load than the warm phase.
   searchCache.set(cacheKey, lookup)
+  lookup.then((result) => {
+    if (result === null) searchCache.delete(cacheKey)
+  }).catch(() => {
+    searchCache.delete(cacheKey)
+  })
   return lookup
 }
 
