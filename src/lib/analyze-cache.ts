@@ -23,6 +23,8 @@ export interface CachedSquadAnalysisInput {
 }
 
 const ANALYSIS_CACHE_REVALIDATE_SECONDS = 15 * 60
+// Changes with every Vercel deployment; locally falls back to a constant.
+const DEPLOYMENT_ID = process.env.VERCEL_DEPLOYMENT_ID ?? 'local'
 
 function normalizeText(value?: string | null): string {
   return String(value || '').trim().replace(/\s+/g, ' ')
@@ -44,6 +46,7 @@ function normalizeSquadPlayer(player: MinimalSquadPlayer | null): MinimalSquadPl
   return {
     name: normalizeText(player.name),
     position: normalizeText(player.position),
+    otherPositions: player.otherPositions?.map(normalizeText).filter(Boolean).sort() ?? [],
     age: normalizeNumber(player.age),
     nationality: normalizeText(player.nationality),
     appearances: normalizeNumber(player.appearances),
@@ -149,7 +152,7 @@ const getCachedCoreAnalysis = unstable_cache(
       normalizedInput.language
     )
   },
-  ['squad-analysis-core-v2'],
+  ['squad-analysis-core-v3', DEPLOYMENT_ID],
   { revalidate: ANALYSIS_CACHE_REVALIDATE_SECONDS }
 )
 
@@ -171,7 +174,7 @@ const getCachedDetailsAnalysis = unstable_cache(
       normalizedInput.language
     )
   },
-  ['squad-analysis-details-v2'],
+  ['squad-analysis-details-v3', DEPLOYMENT_ID],
   { revalidate: ANALYSIS_CACHE_REVALIDATE_SECONDS }
 )
 
