@@ -858,7 +858,9 @@ export async function POST(request: NextRequest) {
     }
     const managerNameHint = factualManagerName ?? undefined
 
-    const allowManagerInference = Boolean(resolvedManager || factualManagerName)
+    // Always allow inference: if providers all fail (e.g. player-caretaker not in staff API),
+    // Claude's own knowledge of the club is better UX than "Manager unavailable".
+    const allowManagerInference = true
     const analysisInput = normalizeCachedSquadAnalysisInput({
       manager: resolvedManager || null,
       squadPlayers: availableSquad.map(buildAnalysisMinimalPlayer),
