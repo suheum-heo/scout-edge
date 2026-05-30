@@ -1,15 +1,5 @@
-/**
- * Read-only Supabase client for the player_form table.
- * Used by the recommendations route to check for real FotMob form data
- * before falling back to Claude's generated recentFormNote.
- */
+import { getDb } from '@/lib/db'
 
-import { createClient } from '@supabase/supabase-js'
-
-const SUPABASE_URL = process.env.SUPABASE_URL ?? ''
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? ''
-
-// Max age before a row is considered stale and we fall back to Claude
 const FRESH_WINDOW_MS = 24 * 60 * 60 * 1000
 
 export interface PlayerFormRow {
@@ -41,45 +31,33 @@ function normalizeName(name: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function isFresh(fetchedAt: string): boolean {
-  return Date.now() - new Date(fetchedAt).getTime() < FRESH_WINDOW_MS
-}
-
 /**
  * Batch lookup: given an array of player names, returns a map of
  * name → PlayerFormRow for rows that exist and are fresh (< 24h).
- * Falls back gracefully — returns empty map on Supabase errors.
+ * Falls back gracefully — returns empty map on DB errors or if DATABASE_URL is unset.
  */
 export async function lookupPlayerForm(
   playerNames: string[]
 ): Promise<Map<string, PlayerFormRow>> {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY || playerNames.length === 0) {
+  if (!process.env.DATABASE_URL || playerNames.length === 0) {
     return new Map()
   }
 
   try {
-    const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    const sql = getDb()
     const freshCutoff = new Date(Date.now() - FRESH_WINDOW_MS).toISOString()
 
-    const { data, error } = await client
-      .from('player_form')
-      .select('*')
-      .gte('fetched_at', freshCutoff)
+    const rows = await sql`
+      SELECT *
+      FROM player_form
+      WHERE fetched_at >= ${freshCutoff}
+    ` as PlayerFormRow[]
 
-    if (error || !data) {
-      console.warn('[player-form-db] Supabase query failed:', error?.message)
-      return new Map()
-    }
-
-    // Build a lookup keyed by normalized name from the DB rows
     const byNorm = new Map<string, PlayerFormRow>()
-    for (const row of data as PlayerFormRow[]) {
-      if (isFresh(row.fetched_at)) {
-        byNorm.set(row.player_name_normalized, row)
-      }
+    for (const row of rows) {
+      byNorm.set(row.player_name_normalized, row)
     }
 
-    // Match against requested names
     const result = new Map<string, PlayerFormRow>()
     for (const name of playerNames) {
       const norm = normalizeName(name)

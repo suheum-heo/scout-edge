@@ -29,11 +29,11 @@ logger = logging.getLogger(__name__)
 from fetcher import fetch_player_matches
 from form import compute_form
 from player_ids import PLAYER_IDS
-from supabase_client import upsert_player_form
+from db_client import upsert_player_form
 
 
 async def run() -> None:
-    required = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY"]
+    required = ["DATABASE_URL"]
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         logger.error(f"Missing env vars: {', '.join(missing)}")

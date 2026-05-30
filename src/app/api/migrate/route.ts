@@ -49,5 +49,28 @@ export async function GET(request: NextRequest) {
     ON app_shared_cache (expires_at)
   `
 
-  return NextResponse.json({ ok: true, message: 'player_role_profiles and app_shared_cache tables ready' })
+  await sql`
+    CREATE TABLE IF NOT EXISTS player_form (
+      fotmob_id              INTEGER      PRIMARY KEY,
+      player_name            TEXT         NOT NULL,
+      player_name_normalized TEXT         NOT NULL,
+      fetched_at             TIMESTAMPTZ  NOT NULL,
+      match_count            SMALLINT     NOT NULL DEFAULT 0,
+      matches                JSONB        NOT NULL DEFAULT '[]',
+      form_label             TEXT,
+      form_summary           TEXT
+    )
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS player_form_name_idx
+    ON player_form (player_name_normalized)
+  `
+
+  await sql`
+    CREATE INDEX IF NOT EXISTS player_form_fetched_idx
+    ON player_form (fetched_at)
+  `
+
+  return NextResponse.json({ ok: true, message: 'player_role_profiles, app_shared_cache, and player_form tables ready' })
 }
