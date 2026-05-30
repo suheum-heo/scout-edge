@@ -69,6 +69,37 @@ function normalizeTMPositionLabel(position?: string | null): string {
   return normalizePositionDisplayName(position)
 }
 
+// Maps a TM-normalized position string to the broad positionCode categories used by SquadGap.
+// Returns null when the position string is unrecognized.
+function tmPositionToCode(position: string): 'Goalkeeper' | 'Defender' | 'Midfielder' | 'Attacker' | null {
+  const p = position.toLowerCase().trim()
+  if (!p) return null
+  if (p.includes('goalkeeper') || p === 'keeper') return 'Goalkeeper'
+  if (p.includes('back') || p === 'defender') return 'Defender'
+  if (p.includes('midfield') || p === 'midfielder') return 'Midfielder'
+  if (p.includes('winger') || p.includes('forward') || p.includes('striker') || p === 'attacker') return 'Attacker'
+  return null
+}
+
+// Hard positional eligibility check using TM-verified position data.
+// Only filters when TM confirmed the player's identity (tmVerified = true).
+// Claude is allowed to explain WHY a matched player fits, but this decides WHETHER they qualify.
+function isPositionallyEligible(target: TransferTarget, gapPositionCode: string): boolean {
+  if (!target.tmVerified) return true // no TM data to verify against — pass through
+
+  const allPositions = [target.position, ...(target.otherPositions ?? [])]
+  const eligible = allPositions.some((p) => tmPositionToCode(p) === gapPositionCode)
+
+  if (!eligible) {
+    console.warn(
+      `[recommendations] Positional mismatch filtered: ${target.playerName} ` +
+      `(TM: ${allPositions.join(', ')}) vs gap "${gapPositionCode}"`
+    )
+  }
+
+  return eligible
+}
+
 // Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
   return Promise.all(targets.map(async (target) => {
@@ -173,6 +204,10 @@ export async function POST(request: NextRequest) {
       // Remove players already at this team
       const clubNorm = t.currentClub.toLowerCase()
       if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
+
+      // Hard positional pre-filter: TM-verified position must map to the gap's role code.
+      // Prevents hallucinated positional transitions (e.g. a CB recommended for a CM gap).
+      if (!isPositionallyEligible(t, gap.positionCode)) return false
 
       // Numeric budget brackets should be enforced by the server, not only hinted in the prompt.
       // If the live TM-enriched price lands outside the selected bracket, don't show the player.
