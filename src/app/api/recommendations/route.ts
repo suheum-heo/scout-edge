@@ -122,7 +122,7 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
       nationality: enriched.nationality || target.nationality,
       position: normalizeTMPositionLabel(enriched.position) || target.position,
       otherPositions: enriched.otherPositions?.length ? enriched.otherPositions : target.otherPositions,
-      estimatedFee: enriched.estimatedValue || target.estimatedFee,
+      estimatedFee: (enriched.estimatedValue && enriched.estimatedValue !== 'Unknown') ? enriched.estimatedValue : target.estimatedFee,
       contractUntil: enriched.contractUntil || target.contractUntil,
       tmVerified: enriched.tmVerified,
       transfermarktUrl: enriched.transfermarktUrl || target.transfermarktUrl,
