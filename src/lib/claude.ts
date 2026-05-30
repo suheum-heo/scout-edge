@@ -114,6 +114,13 @@ export interface TransferTarget {
   availability: 'Likely available' | 'Possible' | 'Hard to get'
   tmVerified?: boolean        // true if Transfermarkt confirmed current club & contract
   transfermarktUrl?: string
+  // TM-enriched season stats for form trajectory
+  currentSeasonApps?: number
+  currentSeasonGoals?: number
+  currentSeasonAssists?: number
+  prevSeasonApps?: number
+  prevSeasonGoals?: number
+  prevSeasonAssists?: number
 }
 
 export interface SquadAnalysisResult {
@@ -1135,6 +1142,8 @@ export async function recommendPlayersForGap(
 **Profile needed**: ${gap.profileLabel}
 **Urgency**: ${gap.urgency} | **Need Score**: ${gap.needScore}/100
 **Why it's a gap**: ${gap.reasoning}
+${gap.keyStatsPriority?.length ? `**Key metrics to prioritize**: ${gap.keyStatsPriority.join(', ')}
+Evaluate each candidate against these specific attributes. Prefer players who demonstrably excel in these areas over well-known names who do not fit this exact profile.` : ''}
 ${roleCoverageContext ? `**Current squad coverage**: ${roleCoverageContext}` : ''}
 
 ## Budget: ${budget}

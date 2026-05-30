@@ -4,7 +4,7 @@ import { useLanguage } from '@/components/LanguageProvider'
 import { useState } from 'react'
 import { TransferTarget } from '@/lib/claude'
 import { getScoreColor } from '@/lib/utils'
-import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star, TriangleAlert } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star, TriangleAlert, TrendingUp, TrendingDown, Minus, Layers } from 'lucide-react'
 
 interface TransferTargetCardProps {
   target: TransferTarget
@@ -26,6 +26,28 @@ function getMarketBadge(target: TransferTarget): { label: string; className: str
     return { label: 'Available', className: 'bg-blue-500/15 border-blue-500/30 text-blue-400' }
   }
   return null
+}
+
+function computeFormTrajectory(target: TransferTarget): 'improving' | 'declining' | 'consistent' | null {
+  const currApps = target.currentSeasonApps ?? 0
+  const prevApps = target.prevSeasonApps ?? 0
+  if (!currApps && !prevApps) return null
+
+  // Need at least 5 games in one of the seasons to be meaningful
+  if (currApps < 5 && prevApps < 5) return null
+
+  const currGoals = target.currentSeasonGoals ?? 0
+  const prevGoals = target.prevSeasonGoals ?? 0
+  const currAssists = target.currentSeasonAssists ?? 0
+  const prevAssists = target.prevSeasonAssists ?? 0
+
+  const currG90 = currApps > 0 ? (currGoals + currAssists) / currApps : 0
+  const prevG90 = prevApps > 0 ? (prevGoals + prevAssists) / prevApps : 0
+
+  const diff = currG90 - prevG90
+  if (diff > 0.15) return 'improving'
+  if (diff < -0.15) return 'declining'
+  return 'consistent'
 }
 
 function rankStyle(rank: number): { ring: string; text: string; label: string } {
@@ -176,6 +198,48 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               </div>
             ))}
           </div>
+
+          {/* Feature 1: Position flexibility */}
+          {target.otherPositions && target.otherPositions.length > 0 && (
+            <div className="flex items-start gap-2 bg-slate-100/60 dark:bg-slate-700/30 rounded-lg px-3 py-2">
+              <Layers className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="text-slate-500 dark:text-slate-400 text-xs">Can also play: </span>
+                <span className="text-slate-700 dark:text-slate-300 text-xs font-medium">
+                  {target.otherPositions.map((p) => translatePosition(p)).join(', ')}
+                </span>
+                <span className="text-slate-400 dark:text-slate-500 text-[10px] ml-1.5">(TM)</span>
+              </div>
+            </div>
+          )}
+
+          {/* Feature 2: Form trajectory */}
+          {(() => {
+            const traj = computeFormTrajectory(target)
+            const currApps = target.currentSeasonApps
+            const prevApps = target.prevSeasonApps
+            if (!traj || (currApps == null && prevApps == null)) return null
+            const Icon = traj === 'improving' ? TrendingUp : traj === 'declining' ? TrendingDown : Minus
+            const color = traj === 'improving' ? 'text-emerald-400' : traj === 'declining' ? 'text-red-400' : 'text-slate-400'
+            const label = traj === 'improving' ? 'Improving' : traj === 'declining' ? 'Declining' : 'Consistent'
+            const currG = target.currentSeasonGoals ?? 0
+            const currA = target.currentSeasonAssists ?? 0
+            const prevG = target.prevSeasonGoals ?? 0
+            const prevA = target.prevSeasonAssists ?? 0
+            const currStr = currApps != null ? `${currApps} apps, ${currG}G ${currA}A` : null
+            const prevStr = prevApps != null ? `${prevApps} apps, ${prevG}G ${prevA}A` : null
+            return (
+              <div className="flex items-start gap-2 bg-slate-100/60 dark:bg-slate-700/30 rounded-lg px-3 py-2">
+                <Icon className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${color}`} />
+                <div>
+                  <span className={`text-xs font-medium ${color}`}>{label}</span>
+                  {currStr && <span className="text-slate-500 dark:text-slate-400 text-xs ml-1.5">This season: {currStr}</span>}
+                  {prevStr && <span className="text-slate-500 dark:text-slate-500 text-xs ml-1.5">| Last: {prevStr}</span>}
+                  <span className="text-slate-400 dark:text-slate-500 text-[10px] ml-1.5">(TM)</span>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Top pick callout for rank 1 */}
           {rank === 1 && (

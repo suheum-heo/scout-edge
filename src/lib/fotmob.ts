@@ -24,6 +24,10 @@ const client = axios.create({
   timeout: 5000,
 })
 
+// FotMob's unofficial API is IP-blocked on Vercel (all endpoints return 404 from cloud IPs).
+// Set to true if/when the API becomes available again.
+const FOTMOB_AVAILABLE = false
+
 // ── Cache ────────────────────────────────────────────────────────────────────
 
 const cache = new Map<string, { data: unknown; expiresAt: number }>()
@@ -244,6 +248,7 @@ function memberToAPIPlayer(
 
 /** Search teams by name — FotMob handles partial matches and nicknames natively */
 export async function searchTeams(query: string): Promise<APITeam[]> {
+  if (!FOTMOB_AVAILABLE) return []
   const cacheKey = `fm:teams:search:${query.toLowerCase()}`
   const cached = getCached<APITeam[]>(cacheKey)
   if (cached) return cached
@@ -283,6 +288,7 @@ export async function searchTeams(query: string): Promise<APITeam[]> {
 
 /** Fetch squad for a team with per-player season stats */
 export async function getSquad(teamId: number): Promise<APIPlayer[]> {
+  if (!FOTMOB_AVAILABLE) return []
   const cacheKey = `fm:squad:${teamId}`
   const cached = getCached<APIPlayer[]>(cacheKey)
   if (cached && cached.length > 0) return cached
@@ -411,6 +417,7 @@ function extractRawMembers(data: Record<string, unknown>): Array<Record<string, 
 
 /** Fetch squad + coach in a single API call — avoids the redundant double request */
 export async function getSquadAndCoach(teamId: number): Promise<{ squad: APIPlayer[]; coach: APICoach | null }> {
+  if (!FOTMOB_AVAILABLE) return { squad: [], coach: null }
   const squadCacheKey = `fm:squad:${teamId}`
   const coachCacheKey = `fm:coach:${teamId}`
   const cachedSquad = getCached<APIPlayer[]>(squadCacheKey)
@@ -487,6 +494,7 @@ export async function getSquadAndCoach(teamId: number): Promise<{ squad: APIPlay
 
 /** Get the current head coach for a team */
 export async function getCoach(teamId: number): Promise<APICoach | null> {
+  if (!FOTMOB_AVAILABLE) return null
   const cacheKey = `fm:coach:${teamId}`
   const cached = getCached<APICoach>(cacheKey)
   if (cached) return cached
@@ -559,6 +567,7 @@ export async function searchPlayersByPosition(
   excludeTeamId?: number,
   leagueId?: number
 ): Promise<APIPlayer[]> {
+  if (!FOTMOB_AVAILABLE) return []
   const targetLeague = SUPPORTED_LEAGUES.find((l) => l.id === leagueId) || SUPPORTED_LEAGUES[0]
   const cacheKey = `fm:players:${position}:${targetLeague.id}`
   const cached = getCached<APIPlayer[]>(cacheKey)
@@ -667,6 +676,7 @@ export async function searchPlayersByPosition(
 
 /** Search for a specific player by name (for player-check page) */
 export async function searchPlayerByName(name: string): Promise<APIPlayer | null> {
+  if (!FOTMOB_AVAILABLE) return null
   const cacheKey = `fm:player:name:${name.toLowerCase()}`
   const cached = getCached<APIPlayer>(cacheKey)
   if (cached) return cached
@@ -694,6 +704,7 @@ export async function searchPlayerByName(name: string): Promise<APIPlayer | null
 
 /** Get a player's full stats by FotMob player ID */
 export async function getPlayerById(playerId: number): Promise<APIPlayer | null> {
+  if (!FOTMOB_AVAILABLE) return null
   const cacheKey = `fm:player:id:${playerId}`
   const cached = getCached<APIPlayer>(cacheKey)
   if (cached) return cached

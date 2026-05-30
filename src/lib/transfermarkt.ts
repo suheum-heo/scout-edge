@@ -121,6 +121,11 @@ export interface TMPlayerData {
   minutesPlayed: number
   yellowCards: number
   statsAvailable: boolean
+  // Previous season (for form trajectory)
+  prevSeasonApps?: number
+  prevSeasonGoals?: number
+  prevSeasonAssists?: number
+  prevSeasonMinutes?: number
 }
 
 export type TMVerificationSource = 'profile' | 'search' | 'none'
@@ -137,6 +142,13 @@ export interface TMEnrichmentResult {
   tmVerified: boolean
   transfermarktUrl?: string
   tmVerificationSource: TMVerificationSource
+  prevSeasonApps?: number
+  prevSeasonGoals?: number
+  prevSeasonAssists?: number
+  prevSeasonMinutes?: number
+  currentSeasonApps?: number
+  currentSeasonGoals?: number
+  currentSeasonAssists?: number
 }
 
 interface TMIdentityInput {
@@ -332,6 +344,32 @@ function aggregateSitePerformanceStats(rows: TMSitePerformanceRow[]) {
       }),
       { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0, yellowCards: 0 }
     )
+}
+
+function getPreviousSitePerformanceStats(rows: TMSitePerformanceRow[]): { appearances: number; goals: number; assists: number; minutesPlayed: number } | null {
+  if (!rows.length) return null
+
+  const buckets = rows
+    .map((row) => getSitePerformanceCampaignKey(row))
+    .filter((b): b is number => b !== null)
+
+  if (!buckets.length) return null
+  const latestBucket = Math.max(...buckets)
+  const prevBucket = Math.max(...buckets.filter((b) => b < latestBucket))
+  if (!Number.isFinite(prevBucket)) return null
+
+  const prevRows = rows.filter((row) => getSitePerformanceCampaignKey(row) === prevBucket)
+  if (!prevRows.length) return null
+
+  return prevRows.reduce(
+    (acc, row) => ({
+      appearances: acc.appearances + (row.gamesPlayed ?? 0),
+      goals: acc.goals + (row.goalsScored ?? 0),
+      assists: acc.assists + (row.assists ?? 0),
+      minutesPlayed: acc.minutesPlayed + (row.minutesPlayed ?? 0),
+    }),
+    { appearances: 0, goals: 0, assists: 0, minutesPlayed: 0 }
+  )
 }
 
 function getCurrentTMSeasonId(now = new Date()): number {
@@ -836,6 +874,7 @@ export async function getPlayerData(
     const statsAvailable = hasSitePerformance
       ? sitePerformance.some((row) => (row.gamesPlayed ?? 0) > 0)
       : statsRows.length > 0
+    const prevStats = hasSitePerformance ? getPreviousSitePerformanceStats(sitePerformance) : null
 
     return {
       id: profile.id,
@@ -856,6 +895,10 @@ export async function getPlayerData(
       marketValueFormatted: formatMarketValue(profile.marketValue),
       ...stats,
       statsAvailable,
+      prevSeasonApps: prevStats?.appearances,
+      prevSeasonGoals: prevStats?.goals,
+      prevSeasonAssists: prevStats?.assists,
+      prevSeasonMinutes: prevStats?.minutesPlayed,
     }
   } catch {
     return null
@@ -961,6 +1004,13 @@ export async function enrichTMPlayerIdentityFromSearchResult(
       tmVerified: true,
       transfermarktUrl: searchBasedResult.transfermarktUrl,
       tmVerificationSource: 'profile',
+      prevSeasonApps: profileData.prevSeasonApps,
+      prevSeasonGoals: profileData.prevSeasonGoals,
+      prevSeasonAssists: profileData.prevSeasonAssists,
+      prevSeasonMinutes: profileData.prevSeasonMinutes,
+      currentSeasonApps: profileData.statsAvailable ? profileData.appearances : undefined,
+      currentSeasonGoals: profileData.statsAvailable ? profileData.goals : undefined,
+      currentSeasonAssists: profileData.statsAvailable ? profileData.assists : undefined,
     }
   }
 

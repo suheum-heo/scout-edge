@@ -95,6 +95,12 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
       contractUntil: enriched.contractUntil || target.contractUntil,
       tmVerified: enriched.tmVerified,
       transfermarktUrl: enriched.transfermarktUrl || target.transfermarktUrl,
+      currentSeasonApps: enriched.currentSeasonApps,
+      currentSeasonGoals: enriched.currentSeasonGoals,
+      currentSeasonAssists: enriched.currentSeasonAssists,
+      prevSeasonApps: enriched.prevSeasonApps,
+      prevSeasonGoals: enriched.prevSeasonGoals,
+      prevSeasonAssists: enriched.prevSeasonAssists,
     }
   }))
 }
