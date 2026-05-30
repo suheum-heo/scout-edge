@@ -12,7 +12,6 @@ import { localizeTransferTargets } from '@/lib/entity-localization'
 import { enrichTMPlayerIdentity } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
-import { lookupPlayerForm } from '@/lib/player-form-db'
 
 function budgetRange(budget: string): { min: number; max: number } | null {
   if (budget === '< €20M')   return { min: 0,           max: 20_000_000 }
@@ -199,23 +198,9 @@ export async function POST(request: NextRequest) {
     // Enrich with live Transfermarkt data (current club, real market value, contract)
     const enriched = await enrichWithTM(targets)
 
-    // Overwrite Claude's recentFormNote with real FotMob data where available.
-    // lookupPlayerForm returns only rows fresher than 24h; falls back silently.
-    const playerNames = enriched.map((t) => t.playerName)
-    const formRows = await lookupPlayerForm(playerNames)
-    const enrichedWithForm = enriched.map((t) => {
-      const row = formRows.get(t.playerName)
-      if (!row) return t
-      return {
-        ...t,
-        recentFormNote: row.form_summary ?? t.recentFormNote,
-        recentFormSource: 'fotmob' as const,
-      }
-    })
-
     const teamNorm = teamName.toLowerCase()
 
-    const filtered = enrichedWithForm.filter((t) => {
+    const filtered = enriched.filter((t) => {
       // Remove players already at this team
       const clubNorm = t.currentClub.toLowerCase()
       if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
