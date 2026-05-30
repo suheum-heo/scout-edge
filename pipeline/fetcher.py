@@ -1,11 +1,11 @@
 """
-Fetches recent match data per player from FotMob using the fotmob-api package.
-Wraps fotmob.com/api/playerData — the same endpoint the Vercel app can't reach.
-Running this from a non-cloud IP (local machine or GitHub Actions) should work.
+Fetches recent match data per player from FotMob.
+Calls fotmob.com/api/playerData directly with requests — the fotmob-api package's
+ratelimiter dependency is broken on Python 3.11+ (uses removed asyncio.coroutine).
 """
 
-import asyncio
 import logging
+import requests
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -17,14 +17,18 @@ async def fetch_player_matches(fotmob_id: int, max_matches: int = 20) -> list[di
     Returns [] on any error — callers should treat empty as "skip this player".
     """
     try:
-        from fotmob import FotMob  # import inside function so import errors are non-fatal
-    except ImportError as e:
-        logger.error(f"fotmob-api package not installed: {e}")
-        return []
-
-    try:
-        fm = FotMob()
-        raw = await fm.get_player(player_id=fotmob_id)
+        resp = requests.get(
+            "https://www.fotmob.com/api/playerData/",
+            params={"id": fotmob_id},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Referer": "https://www.fotmob.com/",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json()
     except Exception as e:
         logger.error(f"[{fotmob_id}] FotMob request failed: {e}")
         return []
