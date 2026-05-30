@@ -56,8 +56,13 @@ function isWithinBudgetBracket(target: TransferTarget, budget: string): boolean 
   const range = budgetRange(budget)
   if (!range) return true
 
+  // Only enforce the hard bracket when TM confirmed the player's identity and
+  // therefore their market value. Without TM verification we have only Claude's
+  // training-data estimate — don't use that as a hard gate.
+  if (!target.tmVerified) return true
+
   const estimatedFee = parseEstimatedFee(target.estimatedFee)
-  if (estimatedFee === null) return false
+  if (estimatedFee === null) return true  // verified but no parseable price — don't hide
   if (estimatedFee < range.min) return false
   if (Number.isFinite(range.max) && estimatedFee > range.max) return false
 
