@@ -241,15 +241,25 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
             )
           })()}
 
-          {/* Feature: Claude recent form note */}
+          {/* Recent form note — FotMob data (green) or Claude fallback (violet) */}
           {target.recentFormNote && (
-            <div className="flex items-start gap-2 bg-violet-500/5 border border-violet-500/15 rounded-lg px-3 py-2">
-              <Brain className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <span className="text-violet-300 text-xs">{target.recentFormNote}</span>
-                <span className="text-slate-500 dark:text-slate-500 text-[10px] ml-1.5">Claude&apos;s assessment · training data, not live</span>
+            target.recentFormSource === 'fotmob' ? (
+              <div className="flex items-start gap-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-emerald-300 text-xs">{target.recentFormNote}</span>
+                  <span className="text-slate-500 text-[10px] ml-1.5">FotMob data</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-start gap-2 bg-violet-500/5 border border-violet-500/15 rounded-lg px-3 py-2">
+                <Brain className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <span className="text-violet-300 text-xs">{target.recentFormNote}</span>
+                  <span className="text-slate-500 text-[10px] ml-1.5">Claude&apos;s assessment · training data, not live</span>
+                </div>
+              </div>
+            )
           )}
 
           {/* Top pick callout for rank 1 */}

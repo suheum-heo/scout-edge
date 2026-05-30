@@ -121,8 +121,9 @@ export interface TransferTarget {
   prevSeasonApps?: number
   prevSeasonGoals?: number
   prevSeasonAssists?: number
-  // Claude-generated recent form note (training knowledge, not live data)
+  // Recent form note — source determines display label in the UI
   recentFormNote?: string | null
+  recentFormSource?: 'fotmob' | 'claude'
 }
 
 export interface SquadAnalysisResult {
