@@ -121,6 +121,8 @@ export interface TransferTarget {
   prevSeasonApps?: number
   prevSeasonGoals?: number
   prevSeasonAssists?: number
+  // Claude-generated recent form note (training knowledge, not live data)
+  recentFormNote?: string | null
 }
 
 export interface SquadAnalysisResult {
@@ -1184,12 +1186,14 @@ Respond in this exact JSON format (be concise, no extra text):
     "fitSummary": "2 sentences max: why this player fits this system and addresses this gap",
     "strengths": ["strength 1", "strength 2"],
     "concerns": ["concern 1"],
-    "availability": "Likely available"
+    "availability": "Likely available",
+    "recentFormNote": "One sentence on recent form from your training knowledge — e.g. '7 goals in last 12 starts' or 'Returned from hamstring injury in January, 4 appearances since'. Null if you lack reliable recent-form knowledge for this player."
   }
 ]
 
 Availability options: "Likely available" | "Possible" | "Hard to get"
-Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.`, language)
+Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.
+recentFormNote: base this on your training knowledge of the player's form through your cutoff. Be specific if you know (goals, assists, injuries, run of starts). Set to null rather than guess.`, language)
 
   const response = await createMessageWithPromptCacheFallback({
     model: 'claude-sonnet-4-6',

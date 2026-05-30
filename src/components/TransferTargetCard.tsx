@@ -4,7 +4,7 @@ import { useLanguage } from '@/components/LanguageProvider'
 import { useState } from 'react'
 import { TransferTarget } from '@/lib/claude'
 import { getScoreColor } from '@/lib/utils'
-import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star, TriangleAlert, TrendingUp, TrendingDown, Minus, Layers } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Tag, Clock, ChevronDown, Star, TriangleAlert, TrendingUp, TrendingDown, Minus, Layers, Brain } from 'lucide-react'
 
 interface TransferTargetCardProps {
   target: TransferTarget
@@ -240,6 +240,17 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
               </div>
             )
           })()}
+
+          {/* Feature: Claude recent form note */}
+          {target.recentFormNote && (
+            <div className="flex items-start gap-2 bg-violet-500/5 border border-violet-500/15 rounded-lg px-3 py-2">
+              <Brain className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="text-violet-300 text-xs">{target.recentFormNote}</span>
+                <span className="text-slate-500 dark:text-slate-500 text-[10px] ml-1.5">Claude&apos;s assessment · training data, not live</span>
+              </div>
+            </div>
+          )}
 
           {/* Top pick callout for rank 1 */}
           {rank === 1 && (
