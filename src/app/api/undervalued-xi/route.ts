@@ -24,6 +24,12 @@ import {
 const TM_SEARCH_TIMEOUT_MS = 5000
 const TM_PROFILE_TIMEOUT_MS = 10000
 const TM_ENRICHMENT_CONCURRENCY = 8
+const SHARED_CACHE_LOOKUP_TIMEOUT_MS = 1200
+const MANAGER_SNAPSHOT_TIMEOUT_MS = 2500
+const LOCALIZATION_TIMEOUT_MS = 4000
+const ROUTE_WORK_BUDGET_MS = 45_000
+const SECOND_PASS_MIN_REMAINING_MS = 18_000
+const PROFILE_FINALIZE_MIN_REMAINING_MS = 12_000
 const UNDERVALUED_XI_TTL_MS = 30 * 60 * 1000
 const UNDERVALUED_XI_CACHE_SCOPE = 'undervalued-xi-v14'
 const undervaluedXICache = new Map<string, { data: UndervaluedXIResult; expiresAt: number }>()
@@ -197,6 +203,14 @@ function withTimeout<T, F>(promise: Promise<T>, ms: number, fallback: F): Promis
   return Promise.race([promise, new Promise<T | F>((resolve) => setTimeout(() => resolve(fallback), ms))])
 }
 
+function getTimeRemainingMs(startedAt: number): number {
+  return ROUTE_WORK_BUDGET_MS - (performance.now() - startedAt)
+}
+
+function hasTimeBudget(startedAt: number, thresholdMs: number): boolean {
+  return getTimeRemainingMs(startedAt) > thresholdMs
+}
+
 function getBudgetCap(budget: string): number | null {
   if (budget === '< €50M') return 50_000_000
   if (budget === '€50–100M') return 100_000_000
@@ -217,6 +231,17 @@ function getBudgetSelectionCap(budget: string): number | null {
   const cap = getBudgetCap(budget)
   if (cap === null) return null
   return cap + (getBudgetOverrunAllowance(budget) ?? 0)
+}
+
+function getEstimatedSelectionCap(budget: string): number | null {
+  const cap = getBudgetCap(budget)
+  if (cap === null) return null
+
+  if (budget === '< €50M') return Math.floor(cap * 0.82)
+  if (budget === '€50–100M') return Math.floor(cap * 0.88)
+  if (budget === '€100–150M') return Math.floor(cap * 0.9)
+  if (budget === '€150–200M') return Math.floor(cap * 0.92)
+  return cap
 }
 
 function getBudgetOverrun(total: number, budget: string): number {
@@ -280,6 +305,7 @@ function calculateTotalEstimatedCost(players: UndervaluedPlayer[]): number {
 
 function buildBudgetInstructions(budget: string, cap: number): string {
   const averagePerStarter = Math.floor(cap / 11)
+  const planningTarget = getEstimatedSelectionCap(budget) ?? cap
   const bracketRules =
     budget === '< €50M'
       ? [
@@ -313,7 +339,9 @@ function buildBudgetInstructions(budget: string, cap: number): string {
     `Treat ${budget} as a hard ceiling, not a vibe.`,
     `Your XI must come in at or below ${formatCompactEuros(cap)} in total estimated cost.`,
     `The average starter can only cost about ${formatCompactEuros(averagePerStarter)}.`,
+    `Because live Transfermarkt checks often push values up, aim for a paper total closer to ${formatCompactEuros(planningTarget)} before verification rather than spending right up to the cap.`,
     'For every slot, provide one best-fit option and one cheaper safety option.',
+    'The cheaper safety option should usually be materially cheaper than the best-fit option, not just a tiny downgrade.',
     'The pool must be diverse enough that a code-based selector can build a full XI under budget.',
     'Keep estimated values conservative and realistic for a real transfer discussion.',
     'Before you answer, do the arithmetic and sanity-check that the pool genuinely contains a legal under-budget XI.',
@@ -964,9 +992,13 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    const sharedCachedResult = await getSharedCacheEntry<UndervaluedXIResult>(
-      UNDERVALUED_XI_CACHE_SCOPE,
-      cacheKey
+    const sharedCachedResult = await withTimeout(
+      getSharedCacheEntry<UndervaluedXIResult>(
+        UNDERVALUED_XI_CACHE_SCOPE,
+        cacheKey
+      ),
+      SHARED_CACHE_LOOKUP_TIMEOUT_MS,
+      null
     )
     if (sharedCachedResult) {
       const normalizedSharedResult = await safeNormalizeLocalizedUndervaluedXIResult(sharedCachedResult, language, budget, {
@@ -982,11 +1014,16 @@ export async function POST(request: NextRequest) {
 
     const snapshotStartedAt = timing.start()
     const liveManagerSnapshot = factualManagerName
-      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 5 }).catch(() => null)
+      ? await withTimeout(
+          getLiveManagerSnapshot(factualManagerName, { maxMatches: 5 }).catch(() => null),
+          MANAGER_SNAPSHOT_TIMEOUT_MS,
+          null
+        )
       : null
     timing.end('manager_snapshot', snapshotStartedAt, factualManagerName ?? 'none')
     const cap = getBudgetCap(budget)
     const selectionCap = getBudgetSelectionCap(budget)
+    const estimatedSelectionCap = getEstimatedSelectionCap(budget)
     const verificationInstructions = buildVerificationInstructions()
     const baseInstructions = cap !== null
       ? `${buildBudgetInstructions(budget, cap)} ${verificationInstructions}`
@@ -1014,6 +1051,9 @@ export async function POST(request: NextRequest) {
     let lastAttemptError: unknown = null
 
     for (const [attemptIndex, instructions] of instructionPasses.entries()) {
+      if (attemptIndex > 0 && !hasTimeBudget(requestStartedAt, SECOND_PASS_MIN_REMAINING_MS)) {
+        break
+      }
       attemptsUsed = attemptIndex + 1
       const attemptSuffix = attemptIndex === 0 ? '' : `_${attemptIndex + 1}`
 
@@ -1033,7 +1073,7 @@ export async function POST(request: NextRequest) {
 
         const initialSelectionStartedAt = timing.start()
         const estimatedSlots = buildEstimatedSlots(pool.slots)
-        const initialSelection = selectPlayersForSlots(estimatedSlots, selectionCap)
+        const initialSelection = selectPlayersForSlots(estimatedSlots, estimatedSelectionCap)
         timing.end(
           `initial_selection${attemptSuffix}`,
           initialSelectionStartedAt,
@@ -1064,12 +1104,7 @@ export async function POST(request: NextRequest) {
             )
           }
         )
-        const finalizedStarterEvaluations = await finalizeSelectionWithTM(
-          starterEvaluations,
-          searchCache,
-          profileCache
-        )
-        const enrichedStarters = finalizedStarterEvaluations.map((evaluation) => ({
+        const enrichedStarters = starterEvaluations.map((evaluation) => ({
           ...evaluation.player,
           contractUntil: evaluation.player.contractUntil || 'Unknown',
           whyUndervalued: resolveWhyUndervaluedText(evaluation.player, language),
@@ -1093,7 +1128,7 @@ export async function POST(request: NextRequest) {
           budget
         )
 
-        if (!hasInvalidSelection(enrichedStarters, finalizedStarterEvaluations, budget, { requireVerified: true })) {
+        if (!hasInvalidSelection(enrichedStarters, starterEvaluations, budget, { requireVerified: true })) {
           resolvedResult = starterResult
           resolvedFormation = pool.formation
           resolvedSource = 'starter-path'
@@ -1158,11 +1193,13 @@ export async function POST(request: NextRequest) {
         )
 
         if (strictSelection.chosen.length === strictSlots.length) {
-          const finalizedStrictSelection = await finalizeSelectionWithTM(
-            strictSelection.chosen,
-            searchCache,
-            profileCache
-          )
+          const finalizedStrictSelection = hasTimeBudget(requestStartedAt, PROFILE_FINALIZE_MIN_REMAINING_MS)
+            ? await finalizeSelectionWithTM(
+                strictSelection.chosen,
+                searchCache,
+                profileCache
+              )
+            : strictSelection.chosen
           const strictPlayers = buildSelectedPlayers(finalizedStrictSelection, language)
           if (!hasInvalidSelection(strictPlayers, finalizedStrictSelection, budget, { requireVerified: true })) {
             resolvedResult = withComputedBudget(
@@ -1213,11 +1250,13 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        const finalizedSafeSelection = await finalizeSelectionWithTM(
-          safeSelection.chosen,
-          searchCache,
-          profileCache
-        )
+        const finalizedSafeSelection = hasTimeBudget(requestStartedAt, PROFILE_FINALIZE_MIN_REMAINING_MS)
+          ? await finalizeSelectionWithTM(
+              safeSelection.chosen,
+              searchCache,
+              profileCache
+            )
+          : safeSelection.chosen
         const safePlayers = buildSelectedPlayers(finalizedSafeSelection, language)
         if (hasInvalidSelection(safePlayers, finalizedSafeSelection, budget)) {
           continue
@@ -1263,23 +1302,25 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    const localizedResult = await safeNormalizeLocalizedUndervaluedXIResult(resolvedResult, language, budget, {
-      managerName: factualManagerName || managerName || undefined,
-      teamName,
-    })
-
-    try {
-      await persistUndervaluedXIResult(cacheKey, localizedResult, {
-        source: resolvedSource,
-        formation: resolvedFormation,
-        budget,
-        managerName: factualManagerName,
+    const localizedResult = await withTimeout(
+      safeNormalizeLocalizedUndervaluedXIResult(resolvedResult, language, budget, {
+        managerName: factualManagerName || managerName || undefined,
         teamName,
-        attemptsUsed,
-      })
-    } catch (error) {
+      }),
+      LOCALIZATION_TIMEOUT_MS,
+      resolvedResult
+    )
+
+    void persistUndervaluedXIResult(cacheKey, localizedResult, {
+      source: resolvedSource,
+      formation: resolvedFormation,
+      budget,
+      managerName: factualManagerName,
+      teamName,
+      attemptsUsed,
+    }).catch((error) => {
       console.warn('[undervalued-xi] cache persistence failed:', error)
-    }
+    })
 
     const response = NextResponse.json({ ...localizedResult, status: 'ok' as const })
     timing.end('total', requestStartedAt)
