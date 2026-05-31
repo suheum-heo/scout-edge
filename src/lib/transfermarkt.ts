@@ -934,27 +934,18 @@ function buildSearchBasedTMEnrichment(
   const resultName = normalizePersonLookupKey(searchResult.name)
   const exactNameMatch = inputName === resultName
   const containsNameMatch =
-    inputName.length >= 6 &&
-    resultName.length >= 6 &&
+    inputName.length >= 8 &&
+    resultName.length >= 8 &&
     (inputName.includes(resultName) || resultName.includes(inputName))
   const reliableDirectMatch = (exactNameMatch || containsNameMatch) && (searchResult.marketValue ?? 0) > 0
-
-  // Standard path: search result has a usable club AND identity is confirmed
-  const verifiedViaClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch || reliableDirectMatch)
-
-  // Direct-match path: TM confirmed this player by name + real market value even when the
-  // search result carries no club (some TM search responses omit the club field).
-  // Identity is high-confidence; club falls back to Claude's value — the TM URL still links
-  // to the correct profile so the user can verify.
-  const allowVerifiedSearchClub = verifiedViaClub || reliableDirectMatch
-
-  const searchTransfermarktUrl = allowVerifiedSearchClub
+  const searchTransfermarktUrl = canUseTMClubFact(searchClub)
     ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
     : player.transfermarktUrl
+  const allowVerifiedSearchClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch || reliableDirectMatch)
 
   return {
     playerName: searchResult.name || player.playerName,
-    currentClub: verifiedViaClub ? searchClub! : (player.currentClub || ''),
+    currentClub: allowVerifiedSearchClub ? searchClub : (player.currentClub || ''),
     age: searchResult.age ?? player.age ?? null,
     nationality: searchResult.nationalities?.[0] || player.nationality,
     position: searchResult.position || player.position,
