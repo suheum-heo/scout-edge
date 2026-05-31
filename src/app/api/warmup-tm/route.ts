@@ -6,11 +6,9 @@ export async function GET() {
   const url = process.env.TRANSFERMARKT_API_URL
   if (!url) return NextResponse.json({ ok: true })
 
-  try {
-    await fetch(`${url}/players/search/messi`, { signal: AbortSignal.timeout(8000) })
-  } catch {
-    // silently fail — this is best-effort
-  }
+  // Fire-and-forget: initiate the wake-up but respond immediately so the
+  // frontend can call this without blocking the user.
+  fetch(`${url}/players/search/messi`).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }

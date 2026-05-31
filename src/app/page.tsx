@@ -102,6 +102,10 @@ export default function HomePage() {
   const [scenarioError, setScenarioError] = useState<string | null>(null)
   const [compareIds, setCompareIds] = useState<[string, string] | null>(null)
 
+  // Kick off Render proxy warm-up as soon as the page loads so it's ready
+  // by the time the user requests recommendations (~30-60s later).
+  useEffect(() => { fetch('/api/warmup-tm').catch(() => {}) }, [])
+
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const searchAbort = useRef<AbortController | null>(null)
   const analysisRequestSeq = useRef(0)

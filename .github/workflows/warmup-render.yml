@@ -1,0 +1,17 @@
+name: Keep TM Proxy Warm
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  warmup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping Render proxy
+        run: |
+          curl -s --max-time 90 \
+            "https://transfermarkt-api-cxl0.onrender.com/players/search/messi" \
+            -o /dev/null -w "%{http_code} in %{time_total}s\n" || true
