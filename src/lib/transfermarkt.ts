@@ -145,6 +145,7 @@ export interface TMEnrichmentResult {
   tmVerified: boolean
   transfermarktUrl?: string
   tmVerificationSource: TMVerificationSource
+  tmIdentityConfirmed: boolean
   prevSeasonApps?: number
   prevSeasonGoals?: number
   prevSeasonAssists?: number
@@ -920,6 +921,7 @@ function buildTMEnrichmentFallback(player: TMIdentityInput): TMEnrichmentResult 
     tmVerified: false,
     transfermarktUrl: player.transfermarktUrl,
     tmVerificationSource: 'none',
+    tmIdentityConfirmed: false,
   }
 }
 
@@ -945,6 +947,7 @@ function buildSearchBasedTMEnrichment(
     ? (searchResult.profileUrl || buildTMPlayerProfileUrl(searchResult.id, searchResult.name))
     : player.transfermarktUrl
   const allowVerifiedSearchClub = canUseTMClubFact(searchClub) && (reliableClubMatch || reliableIdentityMatch || reliableDirectMatch)
+  const identityConfirmed = reliableIdentityMatch || reliableDirectMatch || (reliableClubMatch && exactNameMatch)
 
   return {
     playerName: searchResult.name || player.playerName,
@@ -957,6 +960,7 @@ function buildSearchBasedTMEnrichment(
     tmVerified: allowVerifiedSearchClub,
     transfermarktUrl: allowVerifiedSearchClub ? searchTransfermarktUrl : player.transfermarktUrl,
     tmVerificationSource: allowVerifiedSearchClub ? 'search' : 'none',
+    tmIdentityConfirmed: identityConfirmed,
   }
 }
 
@@ -1002,6 +1006,7 @@ export async function enrichTMPlayerIdentityFromSearchResult(
       tmVerified: true,
       transfermarktUrl: searchBasedResult.transfermarktUrl,
       tmVerificationSource: 'profile',
+      tmIdentityConfirmed: true,
       prevSeasonApps: profileData.prevSeasonApps,
       prevSeasonGoals: profileData.prevSeasonGoals,
       prevSeasonAssists: profileData.prevSeasonAssists,

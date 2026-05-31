@@ -113,6 +113,7 @@ export interface TransferTarget {
   whyThisPlayer: string       // 2-3 sentences of scout reasoning
   availability: 'Likely available' | 'Possible' | 'Hard to get'
   tmVerified?: boolean        // true if Transfermarkt confirmed current club & contract
+  tmIdentityConfirmed?: boolean
   transfermarktUrl?: string
   // TM-enriched season stats for form trajectory
   currentSeasonApps?: number

@@ -148,22 +148,26 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
 
     return {
       ...target,
-      playerName: enriched.playerName || target.playerName,
-      currentClub: enriched.currentClub || target.currentClub,
-      age: enriched.age ?? target.age,
-      nationality: enriched.nationality || target.nationality,
-      position: normalizeTMPositionLabel(enriched.position) || target.position,
-      otherPositions: enriched.otherPositions?.length ? enriched.otherPositions : target.otherPositions,
-      estimatedFee: (enriched.estimatedValue && enriched.estimatedValue !== 'Unknown') ? enriched.estimatedValue : target.estimatedFee,
-      contractUntil: enriched.contractUntil || target.contractUntil,
+      playerName: enriched.tmIdentityConfirmed ? (enriched.playerName || target.playerName) : target.playerName,
+      currentClub: enriched.tmVerified ? (enriched.currentClub || target.currentClub) : target.currentClub,
+      age: enriched.tmIdentityConfirmed ? (enriched.age ?? target.age) : target.age,
+      nationality: enriched.tmIdentityConfirmed ? (enriched.nationality || target.nationality) : target.nationality,
+      position: enriched.tmIdentityConfirmed ? (normalizeTMPositionLabel(enriched.position) || target.position) : target.position,
+      otherPositions: enriched.tmIdentityConfirmed && enriched.otherPositions?.length ? enriched.otherPositions : target.otherPositions,
+      estimatedFee:
+        enriched.tmIdentityConfirmed && enriched.estimatedValue && enriched.estimatedValue !== 'Unknown'
+          ? enriched.estimatedValue
+          : target.estimatedFee,
+      contractUntil: enriched.tmVerified ? (enriched.contractUntil || target.contractUntil) : target.contractUntil,
       tmVerified: enriched.tmVerified,
+      tmIdentityConfirmed: enriched.tmIdentityConfirmed,
       transfermarktUrl: enriched.transfermarktUrl || target.transfermarktUrl,
-      currentSeasonApps: enriched.currentSeasonApps,
-      currentSeasonGoals: enriched.currentSeasonGoals,
-      currentSeasonAssists: enriched.currentSeasonAssists,
-      prevSeasonApps: enriched.prevSeasonApps,
-      prevSeasonGoals: enriched.prevSeasonGoals,
-      prevSeasonAssists: enriched.prevSeasonAssists,
+      currentSeasonApps: enriched.tmIdentityConfirmed ? enriched.currentSeasonApps : target.currentSeasonApps,
+      currentSeasonGoals: enriched.tmIdentityConfirmed ? enriched.currentSeasonGoals : target.currentSeasonGoals,
+      currentSeasonAssists: enriched.tmIdentityConfirmed ? enriched.currentSeasonAssists : target.currentSeasonAssists,
+      prevSeasonApps: enriched.tmIdentityConfirmed ? enriched.prevSeasonApps : target.prevSeasonApps,
+      prevSeasonGoals: enriched.tmIdentityConfirmed ? enriched.prevSeasonGoals : target.prevSeasonGoals,
+      prevSeasonAssists: enriched.tmIdentityConfirmed ? enriched.prevSeasonAssists : target.prevSeasonAssists,
     }
   }))
 }
@@ -241,6 +245,10 @@ export async function POST(request: NextRequest) {
     const teamNorm = teamName.toLowerCase()
 
     const filtered = enrichedWithForm.filter((t) => {
+      // If TM could not confidently confirm the player identity, do not show the target.
+      // This avoids mixing a hallucinated candidate with another real player's age/value.
+      if (t.tmIdentityConfirmed === false) return false
+
       // Remove players already at this team
       const clubNorm = t.currentClub.toLowerCase()
       if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
