@@ -46,7 +46,10 @@ async function tmSiteFetch<T>(path: string): Promise<T> {
       signal: controller.signal,
       headers: {
         accept: 'application/json,text/plain,*/*',
-        'user-agent': 'Mozilla/5.0',
+        'accept-language': 'en-US,en;q=0.9',
+        'referer': TM_SITE_BASE + '/',
+        'x-requested-with': 'XMLHttpRequest',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       },
     })
     if (!res.ok) throw new Error(`TM site ${res.status}: ${path}`)

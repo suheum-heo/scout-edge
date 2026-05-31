@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping Render proxy
+      - name: Ping Fly.io proxy
         run: |
           curl -s --max-time 90 \
-            "https://transfermarkt-api-cxl0.onrender.com/players/search/messi" \
+            "https://transfermarkt-api.fly.dev/players/search/messi" \
             -o /dev/null -w "%{http_code} in %{time_total}s\n" || true
