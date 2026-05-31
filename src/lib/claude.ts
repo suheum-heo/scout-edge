@@ -123,7 +123,7 @@ export interface TransferTarget {
   prevSeasonAssists?: number
   // Recent form note — source determines display label in the UI
   recentFormNote?: string | null
-  recentFormSource?: 'fotmob' | 'claude'
+  recentFormSource?: 'fotmob' | 'claude' | 'tm'
 }
 
 export interface SquadAnalysisResult {

@@ -105,6 +105,33 @@ function isPositionallyEligible(target: TransferTarget, gapPositionCode: string)
   return eligible
 }
 
+// Build a form note string from real TM season stats, if available.
+// Returns null when TM has no current-season data for this player.
+function buildTMFormNote(target: TransferTarget): string | null {
+  const apps = target.currentSeasonApps
+  if (!apps || apps < 1) return null
+
+  const g = target.currentSeasonGoals ?? 0
+  const a = target.currentSeasonAssists ?? 0
+
+  const base = g === 0 && a === 0
+    ? `${apps} apps this season`
+    : `${g}G ${a}A in ${apps} apps this season`
+
+  const prevApps = target.prevSeasonApps
+  if (prevApps && prevApps >= 5 && apps >= 5) {
+    const prevG = target.prevSeasonGoals ?? 0
+    const prevA = target.prevSeasonAssists ?? 0
+    const currRate = (g + a) / apps
+    const prevRate = (prevG + prevA) / prevApps
+    const diff = currRate - prevRate
+    if (diff > 0.15) return `${base}; ↑ from ${prevG}G ${prevA}A in ${prevApps} last season`
+    if (diff < -0.15) return `${base}; ↓ from ${prevG}G ${prevA}A in ${prevApps} last season`
+  }
+
+  return base
+}
+
 // Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
   return Promise.all(targets.map(async (target) => {
@@ -203,9 +230,17 @@ export async function POST(request: NextRequest) {
     // Enrich with live Transfermarkt data (current club, real market value, contract)
     const enriched = await enrichWithTM(targets)
 
+    // Replace Claude's training-data form note with real TM season stats where available.
+    // Falls back to Claude's note when TM has no current-season appearances.
+    const enrichedWithForm = enriched.map((t) => {
+      const tmNote = buildTMFormNote(t)
+      if (!tmNote) return t
+      return { ...t, recentFormNote: tmNote, recentFormSource: 'tm' as const }
+    })
+
     const teamNorm = teamName.toLowerCase()
 
-    const filtered = enriched.filter((t) => {
+    const filtered = enrichedWithForm.filter((t) => {
       // Remove players already at this team
       const clubNorm = t.currentClub.toLowerCase()
       if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false

@@ -243,12 +243,12 @@ export default function TransferTargetCard({ target, rank }: TransferTargetCardP
 
           {/* Recent form note — FotMob data (green) or Claude fallback (violet) */}
           {target.recentFormNote && (
-            target.recentFormSource === 'fotmob' ? (
-              <div className="flex items-start gap-2 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-3 py-2">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0 mt-0.5" />
+            (target.recentFormSource === 'tm' || target.recentFormSource === 'fotmob') ? (
+              <div className="flex items-start gap-2 bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2">
+                <TrendingUp className="w-3.5 h-3.5 text-blue-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <span className="text-emerald-300 text-xs">{target.recentFormNote}</span>
-                  <span className="text-slate-500 text-[10px] ml-1.5">FotMob data</span>
+                  <span className="text-blue-300 text-xs">{target.recentFormNote}</span>
+                  <span className="text-slate-500 text-[10px] ml-1.5">TM data</span>
                 </div>
               </div>
             ) : (
