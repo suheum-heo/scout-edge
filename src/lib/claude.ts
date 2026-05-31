@@ -1126,6 +1126,7 @@ export async function recommendPlayersForGap(
   nationalTeamCountry?: string,
   liveFormationContext?: LiveFormationContext,
   language: LanguageCode = DEFAULT_LANGUAGE,
+  extraPromptInstructions?: string,
 ): Promise<TransferTarget[]> {
   const resolvedName = manager?.name || managerName || 'the manager'
 
@@ -1137,7 +1138,18 @@ export async function recommendPlayersForGap(
 
   const currentDate = new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 
-  const prompt = withOutputLanguage(`You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend up to 4 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
+  const budgetBracketGuidance =
+    budget === '< €20M'
+      ? 'Treat this as a live market-value bracket from €0 to €20M. Do not recommend players you believe are worth more than €20M.'
+      : budget === '€20–50M'
+      ? 'Treat this as a live market-value bracket from €20M to €50M. Do not recommend €15M players, and do not recommend players you believe are worth more than €50M.'
+      : budget === '€50–100M'
+      ? 'Treat this as a live market-value bracket from €50M to €100M. Do not recommend players below €50M unless they are genuinely loan/free-agent exceptions for a different budget type, and do not recommend players above €100M.'
+      : budget === '€100M+'
+      ? 'Treat this as a live market-value bracket of €100M or more. Do not waste slots on cheaper value picks that belong in lower brackets.'
+      : 'Treat the selected budget as a strict live market-value bracket.'
+
+  const prompt = withOutputLanguage(`You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 4 to 6 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
 
@@ -1151,16 +1163,18 @@ Evaluate each candidate against these specific attributes. Prefer players who de
 ${roleCoverageContext ? `**Current squad coverage**: ${roleCoverageContext}` : ''}
 
 ## Budget: ${budget}
+${budgetBracketGuidance}
+${extraPromptInstructions ? `\n## EXTRA INSTRUCTIONS:\n${extraPromptInstructions}` : ''}
 
 ${nationalTeamCountry ? `## NATIONAL TEAM ELIGIBILITY — CRITICAL:
 ${teamName} is a national team. Every recommended player MUST hold ${nationalTeamCountry} nationality and be eligible to represent ${teamName}. Recommending a player who cannot legally play for this country is a disqualifying error. No exceptions.\n` : ''}## Your Task:
-Name 2 to 4 real professional players who:
+Name 4 to 6 real professional players who:
 1. Fit the tactical profile for ${resolvedName}'s system
 2. Are realistically gettable within this budget (consider transfer fee, wages, club situation)
 3. Would be a credible signing for ${teamName}${nationalTeamCountry ? `\n4. Hold ${nationalTeamCountry} nationality and are eligible for ${teamName}` : ''}
 
 Quality bar:
-- It is better to return 2 or 3 genuinely strong, system-true options than 4 padded names.
+- It is better to return 4 genuinely strong, system-true options than to pad with inaccurate names.
 - Do NOT include a player just because they are cheap or available if their primary tactical identity clashes with the role.
 - Avoid “stretch” options who would need a position change or major tactical accommodation unless they are already proven in a closely related role.
 

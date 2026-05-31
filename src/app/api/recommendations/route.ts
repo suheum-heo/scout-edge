@@ -210,59 +210,74 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Claude generates names + tactical reasoning, with role coverage context injected
-    const targets = await recommendPlayersForGap(
-      gap,
-      manager || null,
-      teamName,
-      budget,
-      managerName,
-      roleCoverageContext,
-      nationalTeamCountry,
-      liveManagerSnapshot
-        ? {
-            primaryFormation: liveManagerSnapshot.primaryFormation,
-            recentFormations: liveManagerSnapshot.recentFormations,
-            formationSampleSize: liveManagerSnapshot.sampleSize,
-            formationSeason: liveManagerSnapshot.season,
-            referenceClub: liveManagerSnapshot.referenceClub,
-          }
-        : undefined,
-      language
-    )
-
-    // Enrich with live Transfermarkt data (current club, real market value, contract)
-    const enriched = await enrichWithTM(targets)
-
-    // Replace Claude's training-data form note with real TM season stats where available.
-    // Falls back to Claude's note when TM has no current-season appearances.
-    const enrichedWithForm = enriched.map((t) => {
-      const tmNote = buildTMFormNote(t)
-      if (!tmNote) return t
-      return { ...t, recentFormNote: tmNote, recentFormSource: 'tm' as const }
-    })
-
     const teamNorm = teamName.toLowerCase()
+    const liveFormationPayload = liveManagerSnapshot
+      ? {
+          primaryFormation: liveManagerSnapshot.primaryFormation,
+          recentFormations: liveManagerSnapshot.recentFormations,
+          formationSampleSize: liveManagerSnapshot.sampleSize,
+          formationSeason: liveManagerSnapshot.season,
+          referenceClub: liveManagerSnapshot.referenceClub,
+        }
+      : undefined
 
-    const filtered = enrichedWithForm.filter((t) => {
-      // If TM could not confidently confirm the player identity, do not show the target.
-      // This avoids mixing a hallucinated candidate with another real player's age/value.
-      if (t.tmIdentityConfirmed === false) return false
+    const recommendationAttempts = [
+      undefined,
+      `Previous attempt produced no valid live Transfermarkt matches in the ${budget} bracket. Return 4 to 6 DIFFERENT players whose current live Transfermarkt values sit comfortably inside ${budget}, whose current clubs are easy to verify, and whose main or common role clearly fits ${gap.position}. Avoid borderline prices, ambiguous club situations, and obscure names that may fail identity verification.`,
+    ] as const
 
-      // Remove players already at this team
-      const clubNorm = t.currentClub.toLowerCase()
-      if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
+    let filtered: TransferTarget[] = []
 
-      // Hard positional pre-filter: TM-verified position must map to the gap's role code.
-      // Prevents hallucinated positional transitions (e.g. a CB recommended for a CM gap).
-      if (!isPositionallyEligible(t, gap.positionCode)) return false
+    for (const extraPromptInstructions of recommendationAttempts) {
+      // Claude generates names + tactical reasoning, with role coverage context injected
+      const targets = await recommendPlayersForGap(
+        gap,
+        manager || null,
+        teamName,
+        budget,
+        managerName,
+        roleCoverageContext,
+        nationalTeamCountry,
+        liveFormationPayload,
+        language,
+        extraPromptInstructions
+      )
 
-      // Numeric budget brackets should be enforced by the server, not only hinted in the prompt.
-      // If the live TM-enriched price lands outside the selected bracket, don't show the player.
-      if (!isWithinBudgetBracket(t, budget)) return false
+      // Enrich with live Transfermarkt data (current club, real market value, contract)
+      const enriched = await enrichWithTM(targets)
 
-      return true
-    })
+      // Replace Claude's training-data form note with real TM season stats where available.
+      // Falls back to Claude's note when TM has no current-season appearances.
+      const enrichedWithForm = enriched.map((t) => {
+        const tmNote = buildTMFormNote(t)
+        if (!tmNote) return t
+        return { ...t, recentFormNote: tmNote, recentFormSource: 'tm' as const }
+      })
+
+      filtered = enrichedWithForm.filter((t) => {
+        // If TM could not confidently confirm the player identity, do not show the target.
+        // This avoids mixing a hallucinated candidate with another real player's age/value.
+        if (t.tmIdentityConfirmed === false) return false
+
+        // Remove players already at this team
+        const clubNorm = t.currentClub.toLowerCase()
+        if (clubNorm.includes(teamNorm) || teamNorm.includes(clubNorm)) return false
+
+        // Hard positional pre-filter: TM-verified position must map to the gap's role code.
+        // Prevents hallucinated positional transitions (e.g. a CB recommended for a CM gap).
+        if (!isPositionallyEligible(t, gap.positionCode)) return false
+
+        // Numeric budget brackets should be enforced by the server, not only hinted in the prompt.
+        // If the live TM-enriched price lands outside the selected bracket, don't show the player.
+        if (!isWithinBudgetBracket(t, budget)) return false
+
+        return true
+      })
+
+      if (filtered.length > 0) {
+        break
+      }
+    }
 
     const sorted = [...filtered].sort((a, b) => {
       if (!!b.tmVerified !== !!a.tmVerified) return Number(!!b.tmVerified) - Number(!!a.tmVerified)
