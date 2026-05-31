@@ -284,7 +284,12 @@ export async function POST(request: NextRequest) {
       return (b.tacticalFitScore ?? 0) - (a.tacticalFitScore ?? 0)
     })
 
-    const localized = await localizeTransferTargets(sorted, language)
+    let localized = sorted
+    try {
+      localized = await localizeTransferTargets(sorted, language)
+    } catch (error) {
+      console.warn('[recommendations] localization failed, falling back to canonical targets:', error)
+    }
 
     return NextResponse.json({ recommendations: localized })
   } catch (error) {

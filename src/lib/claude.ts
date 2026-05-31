@@ -277,20 +277,67 @@ function shouldRetryWithoutPromptCaching(error: unknown): boolean {
   )
 }
 
+function shouldRetryAnthropicTransient(error: unknown): boolean {
+  const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) : null
+  const message = error instanceof Error
+    ? error.message
+    : typeof error === 'string'
+    ? error
+    : ''
+  const normalized = message.toLowerCase()
+
+  if (status !== null && (status === 408 || status === 409 || status === 429 || status >= 500)) {
+    return true
+  }
+
+  return (
+    normalized.includes('connection error') ||
+    normalized.includes('fetch failed') ||
+    normalized.includes('enotfound') ||
+    normalized.includes('econnreset') ||
+    normalized.includes('timed out') ||
+    normalized.includes('timeout') ||
+    normalized.includes('temporarily unavailable') ||
+    normalized.includes('overloaded') ||
+    normalized.includes('rate limit') ||
+    normalized.includes('too many requests')
+  )
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function createMessageWithPromptCacheFallback(params: Anthropic.MessageCreateParamsNonStreaming) {
-  try {
-    return await anthropic.messages.create(params)
-  } catch (error) {
-    if (!requestUsesPromptCaching(params) || !shouldRetryWithoutPromptCaching(error)) {
+  let requestParams = params
+  let promptCacheStripped = false
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await anthropic.messages.create(requestParams)
+    } catch (error) {
+      if (!promptCacheStripped && requestUsesPromptCaching(requestParams) && shouldRetryWithoutPromptCaching(error)) {
+        console.warn('Anthropic prompt caching unavailable, retrying without cache_control')
+        requestParams = {
+          ...requestParams,
+          system: stripPromptCachingFromSystem(requestParams.system),
+        }
+        promptCacheStripped = true
+        continue
+      }
+
+      if (attempt < 2 && shouldRetryAnthropicTransient(error)) {
+        const delayMs = 400 * (attempt + 1)
+        console.warn(`Anthropic transient error, retrying in ${delayMs}ms`, error)
+        await sleep(delayMs)
+        continue
+      }
+
       throw error
     }
-
-    console.warn('Anthropic prompt caching unavailable, retrying without cache_control')
-    return anthropic.messages.create({
-      ...params,
-      system: stripPromptCachingFromSystem(params.system),
-    })
   }
+
+  throw new Error('Anthropic request failed after retries')
 }
 
 async function createStructuredResponseWithEnglishFallback<T>({
@@ -1149,7 +1196,7 @@ export async function recommendPlayersForGap(
       ? 'Treat this as a live market-value bracket of €100M or more. Do not waste slots on cheaper value picks that belong in lower brackets.'
       : 'Treat the selected budget as a strict live market-value bracket.'
 
-  const prompt = withOutputLanguage(`You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 4 to 6 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
+  const buildPrompt = (requestedLanguage: LanguageCode) => withOutputLanguage(`You are an elite football scout and transfer market expert. Today is ${currentDate}. Recommend 4 to 5 specific real players for ${teamName} to fill this tactical gap within the stated budget. Use the most current club affiliations, contract situations, and market values you know.
 
 ## Manager: ${resolvedName}
 
@@ -1168,7 +1215,7 @@ ${extraPromptInstructions ? `\n## EXTRA INSTRUCTIONS:\n${extraPromptInstructions
 
 ${nationalTeamCountry ? `## NATIONAL TEAM ELIGIBILITY — CRITICAL:
 ${teamName} is a national team. Every recommended player MUST hold ${nationalTeamCountry} nationality and be eligible to represent ${teamName}. Recommending a player who cannot legally play for this country is a disqualifying error. No exceptions.\n` : ''}## Your Task:
-Name 4 to 6 real professional players who:
+Name 4 to 5 real professional players who:
 1. Fit the tactical profile for ${resolvedName}'s system
 2. Are realistically gettable within this budget (consider transfer fee, wages, club situation)
 3. Would be a credible signing for ${teamName}${nationalTeamCountry ? `\n4. Hold ${nationalTeamCountry} nationality and are eligible for ${teamName}` : ''}
@@ -1177,6 +1224,7 @@ Quality bar:
 - It is better to return 4 genuinely strong, system-true options than to pad with inaccurate names.
 - Do NOT include a player just because they are cheap or available if their primary tactical identity clashes with the role.
 - Avoid “stretch” options who would need a position change or major tactical accommodation unless they are already proven in a closely related role.
+- Keep every field concise. If token budget gets tight, shorten prose rather than returning malformed JSON.
 
 Use your knowledge of player market values, contract situations, and playing styles. Treat the selected budget as a hard ceiling, not a vague tier. If your best estimate puts a player outside the stated bracket, skip them and choose someone else. Rank by tactical fit.
 
@@ -1199,9 +1247,9 @@ Respond in this exact JSON format (be concise, no extra text):
     "estimatedFee": "€35-45M",
     "contractUntil": "2027",
     "tacticalFitScore": 8,
-    "fitSummary": "2 sentences max: why this player fits this system and addresses this gap",
-    "strengths": ["strength 1", "strength 2"],
-    "concerns": ["concern 1"],
+    "fitSummary": "1 sentence: why this player fits this system and addresses this gap",
+    "strengths": ["short strength 1", "short strength 2"],
+    "concerns": ["short concern 1"],
     "availability": "Likely available",
     "recentFormNote": "One sentence on recent form from your training knowledge — e.g. '7 goals in last 12 starts' or 'Returned from hamstring injury in January, 4 appearances since'. Null if you lack reliable recent-form knowledge for this player."
   }
@@ -1209,17 +1257,17 @@ Respond in this exact JSON format (be concise, no extra text):
 
 Availability options: "Likely available" | "Possible" | "Hard to get"
 Fee format: "Free agent" if out of contract, "Loan" for loan-only, "€XM" or "€X-YM" range for transfers.
-recentFormNote: base this on your training knowledge of the player's form through your cutoff. Be specific if you know (goals, assists, injuries, run of starts). Set to null rather than guess.`, language)
+recentFormNote: base this on your training knowledge of the player's form through your cutoff. Be specific if you know (goals, assists, injuries, run of starts). Set to null rather than guess.
+Return STRICTLY valid JSON only. No markdown fences, no preface, no explanation outside the JSON array.`, requestedLanguage)
 
-  const response = await createMessageWithPromptCacheFallback({
-    model: 'claude-sonnet-4-6',
+  return createStructuredResponseWithEnglishFallback<TransferTarget[]>({
+    buildPrompt,
     system: buildCachedManagerSystemPrompt(managerSection),
-    max_tokens: 1500,
-    messages: [{ role: 'user', content: prompt }],
+    language,
+    expectedType: 'array',
+    maxTokens: 2000,
+    logLabel: `Recommendations (${teamName} · ${gap.position})`,
   })
-
-  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  return extractJSON(sanitizeHomoglyphs(raw), 'array') as TransferTarget[]
 }
 
 // ── Undervalued XI ────────────────────────────────────────────────────────────

@@ -25,5 +25,13 @@ export function getAIErrorDetails(
     }
   }
 
+  if (/connection error|fetch failed|getaddrinfo|enotfound|econnreset|timed out|timeout|temporarily unavailable|overloaded|rate limit|too many requests/i.test(message)) {
+    return {
+      status: 503,
+      error:
+        'AI analysis is temporarily unavailable because the live Claude request could not be completed right now. Please try again in a moment.',
+    }
+  }
+
   return { status: 500, error: fallbackMessage }
 }
