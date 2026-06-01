@@ -100,7 +100,9 @@ function isPositionallyEligible(target: TransferTarget, gapPositionCode: string,
 
   // Wing-backs sit on the Defender/Midfielder boundary; TM classifies them inconsistently
   // (e.g. Dumfries = "Right Midfielder", Castagne = "Right Back"). Accept both codes.
-  const isWingBackGap = /wing.?back/i.test(gapPosition)
+  // Check both position string and positionCode: Claude may return "LWB"/"RWB" in either field.
+  const WING_BACK_RE = /wing.?back|wingback|\blwb\b|\brwb\b/i
+  const isWingBackGap = WING_BACK_RE.test(gapPosition) || WING_BACK_RE.test(gapPositionCode)
 
   const eligible = allPositions.some((p) => {
     const code = tmPositionToCode(p)

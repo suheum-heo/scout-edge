@@ -510,7 +510,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds, analysisMode } = body
     const language = normalizeLanguage(typeof body.language === 'string' ? body.language : null)
-    console.log(`[analyze] START team="${teamName}" source="${teamSource ?? 'fd'}"`)
+    // process.uptime() near 0 = cold start; large = warm container
+    console.log(`[analyze] START team="${teamName}" source="${teamSource ?? 'fd'}" uptime=${Math.round(process.uptime() * 1000)}ms`)
 
     const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
