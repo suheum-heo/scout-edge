@@ -18,6 +18,7 @@ export interface LocalTeam {
   source?: 'af' | 'tm' | 'fotmob'  // 'af' = API Football ID, 'tm' = Transfermarkt ID (string), 'fotmob' = FotMob ID (squad fetched directly)
   fotmobSearch?: string // override FotMob search query when full name doesn't find the right team
   fotmobId?: number   // FotMob team ID — when set, skips FotMob search entirely
+  tmClubId?: string   // TM club ID (verein/XXXXX in the URL) — when set on AF-source teams, bypasses the blocked club search endpoint
 }
 
 export const POPULAR_TEAMS: LocalTeam[] = [
@@ -163,6 +164,8 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   { id: 1597, fotmobId: 6399,  name: 'FC Dallas',              country: 'USA',    source: 'af', logo: 'https://media.api-sports.io/football/teams/1597.png', aliases: ['dallas', 'fc dallas', 'burn'] },
   // ── K League 1 (API Football IDs, source: 'af') ────────────────────────────
   // name = full official display name; fotmobSearch = short query that FotMob can actually find
+  // tmClubId = TM verein ID (from transfermarkt.com URL) — bypasses blocked club search endpoint.
+  // To find: visit transfermarkt.com, search the club, copy the number from the URL (.../verein/XXXXX).
   { id: 2762, fotmobId: 46038,  name: 'Jeonbuk Hyundai Motors FC', country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2762.png', fotmobSearch: 'Jeonbuk', aliases: ['jeonbuk', 'jeonbuk motors', 'jeonbuk fc', 'green warriors'] },
   { id: 2767, fotmobId: 133896, name: 'Ulsan HD FC',           country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133896_small.png', fotmobSearch: 'Ulsan HD', aliases: ['ulsan', 'ulsan hd fc', 'ulsan hyundai', 'tigers'] },
   { id: 2766, fotmobId: 92630,  name: 'FC Seoul',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2766.png', aliases: ['seoul', 'super match'] },
@@ -268,6 +271,10 @@ function getLocalizedClubAliases(teamName: string): string[] {
 
 function getSearchableAliases(team: LocalTeam): string[] {
   return [...new Set([team.name, ...team.aliases, ...getLocalizedClubAliases(team.name)])]
+}
+
+export function getLocalTeamById(id: number | string): LocalTeam | undefined {
+  return POPULAR_TEAMS.find((t) => String(t.id) === String(id))
 }
 
 export function searchLocalTeams(query: string): Array<{

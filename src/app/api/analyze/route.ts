@@ -49,6 +49,7 @@ import {
 } from '@/lib/fotmob'
 import { getClubManager, getClubSquad, fetchSquadOtherPositions, normalizePersonLookupKey, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
+import { getLocalTeamById } from '@/lib/teams-db'
 import {
   buildCachedSquadAnalysisFingerprint,
   getCachedSquadAnalysisCore,
@@ -635,12 +636,15 @@ export async function POST(request: NextRequest) {
         }
       } else if (teamSource === 'af') {
         const fmId: number | null = (FOTMOB_AVAILABLE && fotmobId) ? fotmobId : null
-        console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmob:${FOTMOB_AVAILABLE ? fmId ?? 'search' : 'disabled'})`)
+        // Use tmClubId from teams-db directly when available — avoids the club search
+        // endpoint which TM blocks from Fly.io IPs for non-European leagues.
+        const knownTmClubId = getLocalTeamById(teamId)?.tmClubId ?? null
+        console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmob:${FOTMOB_AVAILABLE ? fmId ?? 'search' : 'disabled'} tmClubId:${knownTmClubId ?? 'search'})`)
 
         const [afCoach, fmResult, tmId] = await Promise.all([
           getCoach(teamId).catch(() => null),
           fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
-          searchClub(teamName).catch(() => null),
+          knownTmClubId ? Promise.resolve(knownTmClubId) : searchClub(teamName).catch(() => null),
         ])
 
         coach = (fmResult?.coach as unknown as APICoach | null) ?? afCoach
