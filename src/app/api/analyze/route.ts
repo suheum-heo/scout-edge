@@ -504,11 +504,14 @@ function isAnalyzeSquadRow(value: AnalyzeSquadRow | null | undefined): value is 
 export async function POST(request: NextRequest) {
   const timing = createServerTiming()
   const requestStartedAt = timing.start()
+  const tA = Date.now()
 
   try {
     const body = await request.json()
     const { teamId, teamName, managerId, teamSource, fotmobId, excludedPlayerIds, analysisMode } = body
     const language = normalizeLanguage(typeof body.language === 'string' ? body.language : null)
+    console.log(`[analyze] START team="${teamName}" source="${teamSource ?? 'fd'}"`)
+
     const excludedSet = new Set<string>(excludedPlayerIds ?? [])
 
     if (teamId == null || !teamName) {
@@ -663,11 +666,13 @@ export async function POST(request: NextRequest) {
         const fmId: number | null = (FOTMOB_AVAILABLE && fotmobId) ? fotmobId : null
         console.log(`[analyze] FD team ${teamName}, parallel fetch (fotmob:${FOTMOB_AVAILABLE ? fmId ?? 'search' : 'disabled'})`)
 
+        const tFdFetch = Date.now()
         const [fdData, fotmobResult, tmId] = await Promise.all([
           getTeamData(teamId),
           fmId ? fotmobGetSquadAndCoach(fmId).catch(() => null) : Promise.resolve(null),
           searchClub(teamName).catch(() => null),
         ])
+        console.log(`[analyze] fd_fetch: ${Date.now() - tFdFetch}ms fdSquad=${fdData.players.length} tmId=${tmId ?? 'none'}`)
 
         const fdSquadLooksYouth = isLikelyYouthOnlySquad(fdData.players)
         let tmPlayers: Awaited<ReturnType<typeof getClubSquad>> = []
@@ -779,7 +784,9 @@ export async function POST(request: NextRequest) {
             ? squadTmPlayers
             : await getClubSquad(squadTmId).catch(() => [])
           if (tmPlayersForPositions.length > 0) {
+            const tOtherPos = Date.now()
             const otherPositionsById = await fetchSquadOtherPositions(tmPlayersForPositions)
+            console.log(`[analyze] other_positions: ${Date.now() - tOtherPos}ms (${tmPlayersForPositions.length} players)`)
             // Build name-keyed map for FotMob/AF squads that don't have TM player IDs
             const otherPosByName = new Map<string, string[]>()
             for (const p of tmPlayersForPositions) {
@@ -834,6 +841,7 @@ export async function POST(request: NextRequest) {
         `source:${teamSource ?? 'fd'},cache:miss,squad:${squad.length},coach:${providerManagerName ? 'yes' : 'no'}`
       )
       timing.end('format_squad', formatSquadStartedAt, `players:${squadPlayers.length},stats:${hasStats ? 'yes' : 'no'}`)
+      console.log(`[analyze] provider_fetch TOTAL: ${Date.now() - tA}ms squad=${squad.length} coach=${providerManagerName ?? 'none'}`)
     }
 
     const hasSquadData = squad.length > 0
@@ -874,10 +882,12 @@ export async function POST(request: NextRequest) {
 
     if (!stableManagerSnapshot) {
       const managerSnapshotStartedAt = timing.start()
+      const tSnap = Date.now()
       const liveManagerSnapshot = initialManagerName
         ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 5 }).catch(() => null)
         : null
       timing.end('manager_snapshot', managerSnapshotStartedAt, initialManagerName ?? 'none')
+      console.log(`[analyze] manager_snapshot: ${Date.now() - tSnap}ms manager=${initialManagerName ?? 'none'}`)
 
       stableManagerSnapshot = {
         trustedManagerName: getTrustedSnapshotManagerName(liveManagerSnapshot, teamName),
@@ -942,6 +952,7 @@ export async function POST(request: NextRequest) {
 
     const requestedAnalysisMode = analysisMode === 'details' ? 'details' : 'core'
     const claudeStartedAt = timing.start()
+    const tClaude = Date.now()
     const coreAnalysis = await getCachedSquadAnalysisCore(analysisInput)
     let analysis
     if (requestedAnalysisMode === 'details') {
@@ -990,6 +1001,7 @@ export async function POST(request: NextRequest) {
       claudeStartedAt,
       requestedAnalysisMode
     )
+    console.log(`[analyze] claude: ${Date.now() - tClaude}ms mode=${requestedAnalysisMode}`)
 
     const inferredManagerName = analysis.managerName?.trim() || null
     const factualManagerVerified = Boolean(factualManagerName)
@@ -1060,6 +1072,7 @@ export async function POST(request: NextRequest) {
     })
     timing.end('total', requestStartedAt)
     timing.apply(response.headers)
+    console.log(`[analyze] DONE total=${Date.now() - tA}ms`)
     return response
   } catch (error) {
     console.error('Analysis error:', error)

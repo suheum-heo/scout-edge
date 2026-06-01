@@ -39,7 +39,9 @@ async function tmSiteFetch<T>(path: string): Promise<T> {
   if (cached && cached.expires > Date.now()) return cached.data as T
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 10_000)
+  // 3s: TM's ceapi is frequently blocked from Vercel IPs — fail fast rather than
+  // burning 10s per player waiting for a timeout that never resolves.
+  const timer = setTimeout(() => controller.abort(), 3_000)
   try {
     const res = await fetch(`${TM_SITE_BASE}${path}`, {
       cache: 'no-store',
@@ -67,7 +69,7 @@ async function tmSiteFetchText(path: string): Promise<string> {
   if (cached && cached.expires > Date.now()) return cached.data as string
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 10_000)
+  const timer = setTimeout(() => controller.abort(), 3_000)
   try {
     const res = await fetch(`${TM_SITE_BASE}${path}`, {
       cache: 'no-store',
@@ -1035,7 +1037,10 @@ export async function enrichTMPlayerIdentity(
   ] as const
 
   let searchResult: TMPlayerSearchResult | null = null
+  let searchAttempt = 0
+  const tSearch = Date.now()
   for (const hints of attempts) {
+    searchAttempt++
     try {
       const result = await Promise.race([
         searchPlayer(player.playerName, hints),
@@ -1049,6 +1054,7 @@ export async function enrichTMPlayerIdentity(
       continue
     }
   }
+  console.log(`[tm] ${player.playerName}: search ${Date.now() - tSearch}ms attempt=${searchAttempt}/${attempts.length} found=${!!searchResult}`)
 
   return enrichTMPlayerIdentityFromSearchResult(player, searchResult, {
     profileTimeoutMs: options?.profileTimeoutMs,
@@ -1097,7 +1103,7 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
  */
 export async function fetchSquadOtherPositions(
   players: TMClubPlayer[],
-  concurrency = 6
+  concurrency = 20
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
   for (let i = 0; i < players.length; i += concurrency) {
