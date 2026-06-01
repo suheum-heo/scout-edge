@@ -1043,6 +1043,7 @@ export async function enrichTMPlayerIdentity(
   const tSearch = Date.now()
   for (const hints of attempts) {
     searchAttempt++
+    const tAttempt = Date.now()
     try {
       const result = await Promise.race([
         searchPlayer(player.playerName, hints),
@@ -1052,6 +1053,10 @@ export async function enrichTMPlayerIdentity(
         searchResult = result
         break
       }
+      // If this attempt returned quickly with no results, TM genuinely has no entry for
+      // this name — different hints won't change that. Only retry when the attempt timed
+      // out (~searchTimeoutMs), since transient proxy slowness might clear on the next try.
+      if (Date.now() - tAttempt < searchTimeoutMs - 500) break
     } catch {
       continue
     }

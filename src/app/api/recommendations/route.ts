@@ -301,7 +301,10 @@ export async function POST(request: NextRequest) {
       filtered = enrichedWithForm.filter((t) => {
         // If TM could not confidently confirm the player identity, do not show the target.
         // This avoids mixing a hallucinated candidate with another real player's age/value.
-        if (t.tmIdentityConfirmed === false) return false
+        if (t.tmIdentityConfirmed === false) {
+          console.warn(`[recommendations] dropping ${t.playerName} — TM identity not confirmed`)
+          return false
+        }
 
         // Remove players already at this team
         const clubNorm = t.currentClub.toLowerCase()
