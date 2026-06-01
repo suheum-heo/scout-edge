@@ -93,6 +93,7 @@ function isPositionallyEligible(target: TransferTarget, gapPositionCode: string,
   if (!target.tmVerified) return true // no TM data to verify against — pass through
 
   const allPositions = [target.position, ...(target.otherPositions ?? [])]
+  console.log(`[recommendations] eligibility check: ${target.playerName} | gapPositionCode="${gapPositionCode}" gapPosition="${gapPosition}" | TM positions: [${allPositions.join(', ')}]`)
 
   // Claude may return a specific positionCode like "Defensive Midfielder" instead of the strict
   // 4-value enum "Midfielder" — normalize it through the same mapper used for TM positions.
