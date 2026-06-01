@@ -364,6 +364,9 @@ async function createStructuredResponseWithEnglishFallback<T>({
       messages: [{ role: 'user', content: buildPrompt(requestedLanguage) }],
     })
 
+    const { input_tokens, output_tokens } = response.usage
+    console.log(`[claude] ${logLabel}: input=${input_tokens} output=${output_tokens}/${maxTokens}`)
+
     const raw = response.content[0].type === 'text' ? response.content[0].text : ''
     return extractJSON(sanitizeHomoglyphs(raw), expectedType) as T
   }

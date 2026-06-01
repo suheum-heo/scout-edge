@@ -10,7 +10,7 @@ import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeTransferTargets } from '@/lib/entity-localization'
 import { enrichTMPlayerIdentity } from '@/lib/transfermarkt'
-import { getOrInferProfiles, summarizeCoverage, SquadPlayer } from '@/lib/role-profiles'
+import { getOrInferProfiles, summarizeCoverage, SquadPlayer, type PlayerRoleProfile } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
 
 function budgetRange(budget: string): { min: number; max: number } | null {
@@ -142,12 +142,8 @@ function buildTMFormNote(target: TransferTarget): string | null {
   return base
 }
 
-// Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
+// Enrich all targets in parallel — Promise.all so slow players don't block fast ones
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
-  return enrichWithTMTimed(targets)
-}
-
-async function enrichWithTMTimed(targets: TransferTarget[]): Promise<TransferTarget[]> {
   return Promise.all(targets.map(async (target) => {
     const tPlayer = Date.now()
     const enriched = await enrichTMPlayerIdentity({
@@ -216,25 +212,33 @@ export async function POST(request: NextRequest) {
 
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
-    const t1 = Date.now()
-    const liveManagerSnapshot = factualManagerName
-      ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
-      : null
-    console.log(`[recommendations] liveManagerSnapshot: ${Date.now() - t1}ms`)
 
-    // Lazy role-profile inference: fetch/infer profiles for all squad players, then summarize coverage
+    // Run snapshot and role-profile inference in parallel — neither depends on the other
+    const tPre = Date.now()
+    const [liveManagerSnapshot, profiles] = await Promise.all([
+      factualManagerName
+        ? Promise.race([
+            // maxMatches:5 = 1 fixture list + 5 lineup calls vs 20 before (was the main bottleneck)
+            getLiveManagerSnapshot(factualManagerName, { maxMatches: 5 }).catch(() => null),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+          ])
+        : Promise.resolve(null),
+      squad?.length
+        ? Promise.race([
+            getOrInferProfiles(squad, teamName).catch((): PlayerRoleProfile[] => []),
+            new Promise<PlayerRoleProfile[]>((resolve) => setTimeout(() => resolve([]), 8000)),
+          ])
+        : Promise.resolve([] as PlayerRoleProfile[]),
+    ])
+    console.log(`[recommendations] pre-flight (snapshot+profiles parallel): ${Date.now() - tPre}ms`)
+
     let roleCoverageContext: string | undefined
-    if (squad?.length) {
+    if (profiles.length) {
       try {
-        const t2 = Date.now()
-        const timeout = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('role-profile timeout')), 8000)
-        )
-        const profiles = await Promise.race([getOrInferProfiles(squad, teamName), timeout])
         roleCoverageContext = summarizeCoverage(profiles, gap.position)
-        console.log(`[recommendations] roleProfiles: ${Date.now() - t2}ms | coverage: ${roleCoverageContext}`)
+        console.log(`[recommendations] coverage: ${roleCoverageContext}`)
       } catch (e) {
-        console.error('[recommendations] Role profile inference failed (non-fatal):', e)
+        console.error('[recommendations] Role profile summarize failed (non-fatal):', e)
       }
     }
 
@@ -275,10 +279,10 @@ export async function POST(request: NextRequest) {
       )
       console.log(`[recommendations] attempt ${attemptNum} Claude: ${Date.now() - tClaude}ms → ${targets.length} candidates`)
 
-      // Enrich with live Transfermarkt data (current club, real market value, contract)
+      // Enrich with live Transfermarkt data — all players run in parallel
       const tTM = Date.now()
-      const enriched = await enrichWithTMTimed(targets)
-      console.log(`[recommendations] attempt ${attemptNum} TM enrichment total: ${Date.now() - tTM}ms`)
+      const enriched = await enrichWithTM(targets)
+      console.log(`[recommendations] attempt ${attemptNum} TM enrichment (${targets.length} players parallel): ${Date.now() - tTM}ms`)
 
       // Replace Claude's training-data form note with real TM season stats where available.
       // Falls back to Claude's note when TM has no current-season appearances.
