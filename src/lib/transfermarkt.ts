@@ -16,12 +16,14 @@ const cache = new Map<string, { data: unknown; expires: number }>()
 const TTL = 6 * 60 * 60 * 1000
 const TM_SITE_TTL = 60 * 60 * 1000
 
-// Probe the TM proxy with a known-good search (1.5s timeout).
-// Returns false on timeout, non-OK status, or empty results — all indicate the proxy is down.
-// Designed to run in parallel with other preflight work so it adds zero latency to happy-path requests.
+// Probe the TM proxy with a known-good search.
+// 3s timeout: Fly.io cold starts can take 2-3s, so 1.5s was too aggressive and caused
+// false negatives (proxy responding slowly but correctly → health=false → enrichment skipped).
+// Caller fires this as a standalone promise and awaits it only right before enrichWithTM,
+// so the ~5-11s Claude generation window means this adds zero latency to the happy path.
 export async function checkTMProxyHealth(): Promise<boolean> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 1_500)
+  const timer = setTimeout(() => controller.abort(), 3_000)
   try {
     const res = await fetch(`${TM_BASE}/players/search/messi`, { signal: controller.signal })
     clearTimeout(timer)
