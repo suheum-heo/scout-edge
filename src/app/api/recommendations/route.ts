@@ -357,6 +357,13 @@ export async function POST(request: NextRequest) {
       console.warn('[recommendations] localization failed, falling back to canonical targets:', error)
     }
 
+    for (const p of localized) {
+      console.log(
+        `[recommendations] form ${p.playerName}: source=${p.recentFormSource ?? 'undefined'}` +
+        ` note="${p.recentFormNote ?? 'null'}" apps=${p.currentSeasonApps ?? '-'}` +
+        ` tmIdentityConfirmed=${p.tmIdentityConfirmed ?? 'undefined'}`
+      )
+    }
     console.log(`[recommendations] DONE total=${Date.now() - t0}ms results=${localized.length}`)
     return NextResponse.json({ recommendations: localized })
   } catch (error) {
