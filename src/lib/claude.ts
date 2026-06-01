@@ -1243,7 +1243,7 @@ Quality bar:
 Use your knowledge of player market values, contract situations, and playing styles. Treat the selected budget as a hard ceiling, not a vague tier. If your best estimate puts a player outside the stated bracket, skip them and choose someone else. Rank by tactical fit.
 
 IMPORTANT — accuracy rules:
-- NEVER recommend "Ferran Valera" — this player does not exist. It is a known hallucination. If this name comes to mind, replace it with a verified real player.
+- Only recommend players you are highly confident exist: you must be able to recall their current club, recent stats, and transfer market presence from your training data. If you cannot recall these details with high confidence, skip that player. It is better to return 3 verified players than 5 where one is invented.
 - Only recommend currently ACTIVE professional players. Never recommend retired players.
 - Only name players whose current club you are highly confident about. If a player recently moved to a new league (MLS, Saudi Pro League, Chinese Super League, etc.) or you're uncertain about their club as of ${currentDate}, skip them and choose someone else.
 - For players currently on loan: use their CURRENT LOAN DESTINATION as the club (e.g. "Union Saint-Gilloise" not "Brighton" for a player on loan there). Never list a parent club if the player is actually playing elsewhere on loan.
