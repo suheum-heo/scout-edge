@@ -136,21 +136,30 @@ No other text.`
   try {
     const res = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [{ role: 'user', content: prompt }],
     })
     const text = res.content[0].type === 'text' ? res.content[0].text : ''
     const start = text.indexOf('[')
     const end = text.lastIndexOf(']')
-    if (start === -1 || end === -1) return []
+    if (start === -1 || end === -1) {
+      console.error('[role-profiles] No JSON array in response:', text.slice(0, 200))
+      return []
+    }
 
-    const raw = JSON.parse(text.slice(start, end + 1)) as {
+    let raw: {
       playerId: string
       playerName: string
       primaryPosition: string
       secondaryRoles: SecondaryRole[]
       confidence: number
     }[]
+    try {
+      raw = JSON.parse(text.slice(start, end + 1))
+    } catch (parseErr) {
+      console.error('[role-profiles] JSON parse error:', parseErr, '| raw excerpt:', text.slice(start, start + 300))
+      return []
+    }
 
     return raw.map((r) => ({
       playerId: r.playerId,

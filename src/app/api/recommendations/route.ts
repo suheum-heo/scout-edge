@@ -89,16 +89,26 @@ function tmPositionToCode(position: string): 'Goalkeeper' | 'Defender' | 'Midfie
 // Hard positional eligibility check using TM-verified position data.
 // Only filters when TM confirmed the player's identity (tmVerified = true).
 // Claude is allowed to explain WHY a matched player fits, but this decides WHETHER they qualify.
-function isPositionallyEligible(target: TransferTarget, gapPositionCode: string): boolean {
+function isPositionallyEligible(target: TransferTarget, gapPositionCode: string, gapPosition: string): boolean {
   if (!target.tmVerified) return true // no TM data to verify against — pass through
 
   const allPositions = [target.position, ...(target.otherPositions ?? [])]
-  const eligible = allPositions.some((p) => tmPositionToCode(p) === gapPositionCode)
+
+  // Wing-backs sit on the Defender/Midfielder boundary; TM classifies them inconsistently
+  // (e.g. Dumfries = "Right Midfielder", Castagne = "Right Back"). Accept both codes.
+  const isWingBackGap = /wing.?back/i.test(gapPosition)
+
+  const eligible = allPositions.some((p) => {
+    const code = tmPositionToCode(p)
+    if (code === gapPositionCode) return true
+    if (isWingBackGap && code === 'Midfielder') return true
+    return false
+  })
 
   if (!eligible) {
     console.warn(
       `[recommendations] Positional mismatch filtered: ${target.playerName} ` +
-      `(TM: ${allPositions.join(', ')}) vs gap "${gapPositionCode}"`
+      `(TM: ${allPositions.join(', ')}) vs gap "${gapPositionCode}" (${gapPosition})`
     )
   }
 
@@ -134,7 +144,12 @@ function buildTMFormNote(target: TransferTarget): string | null {
 
 // Enrich Claude's transfer targets with live Transfermarkt data (parallel, per-player timeout)
 async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]> {
+  return enrichWithTMTimed(targets)
+}
+
+async function enrichWithTMTimed(targets: TransferTarget[]): Promise<TransferTarget[]> {
   return Promise.all(targets.map(async (target) => {
+    const tPlayer = Date.now()
     const enriched = await enrichTMPlayerIdentity({
       playerName: target.playerName,
       currentClub: target.currentClub,
@@ -145,6 +160,10 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
       contractUntil: target.contractUntil,
       transfermarktUrl: target.transfermarktUrl,
     })
+    console.log(
+      `[recommendations] TM ${target.playerName}: ${Date.now() - tPlayer}ms` +
+      ` verified=${enriched.tmVerified} apps=${enriched.currentSeasonApps ?? '-'}`
+    )
 
     return {
       ...target,
@@ -173,6 +192,7 @@ async function enrichWithTM(targets: TransferTarget[]): Promise<TransferTarget[]
 }
 
 export async function POST(request: NextRequest) {
+  const t0 = Date.now()
   let language = normalizeLanguage(undefined)
   try {
     const body = await request.json()
@@ -192,19 +212,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: translate(language, 'error.analysisFailed') }, { status: 400 })
     }
 
+    console.log(`[recommendations] START team="${teamName}" gap="${gap.position}" budget="${budget}"`)
+
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
+    const t1 = Date.now()
     const liveManagerSnapshot = factualManagerName
       ? await getLiveManagerSnapshot(factualManagerName, { maxMatches: 20 }).catch(() => null)
       : null
+    console.log(`[recommendations] liveManagerSnapshot: ${Date.now() - t1}ms`)
 
     // Lazy role-profile inference: fetch/infer profiles for all squad players, then summarize coverage
     let roleCoverageContext: string | undefined
     if (squad?.length) {
       try {
-        const profiles = await getOrInferProfiles(squad, teamName)
+        const t2 = Date.now()
+        const timeout = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('role-profile timeout')), 8000)
+        )
+        const profiles = await Promise.race([getOrInferProfiles(squad, teamName), timeout])
         roleCoverageContext = summarizeCoverage(profiles, gap.position)
-        console.log(`[recommendations] Role coverage for "${gap.position}": ${roleCoverageContext}`)
+        console.log(`[recommendations] roleProfiles: ${Date.now() - t2}ms | coverage: ${roleCoverageContext}`)
       } catch (e) {
         console.error('[recommendations] Role profile inference failed (non-fatal):', e)
       }
@@ -227,9 +255,12 @@ export async function POST(request: NextRequest) {
     ] as const
 
     let filtered: TransferTarget[] = []
+    let attemptNum = 0
 
     for (const extraPromptInstructions of recommendationAttempts) {
+      attemptNum++
       // Claude generates names + tactical reasoning, with role coverage context injected
+      const tClaude = Date.now()
       const targets = await recommendPlayersForGap(
         gap,
         manager || null,
@@ -242,9 +273,12 @@ export async function POST(request: NextRequest) {
         language,
         extraPromptInstructions
       )
+      console.log(`[recommendations] attempt ${attemptNum} Claude: ${Date.now() - tClaude}ms → ${targets.length} candidates`)
 
       // Enrich with live Transfermarkt data (current club, real market value, contract)
-      const enriched = await enrichWithTM(targets)
+      const tTM = Date.now()
+      const enriched = await enrichWithTMTimed(targets)
+      console.log(`[recommendations] attempt ${attemptNum} TM enrichment total: ${Date.now() - tTM}ms`)
 
       // Replace Claude's training-data form note with real TM season stats where available.
       // Falls back to Claude's note when TM has no current-season appearances.
@@ -265,7 +299,7 @@ export async function POST(request: NextRequest) {
 
         // Hard positional pre-filter: TM-verified position must map to the gap's role code.
         // Prevents hallucinated positional transitions (e.g. a CB recommended for a CM gap).
-        if (!isPositionallyEligible(t, gap.positionCode)) return false
+        if (!isPositionallyEligible(t, gap.positionCode, gap.position)) return false
 
         // Numeric budget brackets should be enforced by the server, not only hinted in the prompt.
         // If the live TM-enriched price lands outside the selected bracket, don't show the player.
@@ -286,11 +320,14 @@ export async function POST(request: NextRequest) {
 
     let localized = sorted
     try {
+      const tL10n = Date.now()
       localized = await localizeTransferTargets(sorted, language)
+      console.log(`[recommendations] localization: ${Date.now() - tL10n}ms`)
     } catch (error) {
       console.warn('[recommendations] localization failed, falling back to canonical targets:', error)
     }
 
+    console.log(`[recommendations] DONE total=${Date.now() - t0}ms results=${localized.length}`)
     return NextResponse.json({ recommendations: localized })
   } catch (error) {
     console.error('Recommendations error:', error)
