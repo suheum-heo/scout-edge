@@ -634,8 +634,8 @@ export async function POST(request: NextRequest) {
           } catch {}
         }
       } else if (teamSource === 'af') {
-        const fmId: number | null = fotmobId ?? null
-        console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmobId=${fmId ?? 'none'})`)
+        const fmId: number | null = (FOTMOB_AVAILABLE && fotmobId) ? fotmobId : null
+        console.log(`[analyze] AF team ${teamName}, parallel fetch (fotmob:${FOTMOB_AVAILABLE ? fmId ?? 'search' : 'disabled'})`)
 
         const [afCoach, fmResult, tmId] = await Promise.all([
           getCoach(teamId).catch(() => null),
