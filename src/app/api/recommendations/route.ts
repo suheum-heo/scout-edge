@@ -9,7 +9,7 @@ import { recommendPlayersForGap, SquadGap, TransferTarget } from '@/lib/claude'
 import { getAIErrorDetails } from '@/lib/ai-errors'
 import { getLiveManagerSnapshot } from '@/lib/api-football'
 import { localizeTransferTargets } from '@/lib/entity-localization'
-import { enrichTMPlayerIdentity } from '@/lib/transfermarkt'
+import { enrichTMPlayerIdentity, checkTMProxyHealth } from '@/lib/transfermarkt'
 import { getOrInferProfiles, summarizeCoverage, SquadPlayer, type PlayerRoleProfile } from '@/lib/role-profiles'
 import { normalizePositionDisplayName } from '@/lib/position-names'
 
@@ -220,9 +220,11 @@ export async function POST(request: NextRequest) {
     const manager = managerId ? getManagerById(managerId) : undefined
     const factualManagerName = manager?.name || managerName || null
 
-    // Run snapshot and role-profile inference in parallel — neither depends on the other
+    // Run snapshot, role-profile inference, and TM proxy health check in parallel.
+    // Health check finishes well before Claude returns candidates (~1.5s vs ~5-11s),
+    // so it adds zero latency to the happy path.
     const tPre = Date.now()
-    const [liveManagerSnapshot, profiles] = await Promise.all([
+    const [liveManagerSnapshot, profiles, tmProxyHealthy] = await Promise.all([
       factualManagerName
         ? Promise.race([
             // maxMatches:5 = 1 fixture list + 5 lineup calls vs 20 before (was the main bottleneck)
@@ -236,8 +238,12 @@ export async function POST(request: NextRequest) {
             new Promise<PlayerRoleProfile[]>((resolve) => setTimeout(() => resolve([]), 8000)),
           ])
         : Promise.resolve([] as PlayerRoleProfile[]),
+      checkTMProxyHealth(),
     ])
-    console.log(`[recommendations] pre-flight (snapshot+profiles parallel): ${Date.now() - tPre}ms`)
+    if (!tmProxyHealthy) {
+      console.warn('[recommendations] TM proxy unhealthy — enrichment will be skipped, results will be unverified')
+    }
+    console.log(`[recommendations] pre-flight (snapshot+profiles+health parallel): ${Date.now() - tPre}ms`)
 
     let roleCoverageContext: string | undefined
     if (profiles.length) {
@@ -301,6 +307,18 @@ export async function POST(request: NextRequest) {
       )
       prevAttemptNames = targets.map((t) => t.playerName)
       console.log(`[recommendations] attempt ${attemptNum} Claude: ${Date.now() - tClaude}ms → ${targets.length} candidates`)
+
+      if (!tmProxyHealthy) {
+        // Proxy is down — skip enrichment entirely. Claude-generated targets have
+        // tmIdentityConfirmed=undefined (not false), so they pass the identity filter
+        // and are shown with the "Unverified" badge rather than returning 0 results.
+        filtered = targets.filter((t) => {
+          const clubNorm = t.currentClub.toLowerCase()
+          return !clubNorm.includes(teamNorm) && !teamNorm.includes(clubNorm)
+        })
+        console.warn(`[recommendations] degraded mode: ${filtered.length} unverified results (TM proxy down)`)
+        break
+      }
 
       // Enrich with live Transfermarkt data — all players run in parallel
       const tTM = Date.now()

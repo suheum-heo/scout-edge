@@ -16,6 +16,24 @@ const cache = new Map<string, { data: unknown; expires: number }>()
 const TTL = 6 * 60 * 60 * 1000
 const TM_SITE_TTL = 60 * 60 * 1000
 
+// Probe the TM proxy with a known-good search (1.5s timeout).
+// Returns false on timeout, non-OK status, or empty results — all indicate the proxy is down.
+// Designed to run in parallel with other preflight work so it adds zero latency to happy-path requests.
+export async function checkTMProxyHealth(): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 1_500)
+  try {
+    const res = await fetch(`${TM_BASE}/players/search/messi`, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!res.ok) return false
+    const data = await res.json() as { results?: unknown[] }
+    return Array.isArray(data.results) && data.results.length > 0
+  } catch {
+    clearTimeout(timer)
+    return false
+  }
+}
+
 async function tmFetch<T>(path: string): Promise<T> {
   const cached = cache.get(path)
   if (cached && cached.expires > Date.now()) return cached.data as T
