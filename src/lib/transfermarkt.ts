@@ -21,7 +21,9 @@ async function tmFetch<T>(path: string): Promise<T> {
   if (cached && cached.expires > Date.now()) return cached.data as T
 
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 10_000)
+  // 5s: Fly.io proxy is normally ~1s; 5s is a generous buffer without letting
+  // a hanging /stats or /profile call hold up the entire enrichment batch.
+  const timer = setTimeout(() => controller.abort(), 5_000)
   try {
     const res = await fetch(`${TM_BASE}${path}`, { signal: controller.signal })
     if (!res.ok) throw new Error(`TM API ${res.status}: ${path}`)
