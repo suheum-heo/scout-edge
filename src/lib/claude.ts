@@ -347,6 +347,7 @@ async function createStructuredResponseWithEnglishFallback<T>({
   expectedType,
   maxTokens,
   logLabel,
+  model = 'claude-sonnet-4-6',
 }: {
   buildPrompt: (language: LanguageCode) => string
   system: Anthropic.MessageCreateParamsNonStreaming['system']
@@ -354,10 +355,11 @@ async function createStructuredResponseWithEnglishFallback<T>({
   expectedType: 'object' | 'array'
   maxTokens: number
   logLabel: string
+  model?: string
 }): Promise<T> {
   const requestStructured = async (requestedLanguage: LanguageCode): Promise<T> => {
     const response = await createMessageWithPromptCacheFallback({
-      model: 'claude-sonnet-4-6',
+      model,
       system,
       max_tokens: maxTokens,
       temperature: 0,
@@ -1270,6 +1272,7 @@ Return STRICTLY valid JSON only. No markdown fences, no preface, no explanation 
     expectedType: 'array',
     maxTokens: 2000,
     logLabel: `Recommendations (${teamName} · ${gap.position})`,
+    model: 'claude-haiku-4-5-20251001',
   })
 }
 

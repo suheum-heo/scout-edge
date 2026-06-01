@@ -45,6 +45,7 @@ import {
   getSquadAndCoach as fotmobGetSquadAndCoach,
   formatPlayerStats as fotmobFormatPlayerStats,
   APIPlayer as FotmobAPIPlayer,
+  FOTMOB_AVAILABLE,
 } from '@/lib/fotmob'
 import { getClubManager, getClubSquad, fetchSquadOtherPositions, normalizePersonLookupKey, searchClub, searchManager, searchManagerByClub } from '@/lib/transfermarkt'
 import { getManagerById, getManagerByName } from '@/lib/managers'
@@ -659,8 +660,8 @@ export async function POST(request: NextRequest) {
           try { squadRaw = await getSquad(teamId) } catch {}
         }
       } else {
-        const fmId: number | null = fotmobId ?? null
-        console.log(`[analyze] FD team ${teamName}, fetching FD+FotMob in parallel (fotmobId=${fmId ?? 'none'})`)
+        const fmId: number | null = (FOTMOB_AVAILABLE && fotmobId) ? fotmobId : null
+        console.log(`[analyze] FD team ${teamName}, parallel fetch (fotmob:${FOTMOB_AVAILABLE ? fmId ?? 'search' : 'disabled'})`)
 
         const [fdData, fotmobResult, tmId] = await Promise.all([
           getTeamData(teamId),
@@ -698,7 +699,7 @@ export async function POST(request: NextRequest) {
           coach = tmCoach ?? await resolveLiveManagerCoach(teamId, teamName, tmId)
         }
 
-        if (!usedFotmob) {
+        if (!usedFotmob && FOTMOB_AVAILABLE) {
           try {
             const fmTeams = await fotmobSearchTeams(teamName)
             const resolvedFmId = fmTeams[0]?.team.id ?? null
@@ -874,7 +875,7 @@ export async function POST(request: NextRequest) {
     if (!stableManagerSnapshot) {
       const managerSnapshotStartedAt = timing.start()
       const liveManagerSnapshot = initialManagerName
-        ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 20 }).catch(() => null)
+        ? await getLiveManagerSnapshot(initialManagerName, { maxMatches: 5 }).catch(() => null)
         : null
       timing.end('manager_snapshot', managerSnapshotStartedAt, initialManagerName ?? 'none')
 

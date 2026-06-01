@@ -26,7 +26,7 @@ const client = axios.create({
 
 // FotMob's unofficial API is IP-blocked on Vercel (all endpoints return 404 from cloud IPs).
 // Set to true if/when the API becomes available again.
-const FOTMOB_AVAILABLE = false
+export const FOTMOB_AVAILABLE = false
 
 // ── Cache ────────────────────────────────────────────────────────────────────
 
