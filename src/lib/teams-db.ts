@@ -167,7 +167,7 @@ export const POPULAR_TEAMS: LocalTeam[] = [
   // tmClubId = TM verein ID (from transfermarkt.com URL) — bypasses blocked club search endpoint.
   // To find: visit transfermarkt.com, search the club, copy the number from the URL (.../verein/XXXXX).
   { id: 2762, fotmobId: 46038,  name: 'Jeonbuk Hyundai Motors FC', country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2762.png', fotmobSearch: 'Jeonbuk', aliases: ['jeonbuk', 'jeonbuk motors', 'jeonbuk fc', 'green warriors'] },
-  { id: 2767, fotmobId: 133896, name: 'Ulsan HD FC',           country: 'South Korea', source: 'af', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133896_small.png', fotmobSearch: 'Ulsan HD', aliases: ['ulsan', 'ulsan hd fc', 'ulsan hyundai', 'tigers'] },
+  { id: 2767, fotmobId: 133896, name: 'Ulsan HD FC',           country: 'South Korea', source: 'af', tmClubId: '3535', logo: 'https://images.fotmob.com/image_resources/logo/teamlogo/133896_small.png', fotmobSearch: 'Ulsan HD', aliases: ['ulsan', 'ulsan hd fc', 'ulsan hyundai', 'tigers'] },
   { id: 2766, fotmobId: 92630,  name: 'FC Seoul',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2766.png', aliases: ['seoul', 'super match'] },
   { id: 2764, fotmobId: 109373, name: 'Pohang Steelers',       country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2764.png', aliases: ['pohang', 'steelers'] },
   { id: 2747, name: 'Daegu FC',              country: 'South Korea', source: 'af', logo: 'https://media.api-sports.io/football/teams/2747.png', aliases: ['daegu'] },
