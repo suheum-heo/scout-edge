@@ -260,16 +260,31 @@ export async function POST(request: NextRequest) {
         }
       : undefined
 
-    const recommendationAttempts = [
-      undefined,
-      `Previous attempt produced no valid live Transfermarkt matches in the ${budget} bracket. Return 4 to 6 DIFFERENT players whose current live Transfermarkt values sit comfortably inside ${budget}, whose current clubs are easy to verify, and whose main or common role clearly fits ${gap.position}. Avoid borderline prices, ambiguous club situations, and obscure names that may fail identity verification.`,
-    ] as const
+    // Wing-back gaps have repeatedly produced "Ferran ..." hallucinations (Ferran Valera,
+    // Ferran Valverde, Ferran Bellerín). Add a position-specific guard on attempt 1.
+    const WING_BACK_GAP_RE = /wing.?back|wingback|\blwb\b|\brwb\b/i
+    const isWingBackGap = WING_BACK_GAP_RE.test(gap.position) || WING_BACK_GAP_RE.test(gap.positionCode)
+    const wingBackGuard = isWingBackGap
+      ? `For this full-back/wing-back position: do NOT suggest any player whose first name is "Ferran" — that name has repeatedly produced non-existent players in this context. Only name players whose current club and active contract you can state with certainty.`
+      : undefined
 
     let filtered: TransferTarget[] = []
     let attemptNum = 0
+    let prevAttemptNames: string[] = []
 
-    for (const extraPromptInstructions of recommendationAttempts) {
+    for (let attemptIdx = 0; attemptIdx < 2; attemptIdx++) {
       attemptNum++
+
+      // Build extra instructions: attempt 1 gets the wing-back guard (if applicable),
+      // attempt 2 gets a retry prompt listing the names to avoid.
+      let extraPromptInstructions: string | undefined
+      if (attemptIdx === 0) {
+        extraPromptInstructions = wingBackGuard
+      } else {
+        const listed = prevAttemptNames.length > 0 ? ` The previous attempt suggested: ${prevAttemptNames.join(', ')} — do not repeat any of these names.` : ''
+        extraPromptInstructions = `Previous attempt returned fewer than 3 verified results.${listed} Return 4–6 DIFFERENT players whose current live Transfermarkt values sit comfortably inside ${budget}, whose current clubs are easy to verify, and whose main or common role clearly fits ${gap.position}. Avoid borderline prices, ambiguous club situations, and obscure names that may fail identity verification.`
+      }
+
       // Claude generates names + tactical reasoning, with role coverage context injected
       const tClaude = Date.now()
       const targets = await recommendPlayersForGap(
@@ -284,6 +299,7 @@ export async function POST(request: NextRequest) {
         language,
         extraPromptInstructions
       )
+      prevAttemptNames = targets.map((t) => t.playerName)
       console.log(`[recommendations] attempt ${attemptNum} Claude: ${Date.now() - tClaude}ms → ${targets.length} candidates`)
 
       // Enrich with live Transfermarkt data — all players run in parallel
@@ -322,7 +338,7 @@ export async function POST(request: NextRequest) {
         return true
       })
 
-      if (filtered.length > 0) {
+      if (filtered.length >= 3) {
         break
       }
     }
