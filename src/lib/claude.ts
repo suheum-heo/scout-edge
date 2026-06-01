@@ -1234,6 +1234,7 @@ Name 4 to 5 real professional players who:
 3. Would be a credible signing for ${teamName}${nationalTeamCountry ? `\n4. Hold ${nationalTeamCountry} nationality and are eligible for ${teamName}` : ''}
 
 Quality bar:
+- **Position match is mandatory**: Only recommend players whose primary registered position matches or is directly adjacent to the gap. For a wing-back gap, only suggest full-backs, wing-backs, or wide midfielders — never central midfielders or wingers/forwards. For a defensive midfielder gap, only suggest defensive or central midfielders — never attacking midfielders or forwards. A wrong-position recommendation is worse than returning one fewer player.
 - It is better to return 4 genuinely strong, system-true options than to pad with inaccurate names.
 - Do NOT include a player just because they are cheap or available if their primary tactical identity clashes with the role.
 - Avoid “stretch” options who would need a position change or major tactical accommodation unless they are already proven in a closely related role.
