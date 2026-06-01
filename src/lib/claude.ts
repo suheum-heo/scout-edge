@@ -693,11 +693,19 @@ function buildSquadAnalysisPromptContext(
   )
   const hasFullStats = squadPlayers.some((p) => p && p.appearances > 0)
 
-  const sortedPlayers = [...squadPlayers.filter(Boolean)].sort((a, b) => {
+  const MAX_SQUAD_FOR_PROMPT = 22
+  const allSorted = [...squadPlayers.filter(Boolean)].sort((a, b) => {
     const minsDiff = (b?.minutes ?? 0) - (a?.minutes ?? 0)
     if (minsDiff !== 0) return minsDiff
     return parseFloat(b?.rating ?? '0') - parseFloat(a?.rating ?? '0')
   })
+  // Cap at 22: top starters + rotation. Fringe players add tokens without changing the gap analysis.
+  const sortedPlayers = allSorted.length > MAX_SQUAD_FOR_PROMPT
+    ? allSorted.slice(0, MAX_SQUAD_FOR_PROMPT)
+    : allSorted
+  if (allSorted.length > MAX_SQUAD_FOR_PROMPT) {
+    console.log(`[claude] Squad trimmed ${allSorted.length} → ${MAX_SQUAD_FOR_PROMPT} for prompt (${teamName})`)
+  }
 
   const squadSummary = sortedPlayers
     .map((p) => {

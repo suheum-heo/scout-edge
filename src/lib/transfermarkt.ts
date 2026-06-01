@@ -1029,11 +1029,13 @@ export async function enrichTMPlayerIdentity(
     profileTimeoutMs?: number
   }
 ): Promise<TMEnrichmentResult> {
-  const searchTimeoutMs = options?.searchTimeoutMs ?? 10_000
+  // 4s cap: if the proxy is slow, attempt 2 hits the cache and completes instantly.
+  // 2 attempts max: name+age+club, then name+age only. The no-hints 3rd attempt
+  // was the tail risk that caused 12s+ for players where attempt 1 timed out.
+  const searchTimeoutMs = options?.searchTimeoutMs ?? 4_000
   const attempts = [
     { age: player.age ?? undefined, club: player.currentClub },
     { age: player.age ?? undefined },
-    undefined,
   ] as const
 
   let searchResult: TMPlayerSearchResult | null = null
@@ -1101,20 +1103,35 @@ export async function getClubSquad(tmClubId: string): Promise<TMClubPlayer[]> {
  * Returns a map of TM player ID → otherPositions array.
  * Runs in parallel batches to avoid overwhelming the proxy.
  */
+// Lightweight profile-only fetch — skips stats and sitePerformance.
+// Used when we only need otherPositions, not full season data.
+async function fetchPlayerOtherPositions(tmId: string): Promise<string[]> {
+  try {
+    const profile = await tmFetch<{
+      position: { main: string | null; other: string[] | null }
+    }>(`/players/${tmId}/profile`)
+    return (profile.position.other ?? [])
+      .map((p) => normalizePositionDisplayName(p))
+      .filter((p): p is string => !!p)
+  } catch {
+    return []
+  }
+}
+
 export async function fetchSquadOtherPositions(
   players: TMClubPlayer[],
-  concurrency = 20
+  concurrency = 25
 ): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>()
   for (let i = 0; i < players.length; i += concurrency) {
     const batch = players.slice(i, i + concurrency)
-    const profiles = await Promise.allSettled(
-      batch.map((p) => getPlayerData(p.id, { fallbackAge: p.age }))
+    const positions = await Promise.allSettled(
+      batch.map((p) => fetchPlayerOtherPositions(p.id))
     )
     for (let j = 0; j < batch.length; j++) {
-      const profile = profiles[j]
-      if (profile.status === 'fulfilled' && profile.value) {
-        result.set(batch[j].id, profile.value.otherPositions)
+      const pos = positions[j]
+      if (pos.status === 'fulfilled' && pos.value.length > 0) {
+        result.set(batch[j].id, pos.value)
       }
     }
   }
